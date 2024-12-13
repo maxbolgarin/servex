@@ -81,7 +81,7 @@ func (ctx *Context) LogFields(fieldsToInclude ...string) []any {
 	return fields
 }
 
-func (l *requestLogger) Log(r RequestLogBundle) {
+func (l *BaseRequestLogger) Log(r RequestLogBundle) {
 	fields := make([]any, 0, 20)
 	if r.Error != nil {
 		fields = append(fields, "error", r.Error)
@@ -118,6 +118,6 @@ func (l *requestLogger) Log(r RequestLogBundle) {
 	}
 }
 
-type requestLogger struct {
+type BaseRequestLogger struct {
 	Logger
 }

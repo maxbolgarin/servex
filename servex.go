@@ -33,18 +33,18 @@ func New(ops ...Option) *Server {
 
 // NewWithOptions creates a new instance of the [Server] with the provided [Options].
 func NewWithOptions(opts Options) *Server {
-	s := &Server{
-		router: mux.NewRouter(),
-		opts:   opts,
-	}
-
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
 		}))
 	}
-	if s.opts.RequestLogger == nil {
-		s.opts.RequestLogger = &requestLogger{opts.Logger}
+	if opts.RequestLogger == nil {
+		opts.RequestLogger = &BaseRequestLogger{opts.Logger}
+	}
+
+	s := &Server{
+		router: mux.NewRouter(),
+		opts:   opts,
 	}
 
 	s.router.Use(s.loggingMiddleware)
@@ -61,7 +61,7 @@ func NewWithOptions(opts Options) *Server {
 // It returns an error if there was an error starting either of the servers.
 // You should provide a function that sets the handlers for the server to the router.
 // It returns shutdown function so you should shutdown the server manually.
-func Start(cfg BaseConfig, handlerSetter func(*mux.Router), opts ...Option) (func(context.Context) error, error) {
+func Start(cfg BaseConfig, handlerSetter func(*mux.Router), opts ...Option) (shutdown func(context.Context) error, err error) {
 	s, err := prepareServer(cfg, handlerSetter, opts...)
 	if err != nil {
 		return nil, err
@@ -85,14 +85,18 @@ func StartWithShutdown(ctx context.Context, cfg BaseConfig, handlerSetter func(*
 // Start starts the server. It takes two parameters: httpAddr and httpsAddr - addresses to listen for HTTP and HTTPS.
 // It returns an error if there was an error starting either of the servers.
 func (s *Server) Start(httpAddr, httpsAddr string) error {
-	if err := s.StartHTTP(httpAddr); err != nil {
-		return fmt.Errorf("start HTTP server: %w", err)
+	if httpAddr == "" && httpsAddr == "" {
+		return errors.New("no address provided")
 	}
-	if httpsAddr == "" {
-		return nil
+	if httpAddr != "" {
+		if err := s.StartHTTP(httpAddr); err != nil {
+			return fmt.Errorf("start HTTP server: %w", err)
+		}
 	}
-	if err := s.StartHTTPS(httpsAddr); err != nil {
-		return fmt.Errorf("start HTTPS server: %w", err)
+	if httpsAddr != "" {
+		if err := s.StartHTTPS(httpsAddr); err != nil {
+			return fmt.Errorf("start HTTPS server: %w", err)
+		}
 	}
 	return nil
 }
@@ -123,7 +127,7 @@ func (s *Server) StartHTTPS(address string) error {
 	}
 	s.https = &http.Server{
 		Addr:              address,
-		Handler:           s.http.Handler,
+		Handler:           s.router,
 		ReadHeaderTimeout: lang.Check(s.opts.ReadHeaderTimeout, defaultReadTimeout),
 		ReadTimeout:       lang.Check(s.opts.ReadTimeout, defaultReadTimeout),
 		IdleTimeout:       lang.Check(s.opts.IdleTimeout, defaultIdleTimeout),
@@ -167,14 +171,18 @@ func (s *Server) StartWithShutdownHTTPS(ctx context.Context, address string) err
 	return s.StartWithShutdown(ctx, "", address)
 }
 
-// Shutdown gracefully shutdowns the server.
+// Shutdown gracefully shutdowns HTTP and HTTPS servers.
 func (s *Server) Shutdown(ctx context.Context) error {
 	var errs []error
-	if err := s.http.Shutdown(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("shutdown HTTP: %w", err))
+	if s.http != nil {
+		if err := s.http.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("shutdown HTTP: %w", err))
+		}
 	}
-	if err := s.https.Shutdown(ctx); err != nil {
-		errs = append(errs, fmt.Errorf("shutdown HTTPS: %w", err))
+	if s.https != nil {
+		if err := s.https.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Errorf("shutdown HTTPS: %w", err))
+		}
 	}
 	return errors.Join(errs...)
 }

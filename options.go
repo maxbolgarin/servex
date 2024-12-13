@@ -179,10 +179,6 @@ func (c *BaseConfig) Validate() error {
 		if !ListenAddressRegexp.MatchString(c.HTTPS) {
 			return fmt.Errorf("invalid https address=%q", c.HTTPS)
 		}
-
-		if c.CertFile == "" || c.KeyFile == "" {
-			return errors.New("cert_file and key_file should be set")
-		}
 	}
 
 	return nil
