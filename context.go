@@ -18,8 +18,6 @@ import (
 	"github.com/maxbolgarin/lang"
 )
 
-// TODO: disable http2
-
 // ErrorResponse represents a JSON for an error response.
 type ErrorResponse struct {
 	Message string `json:"message"`
@@ -65,11 +63,14 @@ type Context struct {
 
 // NewContext returns a new context for the provided request.
 func NewContext(w http.ResponseWriter, r *http.Request) *Context {
-	return &Context{
-		Context: r.Context(),
-		w:       w,
-		r:       r,
+	ctx := &Context{
+		w: w,
+		r: r,
 	}
+	if r != nil {
+		ctx.Context = r.Context()
+	}
+	return ctx
 }
 
 // C returns a new context for the provided request.
@@ -110,11 +111,12 @@ func (ctx *Context) Path(key string) string {
 }
 
 // Header returns the value of the request header with the given name.
+// If multiple values are present, they are joined with a comma and space ", ".
 func (ctx *Context) Header(key string) string {
-	return ctx.r.Header.Get(key)
+	return strings.Join(ctx.r.Header.Values(key), ", ")
 }
 
-// SetHeader sets the value of the request header with the given name.
+// SetHeader sets the value of the response header with the given name.
 // If multiple values are provided, they are added to the header.
 func (ctx *Context) SetHeader(key string, value ...string) {
 	if len(value) == 0 {
@@ -234,7 +236,7 @@ func (ctx *Context) Response(code int, bodyRaw ...any) {
 
 	case string:
 		toWrite = []byte(b)
-		ctx.SetContentType(MIMETypeText)
+		ctx.SetContentType(MIMETypeText + "; charset=utf-8")
 
 	default:
 		jsonBytes, err := json.Marshal(body)
