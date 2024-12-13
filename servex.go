@@ -204,6 +204,16 @@ func (s *Server) Router() *mux.Router {
 	return s.router
 }
 
+// AddMiddleware adds one or more [mux.MiddlewareFunc] to the router.
+func (s *Server) AddMiddleware(middleware ...func(http.Handler) http.Handler) {
+	for _, m := range middleware {
+		if m == nil {
+			continue
+		}
+		s.router.Use(m)
+	}
+}
+
 // Handle registers a new route with the provided path, [http.Handler] and methods.
 // It returns a pointer to the created [mux.Route] to set additional settings to the route.
 func (s *Server) Handle(path string, h http.Handler, methods ...string) *mux.Route {
