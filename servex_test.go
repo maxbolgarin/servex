@@ -293,8 +293,8 @@ func TestAuthMiddleware(t *testing.T) {
 	responseRecorder := httptest.NewRecorder()
 	router.ServeHTTP(responseRecorder, request)
 
-	if responseRecorder.Code != http.StatusForbidden {
-		t.Errorf("expected StatusForbidden, got %d", responseRecorder.Code)
+	if responseRecorder.Code != http.StatusUnauthorized {
+		t.Errorf("expected StatusUnauthorized, got %d", responseRecorder.Code)
 	}
 
 	request.Header.Set("Authorization", "invalid-token")
@@ -302,8 +302,8 @@ func TestAuthMiddleware(t *testing.T) {
 	responseRecorder = httptest.NewRecorder()
 	router.ServeHTTP(responseRecorder, request)
 
-	if responseRecorder.Code != http.StatusForbidden {
-		t.Errorf("expected StatusForbidden, got %d", responseRecorder.Code)
+	if responseRecorder.Code != http.StatusUnauthorized {
+		t.Errorf("expected StatusUnauthorized, got %d", responseRecorder.Code)
 	}
 
 	request.Header.Set("Authorization", "valid-token")

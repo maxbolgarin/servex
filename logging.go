@@ -30,6 +30,11 @@ type Logger interface {
 	Error(msg string, fields ...any)
 }
 
+type ErrorLogger interface {
+	// Error is using to log request errors, panics, serve errors and shutodwn in StartContext errors
+	Error(msg string, fields ...any)
+}
+
 // RequestLogger is an interface for logging requests.
 // [RequestLogger.Log] is called at the end of each request after returning from handler.
 type RequestLogger interface {
