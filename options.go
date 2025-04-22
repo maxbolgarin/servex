@@ -184,6 +184,25 @@ func (c *BaseConfig) Validate() error {
 	return nil
 }
 
+func GetTLSConfig(cert *tls.Certificate) *tls.Config {
+	if cert == nil {
+		return nil
+	}
+	return &tls.Config{
+		Certificates:             []tls.Certificate{*cert},
+		NextProtos:               []string{"h2", "http/1.1"}, // enable HTTP2
+		PreferServerCipherSuites: true,
+		MinVersion:               tls.VersionTLS12, // use only new TLS
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, // only secure ciphers
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		},
+		CurvePreferences: []tls.CurveID{
+			tls.CurveP256,
+		},
+	}
+}
+
 func parseOptions(opts []Option) Options {
 	op := Options{}
 	for _, o := range opts {

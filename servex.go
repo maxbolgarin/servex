@@ -47,12 +47,9 @@ func NewWithOptions(opts Options) *Server {
 		opts:   opts,
 	}
 
-	s.router.Use(s.loggingMiddleware)
-	s.router.Use(s.recoverMiddleware)
-
-	if s.opts.AuthToken != "" {
-		s.router.Use(s.authMiddleware)
-	}
+	RegisterLoggingMiddleware(s.router, opts.RequestLogger, opts.Metrics)
+	RegisterRecoverMiddleware(s.router, opts.Logger)
+	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken)
 
 	return s
 }
@@ -131,7 +128,7 @@ func (s *Server) StartHTTPS(address string) error {
 		ReadHeaderTimeout: lang.Check(s.opts.ReadHeaderTimeout, defaultReadTimeout),
 		ReadTimeout:       lang.Check(s.opts.ReadTimeout, defaultReadTimeout),
 		IdleTimeout:       lang.Check(s.opts.IdleTimeout, defaultIdleTimeout),
-		TLSConfig:         getTLSConfig(s.opts.Certificate),
+		TLSConfig:         GetTLSConfig(s.opts.Certificate),
 	}
 	if err := s.start(address, s.https.Serve, func(net, addr string) (net.Listener, error) {
 		return tls.Listen(net, addr, s.https.TLSConfig)
@@ -256,87 +253,6 @@ func (s *Server) start(address string, serve func(net.Listener) error, getListen
 	}()
 
 	return nil
-}
-
-func (s *Server) loggingMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-		if s.opts.Metrics != nil {
-			s.opts.Metrics.HandleRequest(r)
-		}
-		next.ServeHTTP(w, r)
-		s.logRequest(r, start)
-	})
-}
-
-func (s *Server) recoverMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			panicErr := recover()
-			if panicErr == nil {
-				return
-			}
-			err := fmt.Errorf("%s", panicErr)
-			s.opts.Logger.Error(string(debug.Stack()), "error", err)
-
-			C(w, r).Error(err, http.StatusInternalServerError, "cannot process request")
-		}()
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (s *Server) authMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.opts.AuthToken != "" {
-			if token := r.Header.Get("Authorization"); token != s.opts.AuthToken {
-				err := errors.New("invalid auth_token=" + token)
-				C(w, r).Error(err, http.StatusForbidden, "Invalid auth token in Authorization header")
-				return
-			}
-		}
-		next.ServeHTTP(w, r)
-	})
-}
-
-func (s *Server) logRequest(r *http.Request, start time.Time) {
-	ctx := r.Context()
-
-	noLog, _ := ctx.Value(noLogKey{}).(bool)
-	if noLog {
-		return
-	}
-
-	err, _ := ctx.Value(errorKey{}).(error)
-	msg, _ := ctx.Value(msgKey{}).(string)
-	code, _ := ctx.Value(codeKey{}).(int)
-
-	s.opts.RequestLogger.Log(RequestLogBundle{
-		Request:      r,
-		RequestID:    getOrSetRequestID(r),
-		Error:        err,
-		ErrorMessage: msg,
-		StatusCode:   code,
-		StartTime:    start,
-	})
-}
-
-func getTLSConfig(cert *tls.Certificate) *tls.Config {
-	if cert == nil {
-		return nil
-	}
-	return &tls.Config{
-		Certificates:             []tls.Certificate{*cert},
-		NextProtos:               []string{"h2", "http/1.1"}, // enable HTTP2
-		PreferServerCipherSuites: true,
-		MinVersion:               tls.VersionTLS12, // use only new TLS
-		CipherSuites: []uint16{
-			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, // only secure ciphers
-			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-		},
-		CurvePreferences: []tls.CurveID{
-			tls.CurveP256,
-		},
-	}
 }
 
 func prepareServer(cfg BaseConfig, handlerSetter func(*mux.Router), opts ...Option) (*Server, error) {
