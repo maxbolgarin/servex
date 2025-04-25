@@ -22,6 +22,7 @@ type Server struct {
 	http   *http.Server
 	https  *http.Server
 	router *mux.Router
+	auth   *AuthManager
 	opts   Options
 }
 
@@ -45,6 +46,11 @@ func NewWithOptions(opts Options) *Server {
 	s := &Server{
 		router: mux.NewRouter(),
 		opts:   opts,
+		auth:   NewAuthManager(opts.Auth),
+	}
+
+	if opts.Auth.enabled && !opts.Auth.NotRegisterRoutes {
+		s.auth.RegisterRoutes(s.router)
 	}
 
 	RegisterLoggingMiddleware(s.router, opts.RequestLogger, opts.Metrics)
@@ -201,6 +207,31 @@ func (s *Server) Router() *mux.Router {
 	return s.router
 }
 
+// Auth returns [AuthManager], it may be useful if you want to work with auth manually.
+// It returns nil if auth is not enabled (database is not set).
+func (s *Server) Auth() *AuthManager {
+	if !s.opts.Auth.enabled {
+		s.opts.Logger.Error("auth is not enabled, cannot return auth manager")
+		return nil
+	}
+	return s.auth
+}
+
+// AuthEnabled returns true if auth is enabled.
+func (s *Server) AuthEnabled() bool {
+	return s.opts.Auth.enabled
+}
+
+// IsTLS returns true if TLS is enabled.
+func (s *Server) IsTLS() bool {
+	return s.https != nil && s.https.Addr != ""
+}
+
+// IsHTTP returns true if HTTP is enabled.
+func (s *Server) IsHTTP() bool {
+	return s.http != nil && s.http.Addr != ""
+}
+
 // AddMiddleware adds one or more [mux.MiddlewareFunc] to the router.
 func (s *Server) AddMiddleware(middleware ...func(http.Handler) http.Handler) {
 	for _, m := range middleware {
@@ -229,6 +260,30 @@ func (s *Server) HandleFunc(path string, f http.HandlerFunc, methods ...string) 
 		return r
 	}
 	return r.Methods(methods...)
+}
+
+// WithAuth adds auth middleware to the router with the provided roles.
+// It returns a pointer to the created [mux.Route] to set additional settings to the route.
+func (s *Server) WithAuth(next http.HandlerFunc, roles ...UserRole) http.HandlerFunc {
+	if !s.opts.Auth.enabled {
+		s.opts.Logger.Error("auth is not enabled, skipping auth middleware")
+		return next
+	}
+	return s.auth.WithAuth(next, roles...)
+}
+
+// HandleWithAuth registers a new route with the provided path, [http.Handler] and methods.
+// It adds auth middleware to the route with the provided roles.
+// It returns a pointer to the created [mux.Route] to set additional settings to the route.
+func (s *Server) HandleWithAuth(path string, h http.Handler, roles ...UserRole) *mux.Route {
+	return s.router.Handle(path, s.WithAuth(h.ServeHTTP, roles...))
+}
+
+// HandleFuncWithAuth registers a new route with the provided path, [http.HandlerFunc] and methods.
+// It adds auth middleware to the route with the provided roles.
+// It returns a pointer to the created [mux.Route] to set additional settings to the route.
+func (s *Server) HandleFuncWithAuth(path string, f http.HandlerFunc, roles ...UserRole) *mux.Route {
+	return s.router.HandleFunc(path, s.WithAuth(f, roles...))
 }
 
 func (s *Server) start(address string, serve func(net.Listener) error, getListener func(string, string) (net.Listener, error)) error {
