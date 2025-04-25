@@ -20,6 +20,7 @@ var (
 // Metrics is an interface for collecting metrics on each request.
 // [Metrics.HandleRequest] is called on each request.
 type Metrics interface {
+	// HandleRequest is called on each request to collect metrics.
 	HandleRequest(r *http.Request)
 }
 
@@ -56,6 +57,58 @@ type Options struct {
 	// RequestLogger is the logger for the requests.
 	// If not set it will use [Options.Logger].
 	RequestLogger RequestLogger
+
+	// Auth is the auth configuration for the server.
+	Auth AuthConfig
+}
+
+// AuthConfig holds the configuration specific to authentication.
+type AuthConfig struct {
+	// Database is the interface for user data persistence.
+	Database AuthDatabase
+
+	// JWTAccessSecret is the secret key used for signing access tokens (hex encoded).
+	// If empty, a random key will be generated.
+	JWTAccessSecret string
+
+	// JWTRefreshSecret is the secret key used for signing refresh tokens (hex encoded).
+	// If empty, a random key will be generated.
+	JWTRefreshSecret string
+
+	// AccessTokenDuration specifies the validity duration for access tokens.
+	// Defaults to 5 minutes if not set.
+	AccessTokenDuration time.Duration
+
+	// RefreshTokenDuration specifies the validity duration for refresh tokens.
+	// Defaults to 7 days if not set.
+	RefreshTokenDuration time.Duration
+
+	// IssuerNameInJWT is the issuer name included in the JWT claims.
+	// Defaults to "testing" if not set.
+	IssuerNameInJWT string
+
+	// RefreshTokenCookieName is the name of the cookie used to store the refresh token.
+	// Defaults to "_servexrt" if not set.
+	RefreshTokenCookieName string
+
+	// AuthBasePath is the base path for the authentication API endpoints.
+	// Defaults to "/api/v1/auth" if not set.
+	AuthBasePath string
+
+	// InitialRoles are the roles assigned to a newly registered user.
+	InitialRoles []UserRole
+
+	// NotRegisterRoutes, if true, prevents the automatic registration of default auth routes.
+	NotRegisterRoutes bool
+
+	// accessSecret is the decoded access secret key.
+	accessSecret []byte
+
+	// refreshSecret is the decoded refresh secret key.
+	refreshSecret []byte
+
+	// enabled indicates whether authentication is enabled.
+	enabled bool
 }
 
 // WithCertificate sets the TLS [Options.Certificate] to the [Options].
@@ -145,6 +198,86 @@ func ReadCertificateFromFile(certFile, keyFile string) (tls.Certificate, error) 
 	return tls.LoadX509KeyPair(certFile, keyFile)
 }
 
+// WithAuth sets the [Options.Auth.Database] of the [Options] to the given [AuthDatabase] and enables auth.
+func WithAuth(db AuthDatabase) Option {
+	return func(op *Options) {
+		op.Auth.Database = db
+		op.Auth.enabled = true
+	}
+}
+
+// WithAuthMemoryDatabase sets the [Options.Auth.Database] of the [Options] to the in-memory [AuthDatabase] and enables auth.
+// NOT RECOMMENDED FOR PRODUCTION USE. It will forget all users on applications shutdown.
+func WithAuthMemoryDatabase() Option {
+	return func(op *Options) {
+		op.Auth.Database = newMemoryAuthDatabase()
+		op.Auth.enabled = true
+	}
+}
+
+// WithAuthConfig sets the [Options.Auth] of the [Options] to the given [AuthConfig].
+// It panics if the provided AuthConfig.Database is nil.
+func WithAuthConfig(auth AuthConfig) Option {
+	if auth.Database == nil {
+		panic("auth database is required")
+	}
+	return func(op *Options) {
+		op.Auth = auth
+		op.Auth.enabled = true
+	}
+}
+
+// WithAuthKey sets the [Options.Auth.JWTAccessSecret] and [Options.Auth.JWTRefreshSecret] of the [Options] to the given keys.
+func WithAuthKey(accessKey, refreshKey string) Option {
+	return func(op *Options) {
+		op.Auth.JWTAccessSecret = accessKey
+		op.Auth.JWTRefreshSecret = refreshKey
+	}
+}
+
+// WithAuthIssuer sets the [Options.Auth.IssuerNameInJWT] of the [Options] to the given issuer name.
+func WithAuthIssuer(issuer string) Option {
+	return func(op *Options) {
+		op.Auth.IssuerNameInJWT = issuer
+	}
+}
+
+// WithAuthBasePath sets the [Options.Auth.AuthBasePath] of the [Options] to the given base path.
+func WithAuthBasePath(path string) Option {
+	return func(op *Options) {
+		op.Auth.AuthBasePath = path
+	}
+}
+
+// WithAuthInitialRoles sets the [Options.Auth.InitialRoles] of the [Options] to the given roles.
+func WithAuthInitialRoles(roles ...UserRole) Option {
+	return func(op *Options) {
+		op.Auth.InitialRoles = roles
+	}
+}
+
+// WithAuthRefreshTokenCookieName sets the [Options.Auth.RefreshTokenCookieName] of the [Options] to the given name.
+func WithAuthRefreshTokenCookieName(name string) Option {
+	return func(op *Options) {
+		op.Auth.RefreshTokenCookieName = name
+	}
+}
+
+// WithAuthTokensDuration sets the [Options.Auth.AccessTokenDuration] and [Options.Auth.RefreshTokenDuration] of the [Options] to the given duration.
+func WithAuthTokensDuration(accessDuration, refreshDuration time.Duration) Option {
+	return func(op *Options) {
+		op.Auth.AccessTokenDuration = accessDuration
+		op.Auth.RefreshTokenDuration = refreshDuration
+	}
+}
+
+// WithAuthNotRegisterRoutes sets the [Options.Auth.NotRegisterRoutes] of the [Options] to the given value.
+func WithAuthNotRegisterRoutes(notRegisterRoutes bool) Option {
+	return func(op *Options) {
+		op.Auth.NotRegisterRoutes = notRegisterRoutes
+	}
+}
+
 // BaseConfig represents the base configuration for a server without additional options.
 // You can use it as a base for your own configuration.
 type BaseConfig struct {
@@ -164,6 +297,8 @@ type BaseConfig struct {
 	AuthToken string `yaml:"auth_token" json:"auth_token" env:"SERVER_AUTH_TOKEN"`
 }
 
+// Validate checks if the BaseConfig is valid.
+// It ensures that at least one of HTTP or HTTPS address is provided and that addresses match the required format.
 func (c *BaseConfig) Validate() error {
 	if c.HTTP == "" && c.HTTPS == "" {
 		return errors.New("at least one of http or https should be set")
@@ -184,6 +319,10 @@ func (c *BaseConfig) Validate() error {
 	return nil
 }
 
+// GetTLSConfig creates a *tls.Config suitable for an HTTPS server using the provided certificate.
+// It returns nil if the certificate is nil.
+// The config enables HTTP/2, prefers server cipher suites, sets minimum TLS version to 1.2,
+// and includes a list of secure cipher suites and curve preferences.
 func GetTLSConfig(cert *tls.Certificate) *tls.Config {
 	if cert == nil {
 		return nil
@@ -212,228 +351,228 @@ func parseOptions(opts []Option) Options {
 }
 
 const (
-	// AAC audio
+	// MIMETypeAAC defines the MIME type for AAC audio.
 	MIMETypeAAC = "audio/aac"
 
-	// AbiWord document
+	// MIMETypeABW defines the MIME type for AbiWord documents.
 	MIMETypeABW = "application/x-abiword"
 
-	// Animated Portable Network Graphics (APNG)
+	// MIMETypeAPNG defines the MIME type for Animated Portable Network Graphics (APNG).
 	MIMETypeAPNG = "image/apng"
 
-	// Archive document (multiple files embedded)
+	// MIMETypeARC defines the MIME type for Archive documents (multiple files embedded).
 	MIMETypeARC = "application/x-freearc"
 
-	// AVIF image
+	// MIMETypeAVIF defines the MIME type for AVIF images.
 	MIMETypeAVIF = "image/avif"
 
-	// AVI: Audio Video Interleave
+	// MIMETypeAVI defines the MIME type for AVI (Audio Video Interleave).
 	MIMETypeAVI = "video/x-msvideo"
 
-	// Amazon Kindle eBook format
+	// MIMETypeAZW defines the MIME type for Amazon Kindle eBook format.
 	MIMETypeAZW = "application/vnd.amazon.ebook"
 
-	// Any kind of binary data
+	// MIMETypeBIN defines the MIME type for any kind of binary data.
 	MIMETypeBIN = "application/octet-stream"
 
-	// Windows OS/2 Bitmap Graphics
+	// MIMETypeBMP defines the MIME type for Windows OS/2 Bitmap Graphics.
 	MIMETypeBMP = "image/bmp"
 
-	// BZip archive
+	// MIMETypeBZ defines the MIME type for BZip archives.
 	MIMETypeBZ = "application/x-bzip"
 
-	// BZip2 archive
+	// MIMETypeBZ2 defines the MIME type for BZip2 archives.
 	MIMETypeBZ2 = "application/x-bzip2"
 
-	// CD audio
+	// MIMETypeCDA defines the MIME type for CD audio.
 	MIMETypeCDA = "application/x-cdf"
 
-	// C-Shell script
+	// MIMETypeCSH defines the MIME type for C-Shell scripts.
 	MIMETypeCSH = "application/x-csh"
 
-	// Cascading Style Sheets (CSS)
+	// MIMETypeCSS defines the MIME type for Cascading Style Sheets (CSS).
 	MIMETypeCSS = "text/css"
 
-	// Comma-separated values (CSV)
+	// MIMETypeCSV defines the MIME type for Comma-separated values (CSV).
 	MIMETypeCSV = "text/csv"
 
-	// Microsoft Word
+	// MIMETypeDOC defines the MIME type for Microsoft Word.
 	MIMETypeDOC = "application/msword"
 
-	// Microsoft Word (OpenXML)
+	// MIMETypeDOCX defines the MIME type for Microsoft Word (OpenXML).
 	MIMETypeDOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
-	// MS Embedded OpenType fonts
+	// MIMETypeEOT defines the MIME type for MS Embedded OpenType fonts.
 	MIMETypeEOT = "application/vnd.ms-fontobject"
 
-	// Electronic publication (EPUB)
+	// MIMETypeEPUB defines the MIME type for Electronic publications (EPUB).
 	MIMETypeEPUB = "application/epub+zip"
 
-	// GZip Compressed Archive
+	// MIMETypeGZ defines the MIME type for GZip Compressed Archives.
 	MIMETypeGZ = "application/gzip"
 
-	// Graphics Interchange Format (GIF)
+	// MIMETypeGIF defines the MIME type for Graphics Interchange Format (GIF).
 	MIMETypeGIF = "image/gif"
 
-	// HyperText Markup Language (HTML)
+	// MIMETypeHTML defines the MIME type for HyperText Markup Language (HTML).
 	MIMETypeHTML = "text/html"
 
-	// Icon format
+	// MIMETypeICO defines the MIME type for Icon format.
 	MIMETypeICO = "image/vnd.microsoft.icon"
 
-	// iCalendar format
+	// MIMETypeICS defines the MIME type for iCalendar format.
 	MIMETypeICS = "text/calendar"
 
-	// Java Archive (JAR)
+	// MIMETypeJAR defines the MIME type for Java Archives (JAR).
 	MIMETypeJAR = "application/java-archive"
 
-	// JPEG images
+	// MIMETypeJPEG defines the MIME type for JPEG images.
 	MIMETypeJPEG = "image/jpeg"
 
-	// JavaScript
+	// MIMETypeJS defines the MIME type for JavaScript.
 	MIMETypeJS = "text/javascript"
 
-	// JSON format
+	// MIMETypeJSON defines the MIME type for JSON format.
 	MIMETypeJSON = "application/json"
 
-	// JSON-LD format
+	// MIMETypeJSONLD defines the MIME type for JSON-LD format.
 	MIMETypeJSONLD = "application/ld+json"
 
-	// Musical Instrument Digital Interface (MIDI)
+	// MIMETypeMIDI defines the MIME type for Musical Instrument Digital Interface (MIDI).
 	MIMETypeMIDI = "audio/midi"
 
-	// JavaScript module
+	// MIMETypeMJS defines the MIME type for JavaScript modules.
 	MIMETypeMJS = "text/javascript"
 
-	// MP3 audio
+	// MIMETypeMP3 defines the MIME type for MP3 audio.
 	MIMETypeMP3 = "audio/mpeg"
 
-	// MP4 video
+	// MIMETypeMP4 defines the MIME type for MP4 video.
 	MIMETypeMP4 = "video/mp4"
 
-	// MPEG Video
+	// MIMETypeMPEG defines the MIME type for MPEG Video.
 	MIMETypeMPEG = "video/mpeg"
 
-	// Apple Installer Package
+	// MIMETypeMPKG defines the MIME type for Apple Installer Packages.
 	MIMETypeMPKG = "application/vnd.apple.installer+xml"
 
-	// OpenDocument presentation document
+	// MIMETypeODP defines the MIME type for OpenDocument presentation documents.
 	MIMETypeODP = "application/vnd.oasis.opendocument.presentation"
 
-	// OpenDocument spreadsheet document
+	// MIMETypeODS defines the MIME type for OpenDocument spreadsheet documents.
 	MIMETypeODS = "application/vnd.oasis.opendocument.spreadsheet"
 
-	// OpenDocument text document
+	// MIMETypeODT defines the MIME type for OpenDocument text documents.
 	MIMETypeODT = "application/vnd.oasis.opendocument.text"
 
-	// Ogg audio
+	// MIMETypeOGA defines the MIME type for Ogg audio.
 	MIMETypeOGA = "audio/ogg"
 
-	// Ogg video
+	// MIMETypeOGV defines the MIME type for Ogg video.
 	MIMETypeOGV = "video/ogg"
 
-	// Ogg
+	// MIMETypeOGX defines the MIME type for Ogg.
 	MIMETypeOGX = "application/ogg"
 
-	// Opus audio in Ogg container
+	// MIMETypeOPUS defines the MIME type for Opus audio in Ogg container.
 	MIMETypeOPUS = "audio/ogg"
 
-	// OpenType font
+	// MIMETypeOTF defines the MIME type for OpenType fonts.
 	MIMETypeOTF = "font/otf"
 
-	// Portable Network Graphics
+	// MIMETypePNG defines the MIME type for Portable Network Graphics.
 	MIMETypePNG = "image/png"
 
-	// Adobe Portable Document Format (PDF)
+	// MIMETypePDF defines the MIME type for Adobe Portable Document Format (PDF).
 	MIMETypePDF = "application/pdf"
 
-	// Hypertext Preprocessor (Personal Home Page)
+	// MIMETypePHP defines the MIME type for Hypertext Preprocessor (Personal Home Page).
 	MIMETypePHP = "application/x-httpd-php"
 
-	// Microsoft PowerPoint
+	// MIMETypePPT defines the MIME type for Microsoft PowerPoint.
 	MIMETypePPT = "application/vnd.ms-powerpoint"
 
-	// Microsoft PowerPoint (OpenXML)
+	// MIMETypePPTX defines the MIME type for Microsoft PowerPoint (OpenXML).
 	MIMETypePPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 
-	// RAR archive
+	// MIMETypeRAR defines the MIME type for RAR archives.
 	MIMETypeRAR = "application/vnd.rar"
 
-	// Rich Text Format (RTF)
+	// MIMETypeRTF defines the MIME type for Rich Text Format (RTF).
 	MIMETypeRTF = "application/rtf"
 
-	// Bourne shell script
+	// MIMETypeSH defines the MIME type for Bourne shell scripts.
 	MIMETypeSH = "application/x-sh"
 
-	// Scalable Vector Graphics (SVG)
+	// MIMETypeSVG defines the MIME type for Scalable Vector Graphics (SVG).
 	MIMETypeSVG = "image/svg+xml"
 
-	// Tape Archive (TAR)
+	// MIMETypeTAR defines the MIME type for Tape Archives (TAR).
 	MIMETypeTAR = "application/x-tar"
 
-	// Tagged Image File Format (TIFF)
+	// MIMETypeTIFF defines the MIME type for Tagged Image File Format (TIFF).
 	MIMETypeTIFF = "image/tiff"
 
-	// MPEG transport stream
+	// MIMETypeTS defines the MIME type for MPEG transport stream.
 	MIMETypeTS = "video/mp2t"
 
-	// TrueType Font
+	// MIMETypeTTF defines the MIME type for TrueType Fonts.
 	MIMETypeTTF = "font/ttf"
 
-	// Plain Text
+	// MIMETypeTXT defines the MIME type for Plain Text.
 	MIMETypeTXT = "text/plain"
 
-	// Plain Text
+	// MIMETypeText is an alias for MIMETypeTXT.
 	MIMETypeText = MIMETypeTXT
 
-	// Plain Text
+	// MIMETypePlain is an alias for MIMETypeTXT.
 	MIMETypePlain = MIMETypeTXT
 
-	// Microsoft Visio
+	// MIMETypeVSD defines the MIME type for Microsoft Visio.
 	MIMETypeVSD = "application/vnd.visio"
 
-	// Waveform Audio Format
+	// MIMETypeWAV defines the MIME type for Waveform Audio Format.
 	MIMETypeWAV = "audio/wav"
 
-	// WEBM audio
+	// MIMETypeWEBA defines the MIME type for WEBM audio.
 	MIMETypeWEBA = "audio/webm"
 
-	// WEBM video
+	// MIMETypeWEBM defines the MIME type for WEBM video.
 	MIMETypeWEBM = "video/webm"
 
-	// WEBP image
+	// MIMETypeWEBP defines the MIME type for WEBP images.
 	MIMETypeWEBP = "image/webp"
 
-	// Web Open Font Format (WOFF)
+	// MIMETypeWOFF defines the MIME type for Web Open Font Format (WOFF).
 	MIMETypeWOFF = "font/woff"
 
-	// Web Open Font Format (WOFF2)
+	// MIMETypeWOFF2 defines the MIME type for Web Open Font Format (WOFF2).
 	MIMETypeWOFF2 = "font/woff2"
 
-	// XHTML
+	// MIMETypeXHTML defines the MIME type for XHTML.
 	MIMETypeXHTML = "application/xhtml+xml"
 
-	// Microsoft Excel
+	// MIMETypeXLS defines the MIME type for Microsoft Excel.
 	MIMETypeXLS = "application/vnd.ms-excel"
 
-	// Microsoft Excel (OpenXML)
+	// MIMETypeXLSX defines the MIME type for Microsoft Excel (OpenXML).
 	MIMETypeXLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-	// XML
+	// MIMETypeXML defines the MIME type for XML.
 	MIMETypeXML = "application/xml"
 
-	// XUL
+	// MIMETypeXUL defines the MIME type for XUL.
 	MIMETypeXUL = "application/vnd.mozilla.xul+xml"
 
-	// ZIP archive
+	// MIMETypeZIP defines the MIME type for ZIP archives.
 	MIMETypeZIP = "application/zip"
 
-	// 3GPP audio/video container
+	// MIMEType3GP defines the MIME type for 3GPP audio/video containers.
 	MIMEType3GP = "video/3gpp"
 
-	// 3GPP2 audio/video container
+	// MIMEType3G2 defines the MIME type for 3GPP2 audio/video containers.
 	MIMEType3G2 = "video/3gpp2"
 
-	// 7-zip archive
+	// MIMEType7Z defines the MIME type for 7-zip archives.
 	MIMEType7Z = "application/x-7z-compressed"
 )
