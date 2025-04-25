@@ -115,6 +115,7 @@ func (s *Server) StartHTTP(address string) error {
 		IdleTimeout:       lang.Check(s.opts.IdleTimeout, defaultIdleTimeout),
 	}
 	if err := s.start(address, s.http.Serve, net.Listen); err != nil {
+		s.http = nil
 		return err
 	}
 	s.opts.Logger.Info("http server started", "address", address)
@@ -136,9 +137,10 @@ func (s *Server) StartHTTPS(address string) error {
 		IdleTimeout:       lang.Check(s.opts.IdleTimeout, defaultIdleTimeout),
 		TLSConfig:         GetTLSConfig(s.opts.Certificate),
 	}
-	if err := s.start(address, s.https.Serve, func(net, addr string) (net.Listener, error) {
-		return tls.Listen(net, addr, s.https.TLSConfig)
+	if err := s.start(address, s.https.Serve, func(netType, addr string) (net.Listener, error) {
+		return tls.Listen(netType, addr, s.https.TLSConfig)
 	}); err != nil {
+		s.https = nil
 		return err
 	}
 
@@ -190,15 +192,21 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// HTTPAddress returns the address that HTTP server is listening.
-// It returns an empty string if server is not started.
+// HTTPAddress returns the address the HTTP server is listening on.
+// Returns an empty string if the HTTP server is not running or not configured.
 func (s *Server) HTTPAddress() string {
+	if s.http == nil {
+		return ""
+	}
 	return s.http.Addr
 }
 
-// HTTPSAddress returns the address that HTTPS server is listening.
-// It returns an empty string if server is not started.
+// HTTPSAddress returns the address the HTTPS server is listening on.
+// Returns an empty string if the HTTPS server is not running or not configured.
 func (s *Server) HTTPSAddress() string {
+	if s.https == nil {
+		return ""
+	}
 	return s.https.Addr
 }
 
