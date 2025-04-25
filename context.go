@@ -241,7 +241,13 @@ func (ctx *Context) Response(code int, bodyRaw ...any) {
 	default:
 		jsonBytes, err := json.Marshal(body)
 		if err != nil {
-			ctx.Error(err, http.StatusInternalServerError, "cannot marshal response")
+			// Log the marshalling error if possible (though Context doesn't have logger)
+			// For now, write a plain 500 response directly, avoiding recursive ctx.Error call.
+			// Note: This error hides the original intended response code.
+			msg := `{"message":"Internal Server Error: Failed to marshal response JSON"}`
+			http.Error(ctx.w, msg, http.StatusInternalServerError)
+			// Set error context for logging middleware, even though we short-circuited
+			setError(ctx.r, fmt.Errorf("marshal response: %w", err), http.StatusInternalServerError, msg)
 			return
 		}
 		toWrite = jsonBytes
@@ -254,8 +260,11 @@ func (ctx *Context) Response(code int, bodyRaw ...any) {
 
 	_, err := ctx.w.Write(toWrite)
 	if err != nil {
-		ctx.Error(err, http.StatusInternalServerError, "cannot write response")
-		return
+		// Log the write error if possible (though Context doesn't have logger)
+		// Cannot call ctx.Error as headers are already written.
+		// We can potentially set the error in context for logging, though the request is mostly finished.
+		setError(ctx.r, fmt.Errorf("write response: %w", err), code, "failed to write response body")
+		// No return here, let the handler finish, but the response is likely broken.
 	}
 }
 
@@ -361,6 +370,9 @@ func (ctx *Context) ServiceUnavailable(err error, msg string, args ...any) {
 // You should not modify the [http.ResponseWriter] after calling this method.
 // You will probably want to return from your handler after calling this method.
 func (ctx *Context) Error(err error, code int, msg string, args ...any) {
+	if err == nil {
+		return
+	}
 	if len(args) > 0 {
 		msg = fmt.Sprintf(msg, args...)
 	}
@@ -373,8 +385,12 @@ func (ctx *Context) Error(err error, code int, msg string, args ...any) {
 	ctx.SetContentType(MIMETypeJSON)
 	ctx.w.WriteHeader(code)
 
-	if _, err := ctx.w.Write(body); err != nil {
-		http.Error(ctx.w, "cannot write error message", http.StatusInternalServerError)
+	if _, writeErr := ctx.w.Write(body); writeErr != nil {
+		// Log the write error if possible (though Context doesn't have logger)
+		// Cannot call ctx.Error as headers are already written.
+		// We can potentially set the error in context for logging, though the request is mostly finished.
+		setError(ctx.r, fmt.Errorf("write error response: %w", writeErr), code, "failed to write error response body, original error: "+err.Error())
+		// No return here, let the handler finish, but the response is likely broken.
 	}
 }
 
