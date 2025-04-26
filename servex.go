@@ -78,7 +78,7 @@ func NewWithOptions(opts Options) *Server {
 
 			err := s.auth.CreateUser(ctx, user.Username, user.Password, user.Roles...)
 			if err != nil {
-				s.opts.Logger.Error("cannot create initial user", "error", err, "user", user)
+				s.opts.Logger.Error("cannot create initial user", "error", err, "username", user.Username)
 			}
 		}
 	}
