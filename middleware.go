@@ -24,7 +24,7 @@ type MiddlewareRouter interface {
 // It also integrates with a Metrics handler if provided.
 // If the logger is nil, it defaults to a BaseRequestLogger using slog.Default().
 // Requests can be excluded from logging by calling ctx.NoLog() within the handler.
-func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, metrics Metrics) {
+func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, metrics Metrics, disableLoggingClientErrors bool) {
 	if logger == nil {
 		logger = &BaseRequestLogger{
 			Logger: slog.Default(),
@@ -48,22 +48,27 @@ func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, me
 				return
 			}
 
-			err, _ := ctx.Value(errorKey{}).(error)
-			msg, _ := ctx.Value(msgKey{}).(string)
-			// Use the status code captured by the wrapper if not explicitly set in context
-			code, codeSet := ctx.Value(codeKey{}).(int)
-			if !codeSet {
-				code = lrw.statusCode
+			logBundle := RequestLogBundle{
+				Request:           r,
+				RequestID:         getOrSetRequestID(r),
+				StartTime:         start,
+				NoLogClientErrors: disableLoggingClientErrors,
 			}
 
-			logger.Log(RequestLogBundle{
-				Request:      r,
-				RequestID:    getOrSetRequestID(r),
-				Error:        err,
-				ErrorMessage: msg,
-				StatusCode:   code,
-				StartTime:    start,
-			})
+			// Check if error details were explicitly set on the response writer wrapper
+			if lrw.errorCodeSet {
+				logBundle.Error = lrw.loggedError
+				logBundle.ErrorMessage = lrw.loggedMsg
+				logBundle.StatusCode = lrw.loggedCode
+			} else {
+				// Fallback: Try reading from context (might be incorrect if handler modified request context pointer)
+				// and use the status code captured by the wrapper.
+				logBundle.Error, _ = ctx.Value(errorKey{}).(error)
+				logBundle.ErrorMessage, _ = ctx.Value(msgKey{}).(string)
+				logBundle.StatusCode, _ = ctx.Value(codeKey{}).(int)
+			}
+
+			logger.Log(logBundle)
 		})
 	})
 }
@@ -159,11 +164,18 @@ func RegisterSimpleAuthMiddleware(router MiddlewareRouter, authToken string) {
 	})
 }
 
-// loggingResponseWriter wraps http.ResponseWriter to capture the status code.
+// loggingResponseWriter wraps http.ResponseWriter to capture the status code
+// and potentially error details set via ctx.Error.
 type loggingResponseWriter struct {
 	http.ResponseWriter
 	statusCode  int
 	wroteHeader bool
+	// Fields to store details from ctx.Error
+	loggedError  error
+	loggedMsg    string
+	loggedCode   int
+	noLog        bool
+	errorCodeSet bool // Flag to indicate if code/error/msg were explicitly set by ctx.Error
 }
 
 // WriteHeader captures the status code and calls the original WriteHeader.
@@ -172,6 +184,10 @@ func (lrw *loggingResponseWriter) WriteHeader(code int) {
 		return
 	}
 	lrw.statusCode = code
+	// Only mark the status code as explicitly set by ctx.Error if the flag is true
+	if !lrw.errorCodeSet {
+		lrw.loggedCode = code // Keep track of the written code even if not set by Error()
+	}
 	lrw.ResponseWriter.WriteHeader(code)
 	lrw.wroteHeader = true
 }

@@ -49,13 +49,13 @@ func NewWithOptions(opts Options) *Server {
 		auth:   NewAuthManager(opts.Auth),
 	}
 
+	RegisterLoggingMiddleware(s.router, opts.RequestLogger, opts.Metrics, opts.NoLogClientErrors)
+	RegisterRecoverMiddleware(s.router, opts.Logger)
+	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken)
+
 	if opts.Auth.enabled && !opts.Auth.NotRegisterRoutes {
 		s.auth.RegisterRoutes(s.router)
 	}
-
-	RegisterLoggingMiddleware(s.router, opts.RequestLogger, opts.Metrics)
-	RegisterRecoverMiddleware(s.router, opts.Logger)
-	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken)
 
 	return s
 }

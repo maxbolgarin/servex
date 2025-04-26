@@ -58,6 +58,9 @@ type Options struct {
 	// If not set it will use [Options.Logger].
 	RequestLogger RequestLogger
 
+	// NoLogClientErrors, if true, will not log client errors with code 400-499
+	NoLogClientErrors bool
+
 	// Auth is the auth configuration for the server.
 	Auth AuthConfig
 }
@@ -183,6 +186,20 @@ func WithLogger(l Logger) Option {
 func WithRequestLogger(r RequestLogger) Option {
 	return func(op *Options) {
 		op.RequestLogger = r
+	}
+}
+
+// WithNoRequestLog disables request logging.
+func WithNoRequestLog() Option {
+	return func(op *Options) {
+		op.RequestLogger = &noopRequestLogger{}
+	}
+}
+
+// WithNoLogClientErrors disables logging of client errors with code 400-499.
+func WithNoLogClientErrors() Option {
+	return func(op *Options) {
+		op.NoLogClientErrors = true
 	}
 }
 
