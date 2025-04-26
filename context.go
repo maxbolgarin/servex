@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	mr "math/rand"
+	"mime/multipart"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,12 +19,19 @@ import (
 	"github.com/maxbolgarin/lang"
 )
 
+const defaultMaxMemoryMultipartForm = 10 << 20 // 10 MB
+
 // ErrorResponse represents a JSON for an error response.
 type ErrorResponse struct {
 	Message string `json:"message"`
 }
 
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
+
+// Read reads the request body.
+func Read(r *http.Request) ([]byte, error) {
+	return io.ReadAll(r.Body)
+}
 
 // ReadJSON reads a JSON from the request body to a variable of the provided type.
 func ReadJSON[T any](r *http.Request) (T, error) {
@@ -52,6 +60,29 @@ func ReadAndValidate[T interface{ Validate() error }](r *http.Request) (T, error
 		return req, fmt.Errorf("invalid body: %w", err)
 	}
 	return req, nil
+}
+
+// ReadFile reads a file from the request body.
+// fileKey is the key of the file in the request.
+// It returns the file bytes, the file header and an error.
+func ReadFile(r *http.Request, fileKey string) ([]byte, *multipart.FileHeader, error) {
+	err := r.ParseMultipartForm(defaultMaxMemoryMultipartForm)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse multipart form: %w", err)
+	}
+
+	file, header, err := r.FormFile(fileKey)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get file: %w", err)
+	}
+	defer file.Close()
+
+	bytes, err := io.ReadAll(file)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read file: %w", err)
+	}
+
+	return bytes, header, nil
 }
 
 // Context holds data and methods for handling HTTP request.
@@ -217,6 +248,13 @@ func (ctx *Context) ReadAndValidate(body interface{ Validate() error }) error {
 		return fmt.Errorf("invalid body: %w", err)
 	}
 	return nil
+}
+
+// ReadFile reads a file from the request body.
+// fileKey is the key of the file in the request.
+// It returns the file bytes, the file header and an error.
+func (ctx *Context) ReadFile(fileKey string) ([]byte, *multipart.FileHeader, error) {
+	return ReadFile(ctx.r, fileKey)
 }
 
 // NoLog marks to not log the request after returning from the handler.
