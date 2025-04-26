@@ -406,9 +406,9 @@ server := servex.NewWithOptions(servex.Options{
 - **Roles-Based Auth**: Built-in JWT authentication with refresh tokens and role-based access control.
 
 ### Cons
-- **Basic Documentation**: Might require understanding of underlying `gorilla/mux` for advanced use cases.
-- **Lack of Features**: It is not a framework for complex server architectures.
+- **Basic Documentation**: Might require reading docs and understanding of underlying `gorilla/mux` for advanced use cases.
 - **Limited Database Options**: Currently supports only in-memory database for auth out of the box. You should implement it's own database it you want to use auth.
+- **Auth limitations**: Auth handling is very basic.
 
 ## Contributing
 
