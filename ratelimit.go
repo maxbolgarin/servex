@@ -23,7 +23,7 @@ type visitor struct {
 type rateLimiterMiddleware struct {
 	cfg       RateLimitConfig
 	visitors  map[string]*visitor
-	mu        sync.RWMutex
+	mu        sync.Mutex
 	statusMsg string
 }
 
@@ -109,9 +109,10 @@ func (m *rateLimiterMiddleware) shouldRateLimit(r *http.Request) bool {
 
 // getLimiter retrieves or creates a rate limiter for a visitor.
 func (m *rateLimiterMiddleware) getLimiter(key string) *rate.Limiter {
-	m.mu.RLock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	v, exists := m.visitors[key]
-	m.mu.RUnlock()
 
 	if !exists {
 		limiter := rate.NewLimiter(
@@ -119,12 +120,10 @@ func (m *rateLimiterMiddleware) getLimiter(key string) *rate.Limiter {
 			m.cfg.BurstSize,
 		)
 
-		m.mu.Lock()
 		m.visitors[key] = &visitor{
 			limiter:  limiter,
 			lastSeen: time.Now(),
 		}
-		m.mu.Unlock()
 
 		return limiter
 	}
