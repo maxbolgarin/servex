@@ -356,3 +356,199 @@ func (m *mockAuthDatabase) FindAll(ctx context.Context) ([]servex.User, error) {
 func (m *mockAuthDatabase) UpdateUser(ctx context.Context, id string, diff *servex.UserDiff) error {
 	return nil
 }
+
+// TestWithRateLimitConfig verifies that WithRateLimitConfig sets the entire RateLimitConfig.
+func TestWithRateLimitConfig(t *testing.T) {
+	customKeyFunc := func(r *http.Request) string { return "testkey" }
+	rateLimit := servex.RateLimitConfig{
+		RequestsPerInterval: 100,
+		Interval:            time.Minute,
+		BurstSize:           150,
+		StatusCode:          http.StatusTooManyRequests,
+		Message:             "custom rate limit message",
+		KeyFunc:             customKeyFunc,
+		ExcludePaths:        []string{"/health", "/metrics"},
+		IncludePaths:        []string{"/api"},
+		NoRateInAuthRoutes:  true,
+	}
+
+	option := servex.WithRateLimitConfig(rateLimit)
+	options := servex.Options{}
+	option(&options)
+
+	// Compare all fields
+	if options.RateLimit.RequestsPerInterval != rateLimit.RequestsPerInterval {
+		t.Errorf("expected requests per interval %d, got %d", rateLimit.RequestsPerInterval, options.RateLimit.RequestsPerInterval)
+	}
+	if options.RateLimit.Interval != rateLimit.Interval {
+		t.Errorf("expected interval %v, got %v", rateLimit.Interval, options.RateLimit.Interval)
+	}
+	if options.RateLimit.BurstSize != rateLimit.BurstSize {
+		t.Errorf("expected burst size %d, got %d", rateLimit.BurstSize, options.RateLimit.BurstSize)
+	}
+	if options.RateLimit.StatusCode != rateLimit.StatusCode {
+		t.Errorf("expected status code %d, got %d", rateLimit.StatusCode, options.RateLimit.StatusCode)
+	}
+	if options.RateLimit.Message != rateLimit.Message {
+		t.Errorf("expected message %q, got %q", rateLimit.Message, options.RateLimit.Message)
+	}
+	// Can't directly compare function references, but we ensure KeyFunc is set
+	if options.RateLimit.KeyFunc == nil {
+		t.Errorf("expected KeyFunc to be set, got nil")
+	}
+	if !reflect.DeepEqual(options.RateLimit.ExcludePaths, rateLimit.ExcludePaths) {
+		t.Errorf("expected exclude paths %v, got %v", rateLimit.ExcludePaths, options.RateLimit.ExcludePaths)
+	}
+	if !reflect.DeepEqual(options.RateLimit.IncludePaths, rateLimit.IncludePaths) {
+		t.Errorf("expected include paths %v, got %v", rateLimit.IncludePaths, options.RateLimit.IncludePaths)
+	}
+	if options.RateLimit.NoRateInAuthRoutes != rateLimit.NoRateInAuthRoutes {
+		t.Errorf("expected NoRateInAuthRoutes %v, got %v", rateLimit.NoRateInAuthRoutes, options.RateLimit.NoRateInAuthRoutes)
+	}
+}
+
+// TestWithRateLimitConfigPanic tests that WithRateLimitConfig panics with an invalid configuration.
+func TestWithRateLimitConfigPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Errorf("expected WithRateLimitConfig to panic with RequestsPerInterval <= 0")
+		}
+	}()
+
+	invalidConfig := servex.RateLimitConfig{
+		RequestsPerInterval: 0, // Should cause panic
+	}
+	_ = servex.WithRateLimitConfig(invalidConfig)
+}
+
+// TestWithRPM verifies that WithRPM sets the requests per minute limit.
+func TestWithRPM(t *testing.T) {
+	rpm := 120
+	option := servex.WithRPM(rpm)
+	options := servex.Options{}
+	option(&options)
+
+	if options.RateLimit.RequestsPerInterval != rpm {
+		t.Errorf("expected requests per interval %d, got %d", rpm, options.RateLimit.RequestsPerInterval)
+	}
+	if options.RateLimit.Interval != time.Minute {
+		t.Errorf("expected interval to be 1 minute, got %v", options.RateLimit.Interval)
+	}
+}
+
+// TestWithRPS verifies that WithRPS sets the requests per second limit.
+func TestWithRPS(t *testing.T) {
+	rps := 30
+	option := servex.WithRPS(rps)
+	options := servex.Options{}
+	option(&options)
+
+	if options.RateLimit.RequestsPerInterval != rps {
+		t.Errorf("expected requests per interval %d, got %d", rps, options.RateLimit.RequestsPerInterval)
+	}
+	if options.RateLimit.Interval != time.Second {
+		t.Errorf("expected interval to be 1 second, got %v", options.RateLimit.Interval)
+	}
+}
+
+// TestWithRequestsPerInterval verifies that WithRequestsPerInterval sets the rate limit configuration.
+func TestWithRequestsPerInterval(t *testing.T) {
+	requests := 500
+	interval := 5 * time.Minute
+	option := servex.WithRequestsPerInterval(requests, interval)
+	options := servex.Options{}
+	option(&options)
+
+	if options.RateLimit.RequestsPerInterval != requests {
+		t.Errorf("expected requests per interval %d, got %d", requests, options.RateLimit.RequestsPerInterval)
+	}
+	if options.RateLimit.Interval != interval {
+		t.Errorf("expected interval %v, got %v", interval, options.RateLimit.Interval)
+	}
+}
+
+// TestWithBurstSize verifies that WithBurstSize sets the burst size in rate limit configuration.
+func TestWithBurstSize(t *testing.T) {
+	burstSize := 200
+	option := servex.WithBurstSize(burstSize)
+	options := servex.Options{}
+	option(&options)
+
+	if options.RateLimit.BurstSize != burstSize {
+		t.Errorf("expected burst size %d, got %d", burstSize, options.RateLimit.BurstSize)
+	}
+}
+
+// TestWithRateLimitStatusCode verifies that WithRateLimitStatusCode sets the status code in rate limit configuration.
+func TestWithRateLimitStatusCode(t *testing.T) {
+	statusCode := http.StatusServiceUnavailable // Using 503 instead of default 429
+	option := servex.WithRateLimitStatusCode(statusCode)
+	options := servex.Options{}
+	option(&options)
+
+	if options.RateLimit.StatusCode != statusCode {
+		t.Errorf("expected status code %d, got %d", statusCode, options.RateLimit.StatusCode)
+	}
+}
+
+// TestWithRateLimitMessage verifies that WithRateLimitMessage sets the message in rate limit configuration.
+func TestWithRateLimitMessage(t *testing.T) {
+	message := "Too many requests, try again later"
+	option := servex.WithRateLimitMessage(message)
+	options := servex.Options{}
+	option(&options)
+
+	if options.RateLimit.Message != message {
+		t.Errorf("expected message %q, got %q", message, options.RateLimit.Message)
+	}
+}
+
+// TestWithRateLimitKeyFunc verifies that WithRateLimitKeyFunc sets the key function in rate limit configuration.
+func TestWithRateLimitKeyFunc(t *testing.T) {
+	keyFunc := func(r *http.Request) string {
+		return r.RemoteAddr
+	}
+	option := servex.WithRateLimitKeyFunc(keyFunc)
+	options := servex.Options{}
+	option(&options)
+
+	// Cannot directly compare functions, so just check it's not nil
+	if options.RateLimit.KeyFunc == nil {
+		t.Errorf("expected KeyFunc to be set, got nil")
+	}
+}
+
+// TestWithRateLimitExcludePaths verifies that WithRateLimitExcludePaths sets the excluded paths in rate limit configuration.
+func TestWithRateLimitExcludePaths(t *testing.T) {
+	paths := []string{"/health", "/metrics", "/docs"}
+	option := servex.WithRateLimitExcludePaths(paths...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.RateLimit.ExcludePaths, paths) {
+		t.Errorf("expected exclude paths %v, got %v", paths, options.RateLimit.ExcludePaths)
+	}
+}
+
+// TestWithRateLimitIncludePaths verifies that WithRateLimitIncludePaths sets the included paths in rate limit configuration.
+func TestWithRateLimitIncludePaths(t *testing.T) {
+	paths := []string{"/api/v1", "/api/v2/users"}
+	option := servex.WithRateLimitIncludePaths(paths...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.RateLimit.IncludePaths, paths) {
+		t.Errorf("expected include paths %v, got %v", paths, options.RateLimit.IncludePaths)
+	}
+}
+
+// TestWithNoRateInAuthRoutes verifies that WithNoRateInAuthRoutes sets the flag in rate limit configuration.
+func TestWithNoRateInAuthRoutes(t *testing.T) {
+	option := servex.WithNoRateInAuthRoutes()
+	options := servex.Options{}
+	option(&options)
+
+	if !options.RateLimit.NoRateInAuthRoutes {
+		t.Errorf("expected NoRateInAuthRoutes to be true, got false")
+	}
+}

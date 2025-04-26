@@ -1,8 +1,6 @@
 module github.com/maxbolgarin/servex
 
-go 1.23.0
-
-toolchain go1.24.1
+go 1.24
 
 require (
 	github.com/golang-jwt/jwt/v4 v4.5.2
@@ -10,6 +8,7 @@ require (
 	github.com/json-iterator/go v1.1.12
 	github.com/maxbolgarin/lang v1.7.0
 	golang.org/x/crypto v0.37.0
+	golang.org/x/time v0.11.0
 )
 
 require (

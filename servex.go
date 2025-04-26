@@ -50,6 +50,20 @@ func NewWithOptions(opts Options) *Server {
 		auth:   NewAuthManager(opts.Auth),
 	}
 
+	if opts.RateLimit.RequestsPerInterval <= 0 && !opts.RateLimit.NoRateInAuthRoutes {
+		opts.RateLimit.RequestsPerInterval = 5
+		opts.RateLimit.Interval = time.Minute
+		opts.RateLimit.IncludePaths = []string{opts.Auth.AuthBasePath}
+	}
+	if opts.RateLimit.RequestsPerInterval > 0 && !opts.RateLimit.NoRateInAuthRoutes {
+		if opts.RateLimit.IncludePaths != nil {
+			opts.RateLimit.IncludePaths = append(opts.RateLimit.IncludePaths, opts.Auth.AuthBasePath)
+		}
+		// If rate limit is enabled without include routes -> it will be applied to all routes
+		// So we dont need to include auth routes in the include list
+	}
+
+	RegisterRateLimitMiddleware(s.router, opts.RateLimit)
 	RegisterLoggingMiddleware(s.router, opts.RequestLogger, opts.Metrics, opts.NoLogClientErrors)
 	RegisterRecoverMiddleware(s.router, opts.Logger)
 	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken)
