@@ -93,6 +93,11 @@ type AuthManager struct {
 	service *service
 }
 
+type (
+	UserContextKey struct{}
+	RoleContextKey struct{}
+)
+
 // NewAuthManager creates a new AuthManager with the provided configuration.
 // It initializes default values for configuration fields if they are not provided
 // and generates random secrets if JWT secrets are empty.
@@ -162,8 +167,8 @@ func (m *AuthManager) WithAuth(next http.HandlerFunc, roles ...UserRole) http.Ha
 			return
 		}
 
-		reqWithContext := r.WithContext(context.WithValue(r.Context(), userContextKey{}, claims.UserID))
-		reqWithContext = reqWithContext.WithContext(context.WithValue(reqWithContext.Context(), roleContextKey{}, claims.Roles))
+		reqWithContext := r.WithContext(context.WithValue(r.Context(), UserContextKey{}, claims.UserID))
+		reqWithContext = reqWithContext.WithContext(context.WithValue(reqWithContext.Context(), RoleContextKey{}, claims.Roles))
 
 		next(w, reqWithContext)
 	}
@@ -260,7 +265,7 @@ func (h *AuthManager) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 func (h *AuthManager) GetCurrentUserHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(w, r)
 
-	userID, ok := r.Context().Value(userContextKey{}).(string)
+	userID, ok := r.Context().Value(UserContextKey{}).(string)
 	if !ok {
 		fmt.Println("GetCurrentUser: not authenticated")
 		ctx.Unauthorized(errUnauthorized, "not authenticated")
@@ -768,11 +773,6 @@ const (
 
 	accessTokenDuration  = 5 * time.Minute
 	refreshTokenDuration = 7 * 24 * time.Hour
-)
-
-type (
-	userContextKey struct{}
-	roleContextKey struct{}
 )
 
 // MockAuthDatabase provides a mock implementation of the AuthDatabase interface for testing.
