@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -386,4 +387,156 @@ func TestContext_BadGateway(t *testing.T) {
 
 func TestContext_ServiceUnavailable(t *testing.T) {
 	testErrorMethod(t, (*servex.Context).ServiceUnavailable, http.StatusServiceUnavailable, "Service unavailable")
+}
+
+func TestReadFile(t *testing.T) {
+	// Create a multipart form buffer
+	var buffer bytes.Buffer
+	writer := multipart.NewWriter(&buffer)
+
+	// Create a file field
+	fileContents := []byte("This is test file content for the global function")
+	part, err := writer.CreateFormFile("globalfile", "global.txt")
+	if err != nil {
+		t.Fatalf("Failed to create form file: %v", err)
+	}
+
+	// Write the file content
+	_, err = part.Write(fileContents)
+	if err != nil {
+		t.Fatalf("Failed to write to form file: %v", err)
+	}
+
+	// Close the writer
+	err = writer.Close()
+	if err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
+
+	// Create a request with the multipart form
+	req := httptest.NewRequest(http.MethodPost, "/global-upload", &buffer)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	// Test the global ReadFile function
+	fileBytes, header, err := servex.ReadFile(req, "globalfile")
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+
+	// Check file content
+	if !bytes.Equal(fileBytes, fileContents) {
+		t.Errorf("expected file contents %q, got %q", fileContents, fileBytes)
+	}
+
+	// Check file name
+	if header.Filename != "global.txt" {
+		t.Errorf("expected filename 'global.txt', got %q", header.Filename)
+	}
+
+	// Test with non-existent file key
+	_, _, err = servex.ReadFile(req, "nonexistent")
+	if err == nil {
+		t.Errorf("expected error for non-existent file, got nil")
+	}
+}
+
+func TestContext_ReadFile(t *testing.T) {
+	// Create a multipart form buffer
+	var buffer bytes.Buffer
+	writer := multipart.NewWriter(&buffer)
+
+	// Create a file field
+	fileContents := []byte("This is a test file content")
+	part, err := writer.CreateFormFile("testfile", "test.txt")
+	if err != nil {
+		t.Fatalf("Failed to create form file: %v", err)
+	}
+
+	// Write the file content
+	_, err = part.Write(fileContents)
+	if err != nil {
+		t.Fatalf("Failed to write to form file: %v", err)
+	}
+
+	// Close the writer
+	err = writer.Close()
+	if err != nil {
+		t.Fatalf("Failed to close writer: %v", err)
+	}
+
+	// Create a request with the multipart form
+	req := httptest.NewRequest(http.MethodPost, "/upload", &buffer)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	// Create a context
+	ctx := servex.NewContext(httptest.NewRecorder(), req)
+
+	// Test ReadFile in the Context
+	fileBytes, header, err := ctx.ReadFile("testfile")
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+
+	// Check file content
+	if !bytes.Equal(fileBytes, fileContents) {
+		t.Errorf("expected file contents %q, got %q", fileContents, fileBytes)
+	}
+
+	// Check file name
+	if header.Filename != "test.txt" {
+		t.Errorf("expected filename 'test.txt', got %q", header.Filename)
+	}
+
+	// Test with non-existent file key
+	_, _, err = ctx.ReadFile("nonexistent")
+	if err == nil {
+		t.Errorf("expected error for non-existent file, got nil")
+	}
+}
+
+func TestContext_ResponseFile(t *testing.T) {
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/download", nil)
+	ctx := servex.NewContext(w, req)
+
+	// Test file data
+	filename := "test-document.pdf"
+	mimeType := "application/pdf"
+	fileContents := []byte("This is test PDF file content")
+
+	// Call ResponseFile
+	ctx.ResponseFile(filename, mimeType, fileContents)
+
+	// Check response
+	resp := w.Result()
+	body, _ := io.ReadAll(resp.Body)
+
+	// Check status code
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status code %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+
+	// Check content type
+	if resp.Header.Get("Content-Type") != mimeType {
+		t.Errorf("expected Content-Type %q, got %q", mimeType, resp.Header.Get("Content-Type"))
+	}
+
+	// Check Content-Disposition header
+	expectedDisposition := "attachment; filename=test-document.pdf"
+	if resp.Header.Get("Content-Disposition") != expectedDisposition {
+		t.Errorf("expected Content-Disposition %q, got %q", expectedDisposition,
+			resp.Header.Get("Content-Disposition"))
+	}
+
+	// Check Content-Length
+	expectedLength := strconv.Itoa(len(fileContents))
+	if resp.Header.Get("Content-Length") != expectedLength {
+		t.Errorf("expected Content-Length %q, got %q", expectedLength,
+			resp.Header.Get("Content-Length"))
+	}
+
+	// Check file contents
+	if !bytes.Equal(body, fileContents) {
+		t.Errorf("expected file contents %q, got %q", fileContents, body)
+	}
 }
