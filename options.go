@@ -98,8 +98,11 @@ type AuthConfig struct {
 	// Defaults to "/api/v1/auth" if not set.
 	AuthBasePath string
 
-	// InitialRoles are the roles assigned to a newly registered user.
-	InitialRoles []UserRole
+	// RolesOnRegister are the roles assigned to a newly registered user.
+	RolesOnRegister []UserRole
+
+	// InitialUsers is a list of initial users to be created.
+	InitialUsers []InitialUser
 
 	// NotRegisterRoutes, if true, prevents the automatic registration of default auth routes.
 	NotRegisterRoutes bool
@@ -112,6 +115,12 @@ type AuthConfig struct {
 
 	// enabled indicates whether authentication is enabled.
 	enabled bool
+}
+
+type InitialUser struct {
+	Username string
+	Password string
+	Roles    []UserRole
 }
 
 // WithCertificate sets the TLS [Options.Certificate] to the [Options].
@@ -219,7 +228,6 @@ func ReadCertificateFromFile(certFile, keyFile string) (tls.Certificate, error) 
 func WithAuth(db AuthDatabase) Option {
 	return func(op *Options) {
 		op.Auth.Database = db
-		op.Auth.enabled = true
 	}
 }
 
@@ -228,7 +236,6 @@ func WithAuth(db AuthDatabase) Option {
 func WithAuthMemoryDatabase() Option {
 	return func(op *Options) {
 		op.Auth.Database = newMemoryAuthDatabase()
-		op.Auth.enabled = true
 	}
 }
 
@@ -240,7 +247,6 @@ func WithAuthConfig(auth AuthConfig) Option {
 	}
 	return func(op *Options) {
 		op.Auth = auth
-		op.Auth.enabled = true
 	}
 }
 
@@ -269,7 +275,7 @@ func WithAuthBasePath(path string) Option {
 // WithAuthInitialRoles sets the [Options.Auth.InitialRoles] of the [Options] to the given roles.
 func WithAuthInitialRoles(roles ...UserRole) Option {
 	return func(op *Options) {
-		op.Auth.InitialRoles = roles
+		op.Auth.RolesOnRegister = roles
 	}
 }
 
@@ -292,6 +298,13 @@ func WithAuthTokensDuration(accessDuration, refreshDuration time.Duration) Optio
 func WithAuthNotRegisterRoutes(notRegisterRoutes bool) Option {
 	return func(op *Options) {
 		op.Auth.NotRegisterRoutes = notRegisterRoutes
+	}
+}
+
+// WithAuthInitialUsers sets the [Options.Auth.InitialUsers] of the [Options] to the given users.
+func WithAuthInitialUsers(users ...InitialUser) Option {
+	return func(op *Options) {
+		op.Auth.InitialUsers = users
 	}
 }
 

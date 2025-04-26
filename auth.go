@@ -20,7 +20,7 @@ import (
 // AuthDatabase defines the interface for interacting with the user database.
 type AuthDatabase interface {
 	// NewUser creates a new user in the database.
-	NewUser(ctx context.Context, username string, passwordHash string, roles []UserRole) (string, error)
+	NewUser(ctx context.Context, username string, passwordHash string, roles ...UserRole) (string, error)
 
 	// FindByID finds a user by their ID.
 	FindByID(ctx context.Context, id string) (user User, exists bool, err error)
@@ -55,6 +55,16 @@ type UserDiff struct {
 	RefreshTokenHash      *string     `json:"refresh_token_hash,omitempty" bson:"refresh_token_hash,omitempty" db:"refresh_token_hash,omitempty"`
 	RefreshTokenExpiresAt *time.Time  `json:"refresh_token_expires_at,omitempty" bson:"refresh_token_expires_at,omitempty" db:"refresh_token_expires_at,omitempty"`
 }
+
+const (
+	IDDBField                    = "id"
+	IDDBBsonField                = "_id"
+	UsernameDBField              = "username"
+	RolesDBField                 = "roles"
+	PasswordHashDBField          = "password_hash"
+	RefreshTokenHashDBField      = "refresh_token_hash"
+	RefreshTokenExpiresAtDBField = "refresh_token_expires_at"
+)
 
 // UserLoginRequest represents the request body for user login and registration.
 type UserLoginRequest struct {
@@ -321,7 +331,7 @@ func (h *AuthManager) UpdateUserRoleHandler(w http.ResponseWriter, r *http.Reque
 // CreateUser provides a programmatic way to create or update a user.
 // If the user already exists (based on username), it updates their password and roles.
 // If the user does not exist, it creates a new user with the provided details.
-func (h *AuthManager) CreateUser(ctx context.Context, username, password string, roles []UserRole) error {
+func (h *AuthManager) CreateUser(ctx context.Context, username, password string, roles ...UserRole) error {
 	user, exists, err := h.service.db.FindByUsername(ctx, username)
 	if err != nil {
 		return fmt.Errorf("find user: %w", err)
@@ -343,7 +353,7 @@ func (h *AuthManager) CreateUser(ctx context.Context, username, password string,
 		return nil
 	}
 
-	_, err = h.service.db.NewUser(ctx, username, string(hashedPassword), roles)
+	_, err = h.service.db.NewUser(ctx, username, string(hashedPassword), roles...)
 	if err != nil {
 		return fmt.Errorf("create user: %w", err)
 	}
@@ -418,7 +428,7 @@ func (s *service) register(ctx context.Context, req UserLoginRequest) (loginResu
 		return loginResult{}, fmt.Errorf("hashing password: %w", err)
 	}
 
-	id, err := s.db.NewUser(ctx, req.Username, string(hashedPassword), s.cfg.InitialRoles)
+	id, err := s.db.NewUser(ctx, req.Username, string(hashedPassword), s.cfg.RolesOnRegister...)
 	if err != nil {
 		return loginResult{}, fmt.Errorf("NewUser: %w", err)
 	}
@@ -426,7 +436,7 @@ func (s *service) register(ctx context.Context, req UserLoginRequest) (loginResu
 	accessToken, refreshToken, refreshTokenExpiresAt, err := s.generateTokens(ctx, User{
 		ID:           id,
 		Username:     req.Username,
-		Roles:        s.cfg.InitialRoles,
+		Roles:        s.cfg.RolesOnRegister,
 		PasswordHash: string(hashedPassword),
 	})
 	if err != nil {
@@ -438,7 +448,7 @@ func (s *service) register(ctx context.Context, req UserLoginRequest) (loginResu
 			AccessToken: accessToken,
 			ID:          id,
 			Username:    req.Username,
-			Roles:       s.cfg.InitialRoles,
+			Roles:       s.cfg.RolesOnRegister,
 		},
 		RefreshToken:          refreshToken,
 		RefreshTokenExpiresAt: refreshTokenExpiresAt,
@@ -780,7 +790,7 @@ func newMemoryAuthDatabase() *memoryAuthDatabase {
 	}
 }
 
-func (db *memoryAuthDatabase) NewUser(ctx context.Context, username string, passwordHash string, roles []UserRole) (string, error) {
+func (db *memoryAuthDatabase) NewUser(ctx context.Context, username string, passwordHash string, roles ...UserRole) (string, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 

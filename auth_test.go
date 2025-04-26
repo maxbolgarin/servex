@@ -45,7 +45,7 @@ func NewMockAuthDatabase() *MockAuthDatabase {
 	}
 }
 
-func (db *MockAuthDatabase) NewUser(ctx context.Context, username string, passwordHash string, roles []servex.UserRole) (string, error) {
+func (db *MockAuthDatabase) NewUser(ctx context.Context, username string, passwordHash string, roles ...servex.UserRole) (string, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -174,7 +174,7 @@ func newTestAuthManager(db servex.AuthDatabase) (*servex.AuthManager, servex.Aut
 		AccessTokenDuration:    5 * time.Minute,
 		RefreshTokenDuration:   10 * time.Minute,
 		IssuerNameInJWT:        "test-issuer",
-		InitialRoles:           []servex.UserRole{"user"},
+		RolesOnRegister:        []servex.UserRole{servex.UserRole("user")},
 		AuthBasePath:           defaultAuthPath,   // Explicitly set the base path
 		RefreshTokenCookieName: defaultCookieName, // Explicitly set the cookie name
 	}
@@ -224,7 +224,7 @@ func TestAuthManager_CreateUser(t *testing.T) {
 			name:     "Create new user successfully",
 			username: "newuser",
 			password: "password123",
-			roles:    []servex.UserRole{"user"},
+			roles:    []servex.UserRole{servex.UserRole("user")},
 			mockSetup: func() {
 				mockDB.Reset()
 			},
@@ -247,12 +247,12 @@ func TestAuthManager_CreateUser(t *testing.T) {
 			name:     "Update existing user password and roles",
 			username: "existinguser",
 			password: "newpassword456",
-			roles:    []servex.UserRole{"admin", "editor"},
+			roles:    []servex.UserRole{servex.UserRole("admin"), servex.UserRole("editor")},
 			mockSetup: func() {
 				mockDB.Reset()
 				// Pre-populate user
 				hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("oldpassword"), bcrypt.DefaultCost)
-				_, _ = mockDB.NewUser(ctx, "existinguser", string(hashedPassword), []servex.UserRole{"user"})
+				_, _ = mockDB.NewUser(ctx, "existinguser", string(hashedPassword), servex.UserRole("user"))
 			},
 			expectError: false,
 			validateState: func(t *testing.T) {
@@ -306,7 +306,7 @@ func TestAuthManager_CreateUser(t *testing.T) {
 				mockDB.Reset()
 				// Pre-populate user
 				hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("oldpassword"), bcrypt.DefaultCost)
-				_, _ = mockDB.NewUser(ctx, "dbupdatefail", string(hashedPassword), []servex.UserRole{"user"})
+				_, _ = mockDB.NewUser(ctx, "dbupdatefail", string(hashedPassword), servex.UserRole("user"))
 				mockDB.SimulateErrorOnUpdateUser = true
 			},
 			expectError: true,
@@ -319,7 +319,7 @@ func TestAuthManager_CreateUser(t *testing.T) {
 				tt.mockSetup()
 			}
 
-			err := authManager.CreateUser(ctx, tt.username, tt.password, tt.roles)
+			err := authManager.CreateUser(ctx, tt.username, tt.password, tt.roles...)
 
 			if tt.expectError {
 				if err == nil {
@@ -361,7 +361,7 @@ func TestUserLoginRequest_Validate(t *testing.T) {
 
 func TestUserUpdateRequest_Validate(t *testing.T) {
 	username := "newuser"
-	roles := []servex.UserRole{"admin"}
+	roles := servex.UserRole("admin")
 	password := "newpass"
 
 	tests := []struct {
@@ -370,9 +370,9 @@ func TestUserUpdateRequest_Validate(t *testing.T) {
 		expectErr bool
 	}{
 		{"Valid request (username)", servex.UserUpdateRequest{ID: "123", Username: &username}, false},
-		{"Valid request (roles)", servex.UserUpdateRequest{ID: "123", Roles: &roles}, false},
+		{"Valid request (roles)", servex.UserUpdateRequest{ID: "123", Roles: &[]servex.UserRole{roles}}, false},
 		{"Valid request (password)", servex.UserUpdateRequest{ID: "123", Password: &password}, false},
-		{"Valid request (all fields)", servex.UserUpdateRequest{ID: "123", Username: &username, Roles: &roles, Password: &password}, false},
+		{"Valid request (all fields)", servex.UserUpdateRequest{ID: "123", Username: &username, Roles: &[]servex.UserRole{roles}, Password: &password}, false},
 		{"Missing ID", servex.UserUpdateRequest{Username: &username}, true},
 		{"Missing update fields", servex.UserUpdateRequest{ID: "123"}, true},
 		{"Empty request", servex.UserUpdateRequest{}, true},
@@ -407,7 +407,7 @@ func TestAuthManager_RegisterHandler(t *testing.T) {
 			requestBody:      servex.UserLoginRequest{Username: "testuser", Password: "password"},
 			mockSetup:        func() { mockDB.Reset() },
 			expectStatus:     http.StatusCreated,
-			expectInResponse: &servex.UserLoginResponse{Username: "testuser", Roles: cfg.InitialRoles}, // ID and AccessToken are generated
+			expectInResponse: &servex.UserLoginResponse{Username: "testuser", Roles: cfg.RolesOnRegister}, // ID and AccessToken are generated
 			checkCookie:      true,
 		},
 		{
@@ -415,7 +415,7 @@ func TestAuthManager_RegisterHandler(t *testing.T) {
 			requestBody: servex.UserLoginRequest{Username: "existing", Password: "password"},
 			mockSetup: func() {
 				mockDB.Reset()
-				_, _ = mockDB.NewUser(context.Background(), "existing", "somehash", nil) // Pre-populate
+				_, _ = mockDB.NewUser(context.Background(), "existing", "somehash") // Pre-populate
 			},
 			expectStatus: http.StatusConflict,
 		},
@@ -503,8 +503,8 @@ func TestAuthManager_LoginHandler(t *testing.T) {
 	ctx := context.Background()
 	validPassword := "correctpassword"
 	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte(validPassword), bcrypt.DefaultCost)
-	loginRoles := []servex.UserRole{"tester", "viewer"}
-	_, _ = mockDB.NewUser(ctx, "loginuser", string(hashedPassword), loginRoles)
+	loginRoles := []servex.UserRole{servex.UserRole("tester"), servex.UserRole("viewer")}
+	_, _ = mockDB.NewUser(ctx, "loginuser", string(hashedPassword), loginRoles...)
 
 	tests := []struct {
 		name             string
@@ -603,8 +603,8 @@ func TestAuthManager_GetCurrentUserHandler(t *testing.T) {
 
 	// Create a user and generate a valid token for testing
 	ctx := context.Background()
-	currentUserRoles := []servex.UserRole{"current", "getter"}
-	currentUserID, err := mockDB.NewUser(ctx, "currentuser", "hashedpass", currentUserRoles)
+	currentUserRoles := []servex.UserRole{servex.UserRole("current"), servex.UserRole("getter")}
+	currentUserID, err := mockDB.NewUser(ctx, "currentuser", "hashedpass", currentUserRoles...)
 	if err != nil {
 		t.Fatalf("Failed to create test user: %v", err)
 	}
@@ -819,7 +819,7 @@ func TestAuthManager_RefreshHandler(t *testing.T) {
 
 	// Create a user for refresh tests
 	ctx := context.Background()
-	refreshUserRoles := []servex.UserRole{"refresher"}
+	refreshUserRoles := []servex.UserRole{servex.UserRole("refresher")}
 	// refreshUserID, _ := mockDB.NewUser(ctx, "refreshuser", "hashedpass", refreshUserRoles) // Declared but not used
 
 	tests := []struct {
@@ -834,7 +834,7 @@ func TestAuthManager_RefreshHandler(t *testing.T) {
 			name: "Successful refresh",
 			mockSetup: func(t *testing.T) *http.Cookie {
 				mockDB.Reset()
-				uid, _ := mockDB.NewUser(ctx, "refreshsuccess", "hp", refreshUserRoles)
+				uid, _ := mockDB.NewUser(ctx, "refreshsuccess", "hp", refreshUserRoles...)
 				cookie, _ := generateAndStoreRefreshToken(t, cfg, mockDB, uid)
 				return cookie
 			},
@@ -856,7 +856,7 @@ func TestAuthManager_RefreshHandler(t *testing.T) {
 			name: "Expired token (JWT)",
 			mockSetup: func(t *testing.T) *http.Cookie {
 				mockDB.Reset()
-				uid, _ := mockDB.NewUser(ctx, "refreshexpiredjwt", "hp", refreshUserRoles)
+				uid, _ := mockDB.NewUser(ctx, "refreshexpiredjwt", "hp", refreshUserRoles...)
 				// Generate explicitly expired token
 				refreshSecretBytes, _ := hex.DecodeString(cfg.JWTRefreshSecret)
 				expiredTime := time.Now().Add(-5 * time.Minute)
@@ -881,7 +881,7 @@ func TestAuthManager_RefreshHandler(t *testing.T) {
 			name: "Expired token (DB)",
 			mockSetup: func(t *testing.T) *http.Cookie {
 				mockDB.Reset()
-				uid, _ := mockDB.NewUser(ctx, "refreshexpireddb", "hp", refreshUserRoles)
+				uid, _ := mockDB.NewUser(ctx, "refreshexpireddb", "hp", refreshUserRoles...)
 				cookie, _ := generateAndStoreRefreshToken(t, cfg, mockDB, uid)
 				// Manually expire the token in the DB *after* generation
 				mockDB.mu.Lock() // Use mockDB from outer scope
@@ -897,7 +897,7 @@ func TestAuthManager_RefreshHandler(t *testing.T) {
 			name: "Token hash mismatch",
 			mockSetup: func(t *testing.T) *http.Cookie {
 				mockDB.Reset()
-				uid, _ := mockDB.NewUser(ctx, "refreshmismatch", "hp", refreshUserRoles)
+				uid, _ := mockDB.NewUser(ctx, "refreshmismatch", "hp", refreshUserRoles...)
 				cookie, _ := generateAndStoreRefreshToken(t, cfg, mockDB, uid)
 				// Directly overwrite the RefreshTokenHash in the mock DB
 				mockDB.mu.Lock()
@@ -914,7 +914,7 @@ func TestAuthManager_RefreshHandler(t *testing.T) {
 			name: "User not found",
 			mockSetup: func(t *testing.T) *http.Cookie {
 				mockDB.Reset()
-				uid, _ := mockDB.NewUser(ctx, "refreshdeleted", "hp", refreshUserRoles)
+				uid, _ := mockDB.NewUser(ctx, "refreshdeleted", "hp", refreshUserRoles...)
 				cookie, _ := generateAndStoreRefreshToken(t, cfg, mockDB, uid)
 				// Delete user from DB after generating token
 				mockDB.mu.Lock() // Use mockDB from outer scope
@@ -929,7 +929,7 @@ func TestAuthManager_RefreshHandler(t *testing.T) {
 			name: "Database error on FindByID",
 			mockSetup: func(t *testing.T) *http.Cookie {
 				mockDB.Reset()
-				uid, _ := mockDB.NewUser(ctx, "refreshfinderror", "hp", refreshUserRoles)
+				uid, _ := mockDB.NewUser(ctx, "refreshfinderror", "hp", refreshUserRoles...)
 				cookie, _ := generateAndStoreRefreshToken(t, cfg, mockDB, uid)
 				mockDB.SimulateErrorOnFindByID = true
 				return cookie
@@ -992,7 +992,7 @@ func TestAuthManager_LogoutHandler(t *testing.T) {
 
 	// Create a user and token for logout tests
 	ctx := context.Background()
-	logoutUserID, _ := mockDB.NewUser(ctx, "logoutuser", "hp", []servex.UserRole{"logger"})
+	logoutUserID, _ := mockDB.NewUser(ctx, "logoutuser", "hp", servex.UserRole("logger"))
 	validCookie, _ := generateAndStoreRefreshToken(t, cfg, mockDB, logoutUserID)
 
 	tests := []struct {
