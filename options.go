@@ -606,3 +606,33 @@ const (
 	// MIMEType7Z defines the MIME type for 7-zip archives.
 	MIMEType7Z = "application/x-7z-compressed"
 )
+
+// HTTP methods shortcuts
+const (
+	// GET is the HTTP GET method.
+	GET = http.MethodGet
+
+	// HEAD is the HTTP HEAD method.
+	HEAD = http.MethodHead
+
+	// POST is the HTTP POST method.
+	POST = http.MethodPost
+
+	// PUT is the HTTP PUT method.
+	PUT = http.MethodPut
+
+	// PATCH is the HTTP PATCH method.
+	PATCH = http.MethodPatch
+
+	// DELETE is the HTTP DELETE method.
+	DELETE = http.MethodDelete
+
+	// CONNECT is the HTTP CONNECT method.
+	CONNECT = http.MethodConnect
+
+	// OPTIONS is the HTTP OPTIONS method.
+	OPTIONS = http.MethodOptions
+
+	// TRACE is the HTTP TRACE method.
+	TRACE = http.MethodTrace
+)
