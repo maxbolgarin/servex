@@ -59,6 +59,8 @@ type Context struct {
 	context.Context
 	w http.ResponseWriter
 	r *http.Request
+
+	isSetContentType bool
 }
 
 // NewContext returns a new context for the provided request.
@@ -87,8 +89,7 @@ func (ctx *Context) RequestID() string {
 // APIVersion returns the API version of the handler from the path.
 // It returns an empty string if not found.
 func (ctx *Context) APIVersion() string {
-	splitted := strings.Split(ctx.r.URL.Path, "/")
-	for _, s := range splitted {
+	for s := range strings.SplitSeq(ctx.r.URL.Path, "/") {
 		if len(s) > 1 && s[0] == 'v' {
 			if _, err := strconv.Atoi(s[1:]); err == nil {
 				return s
@@ -128,6 +129,19 @@ func (ctx *Context) SetHeader(key string, value ...string) {
 			ctx.w.Header().Add(key, v)
 		}
 	}
+}
+
+// SetContentType sets the Content-Type header.
+func (ctx *Context) SetContentType(mimeType string, charset ...string) {
+	if ctx.isSetContentType {
+		return
+	}
+	if len(charset) > 0 {
+		ctx.w.Header().Set("Content-Type", mimeType+"; charset="+charset[0])
+	} else {
+		ctx.w.Header().Set("Content-Type", mimeType)
+	}
+	ctx.isSetContentType = true
 }
 
 // Cookie returns the cookie with the given name.
@@ -210,11 +224,6 @@ func (ctx *Context) NoLog() {
 	ctx.setNoLog()
 }
 
-// SetContentType sets the Content-Type header.
-func (ctx *Context) SetContentType(mimeType string) {
-	ctx.w.Header().Set("Content-Type", mimeType)
-}
-
 // Response writes provided status code and body to the [http.ResponseWriter].
 // Body may be []byte, string or an object, that can be marshalled to JSON.
 // It will write nothing in case of body==nil sending response headers with status code only.
@@ -236,7 +245,7 @@ func (ctx *Context) Response(code int, bodyRaw ...any) {
 
 	case string:
 		toWrite = []byte(b)
-		ctx.SetContentType(MIMETypeText + "; charset=utf-8")
+		ctx.SetContentType(MIMETypeText, "utf-8")
 
 	default:
 		jsonBytes, err := json.Marshal(body)
@@ -263,7 +272,22 @@ func (ctx *Context) Response(code int, bodyRaw ...any) {
 		// Log the write error if possible (though Context doesn't have logger)
 		// Cannot call ctx.Error as headers are already written.
 		// We can potentially set the error in context for logging, though the request is mostly finished.
-		ctx.setError(fmt.Errorf("write response: %w", err), code, "failed to write response body")
+		ctx.setError(fmt.Errorf("write response: %w", err), http.StatusInternalServerError, "failed to write response body")
+		// No return here, let the handler finish, but the response is likely broken.
+	}
+}
+
+func (ctx *Context) ResponseFile(filename string, mimeType string, body []byte) {
+	ctx.SetContentType(mimeType)
+	ctx.SetHeader("Content-Disposition", "attachment; filename="+filename)
+	ctx.SetHeader("Content-Length", strconv.Itoa(len(body)))
+	ctx.w.WriteHeader(http.StatusOK)
+	_, err := ctx.w.Write(body)
+	if err != nil {
+		// Log the write error if possible (though Context doesn't have logger)
+		// Cannot call ctx.Error as headers are already written.
+		// We can potentially set the error in context for logging, though the request is mostly finished.
+		ctx.setError(fmt.Errorf("write response: %w", err), http.StatusInternalServerError, "failed to write response body")
 		// No return here, let the handler finish, but the response is likely broken.
 	}
 }
