@@ -24,6 +24,8 @@ type Server struct {
 	router *mux.Router
 	auth   *AuthManager
 	opts   Options
+
+	basePath string
 }
 
 // New creates a new instance of the [Server]. You can provide a list of options using With* methods.
@@ -256,7 +258,7 @@ func (s *Server) WithBasePath(path string) *Server {
 	if len(path) == 0 {
 		return s
 	}
-	s.router = s.router.PathPrefix(path).Subrouter()
+	s.basePath = path
 	return s
 }
 
@@ -298,7 +300,7 @@ func (s *Server) AddMiddleware(middleware ...func(http.Handler) http.Handler) {
 // Handle registers a new route with the provided path, [http.Handler] and methods.
 // It returns a pointer to the created [mux.Route] to set additional settings to the route.
 func (s *Server) Handle(path string, h http.Handler, methods ...string) *mux.Route {
-	r := s.router.Handle(path, h)
+	r := s.router.PathPrefix(s.basePath).Subrouter().Handle(path, h)
 	if len(methods) == 0 {
 		return r
 	}
@@ -313,7 +315,7 @@ func (s *Server) H(path string, h http.Handler, methods ...string) *mux.Route {
 // HandleFunc registers a new route with the provided path, [http.HandlerFunc] and methods.
 // It returns a pointer to the created [mux.Route] to set additional settings to the route.
 func (s *Server) HandleFunc(path string, f http.HandlerFunc, methods ...string) *mux.Route {
-	r := s.router.HandleFunc(path, f)
+	r := s.router.PathPrefix(s.basePath).Subrouter().HandleFunc(path, f)
 	if len(methods) == 0 {
 		return r
 	}
@@ -339,7 +341,7 @@ func (s *Server) WithAuth(next http.HandlerFunc, roles ...UserRole) http.Handler
 // It adds auth middleware to the route with the provided roles.
 // It returns a pointer to the created [mux.Route] to set additional settings to the route.
 func (s *Server) HandleWithAuth(path string, h http.Handler, roles ...UserRole) *mux.Route {
-	return s.router.Handle(path, s.WithAuth(h.ServeHTTP, roles...))
+	return s.router.PathPrefix(s.basePath).Subrouter().Handle(path, s.WithAuth(h.ServeHTTP, roles...))
 }
 
 // HA is a shortcut for [Server.HandleWithAuth].
@@ -351,7 +353,7 @@ func (s *Server) HA(path string, f http.HandlerFunc, roles ...UserRole) *mux.Rou
 // It adds auth middleware to the route with the provided roles.
 // It returns a pointer to the created [mux.Route] to set additional settings to the route.
 func (s *Server) HandleFuncWithAuth(path string, f http.HandlerFunc, roles ...UserRole) *mux.Route {
-	return s.router.HandleFunc(path, s.WithAuth(f, roles...))
+	return s.router.PathPrefix(s.basePath).Subrouter().HandleFunc(path, s.WithAuth(f, roles...))
 }
 
 // HFA is a shortcut for [Server.HandleFuncWithAuth].
