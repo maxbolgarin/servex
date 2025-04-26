@@ -187,7 +187,7 @@ func TestWithAuthConfig(t *testing.T) {
 		IssuerNameInJWT:        "myissuer",
 		RefreshTokenCookieName: "_myrt",
 		AuthBasePath:           "/auth/v2",
-		InitialRoles:           []servex.UserRole{"user"},
+		RolesOnRegister:        []servex.UserRole{"user"},
 		NotRegisterRoutes:      true,
 	}
 
@@ -220,8 +220,8 @@ func TestWithAuthConfig(t *testing.T) {
 	if options.Auth.AuthBasePath != authCfg.AuthBasePath {
 		t.Errorf("auth config mismatch: AuthBasePath expected %q, got %q", authCfg.AuthBasePath, options.Auth.AuthBasePath)
 	}
-	if !reflect.DeepEqual(options.Auth.InitialRoles, authCfg.InitialRoles) {
-		t.Errorf("auth config mismatch: InitialRoles expected %v, got %v", authCfg.InitialRoles, options.Auth.InitialRoles)
+	if !reflect.DeepEqual(options.Auth.RolesOnRegister, authCfg.RolesOnRegister) {
+		t.Errorf("auth config mismatch: InitialRoles expected %v, got %v", authCfg.RolesOnRegister, options.Auth.RolesOnRegister)
 	}
 	if options.Auth.NotRegisterRoutes != authCfg.NotRegisterRoutes {
 		t.Errorf("auth config mismatch: NotRegisterRoutes expected %v, got %v", authCfg.NotRegisterRoutes, options.Auth.NotRegisterRoutes)
@@ -277,8 +277,8 @@ func TestWithAuthInitialRoles(t *testing.T) {
 	options := servex.Options{}
 	option(&options)
 
-	if !reflect.DeepEqual(options.Auth.InitialRoles, roles) {
-		t.Errorf("expected initial roles %v, got %v", roles, options.Auth.InitialRoles)
+	if !reflect.DeepEqual(options.Auth.RolesOnRegister, roles) {
+		t.Errorf("expected initial roles %v, got %v", roles, options.Auth.RolesOnRegister)
 	}
 }
 
@@ -333,7 +333,7 @@ func TestWithAuthNotRegisterRoutes(t *testing.T) {
 type mockAuthDatabase struct{}
 
 // NewUser mocks creating a new user.
-func (m *mockAuthDatabase) NewUser(ctx context.Context, username string, passwordHash string, roles []servex.UserRole) (string, error) {
+func (m *mockAuthDatabase) NewUser(ctx context.Context, username string, passwordHash string, roles ...servex.UserRole) (string, error) {
 	return "mockUserID", nil
 }
 

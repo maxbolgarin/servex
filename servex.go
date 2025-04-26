@@ -42,6 +42,7 @@ func NewWithOptions(opts Options) *Server {
 	if opts.RequestLogger == nil {
 		opts.RequestLogger = &BaseRequestLogger{opts.Logger}
 	}
+	opts.Auth.enabled = opts.Auth.Database != nil
 
 	s := &Server{
 		router: mux.NewRouter(),
@@ -53,8 +54,19 @@ func NewWithOptions(opts Options) *Server {
 	RegisterRecoverMiddleware(s.router, opts.Logger)
 	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken)
 
-	if opts.Auth.enabled && !opts.Auth.NotRegisterRoutes {
-		s.auth.RegisterRoutes(s.router)
+	if opts.Auth.enabled {
+		if !opts.Auth.NotRegisterRoutes {
+			s.auth.RegisterRoutes(s.router)
+		}
+		for _, user := range opts.Auth.InitialUsers {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			err := s.auth.CreateUser(ctx, user.Username, user.Password, user.Roles...)
+			if err != nil {
+				s.opts.Logger.Error("cannot create initial user", "error", err, "user", user)
+			}
+		}
 	}
 
 	return s
