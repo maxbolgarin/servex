@@ -6,10 +6,15 @@
 
 
 ## Table of Contents
-- [Why Servex](#overview)
+- [Why Servex](#why-servex)
 - [Installation](#installation)
 - [Usage](#usage)
+  - [Starting a Server](#starting-a-server)
+  - [Using Context in Handlers](#using-context-in-handlers)
+  - [Authentication](#authentication)
+  - [Rate Limiter](#rate-limiter)
 - [Configuration Options](#configuration-options)
+- [Key Features](#key-features)
 - [Pros and Cons](#pros-and-cons)
 - [Contributing](#contributing)
 - [License](#license)
@@ -83,10 +88,11 @@ go get -u github.com/maxbolgarin/servex
 
 ## Usage
 
-To start using **Servex** in your project, there are two ways:
+### Starting a Server
 
+There are multiple ways to set up a Servex server:
 
-### Start with config
+#### 1. Quick Start with Configuration
 
 ```go
 ctx, cancel := context.WithCancel(context.Background())
@@ -118,11 +124,9 @@ if err != nil {
 cancel() // Shutdown the server
 ```
 
-
-### Start with server object
+#### 2. Using the Server Object
 
 ```go
-
 // Initialize and start the server
 srv := servex.New(
     servex.WithReadTimeout(10*time.Second),
@@ -140,13 +144,31 @@ if err := srv.Start(":8080", ":8443"); err != nil {
 // ... some code ...
 
 srv.Shutdown(ctx)
-
 ```
 
+#### 3. Server with Graceful Shutdown
 
-### Context in handlers
+```go
+srv := servex.New(servex.WithLogger(slog.Default()))
 
-Thats why Servex can be integrated into existing `net/http` servers — you can create `servex.Context` based of the `http.Request` and `http.ResponseWriter` objects and use it in your handlers.
+// Register routes
+srv.R().HandleFunc("/api/v1/health", healthHandler).Methods(http.MethodGet)
+srv.R("/api/v1").HandleFunc("/users", usersHandler).Methods(http.MethodGet)
+
+// Start with automatic shutdown on context cancellation
+ctx, cancel := context.WithCancel(context.Background())
+defer cancel()
+
+if err := srv.StartWithShutdown(ctx, ":8080", ""); err != nil {
+    log.Fatalf("failed to start server: %v", err)
+}
+
+// Server will shut down automatically when context is canceled
+```
+
+### Using Context in Handlers
+
+Servex can be integrated into existing `net/http` servers - you can create `servex.Context` based on the `http.Request` and `http.ResponseWriter` objects and use it in your handlers.
 
 ```go
 func (app *App) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
@@ -166,13 +188,162 @@ func (app *App) CreateUserHandler(w http.ResponseWriter, r *http.Request) {
 
     ctx.Response(http.StatusCreated, userIDResponse)
 }
-
 ```
 
-With `servex.Context` you can get experience of working in HTTP framework like [echo](https://github.com/labstack/echo) inside plain `net/http` servers.
+With `servex.Context` you can get the experience of working in an HTTP framework like [echo](https://github.com/labstack/echo) inside plain `net/http` servers.
+
+#### Context Helpers
+
+Servex's Context provides many helper methods:
+
+```go
+func exampleHandler(w http.ResponseWriter, r *http.Request) {
+    ctx := servex.C(w, r)
+    
+    // Get request information
+    requestID := ctx.RequestID()
+    apiVersion := ctx.APIVersion() // Extracts 'v1' from paths like /api/v1/...
+    userID := ctx.Path("id")       // Path parameters from URL
+    sort := ctx.Query("sort")      // Query parameters ?sort=asc
+    
+    // Read and validate request bodies
+    user, err := servex.ReadJSON[User](r)
+    // OR with validation if User implements Validate() method
+    user, err := servex.ReadAndValidate[User](r)
+    
+    // Handle cookies
+    cookie, _ := ctx.Cookie("session")
+    ctx.SetCookie("session", "token123", 3600, true, true)
+    
+    // Send responses with proper headers
+    ctx.Response(http.StatusOK, map[string]string{"status": "success"})
+    
+    // Or handle errors with consistent formatting
+    ctx.BadRequest(err, "invalid input: %s", err.Error())
+    ctx.NotFound(err, "user not found")
+    ctx.InternalServerError(err, "database error")
+}
+```
+
+### Authentication
+
+Servex includes a built-in JWT-based authentication system:
+
+#### 1. Setting Up Authentication
+
+```go
+// Create an in-memory auth database
+memoryDB := servex.NewMemoryAuthDatabase()
+
+// Configure the server with authentication
+srv := servex.New(
+    servex.WithAuth(servex.AuthConfig{
+        Database: memoryDB,
+        RolesOnRegister: []servex.UserRole{"user"}, // Default roles for new users
+        AccessTokenDuration: 15 * time.Minute,
+        RefreshTokenDuration: 7 * 24 * time.Hour,
+        InitialUsers: []servex.InitialUser{
+            {Username: "admin", Password: "admin123", Roles: []servex.UserRole{"admin", "user"}},
+        },
+    }),
+)
+
+// Authentication routes are automatically registered under /auth/...
+// - POST /auth/register - Register new user
+// - POST /auth/login - Login and get tokens
+// - POST /auth/refresh - Refresh access token
+// - POST /auth/logout - Logout (invalidate refresh token)
+// - GET /auth/me - Get current user info (requires authentication)
+
+// Create protected routes
+srv.HandleFuncWithAuth("/admin", adminHandler, "admin") // Only users with "admin" role can access
+srv.HFA("/protected", protectedHandler, "user")         // Short form for HandleFuncWithAuth
+```
+
+#### 2. Authentication in Existing Handlers
+
+```go
+func (app *App) AdminOnlyHandler(w http.ResponseWriter, r *http.Request) {
+    ctx := servex.C(w, r)
+    
+    // Get user ID from context (set by auth middleware)
+    userID, ok := r.Context().Value(servex.UserContextKey{}).(string)
+    if !ok {
+        ctx.Unauthorized(errors.New("not authenticated"), "authentication required")
+        return
+    }
+    
+    // Get user roles 
+    roles, _ := r.Context().Value(servex.RoleContextKey{}).([]servex.UserRole)
+    
+    // ... handle the request
+    
+    ctx.Response(http.StatusOK, result)
+}
+```
+
+#### 3. Login Flow Example
+
+```go
+// Client sends login request
+// POST /auth/login
+// {"username": "user1", "password": "pass123"}
+
+// Server responds with:
+// 200 OK
+// {
+//   "id": "user-id-123",
+//   "username": "user1",
+//   "roles": ["user"],
+//   "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+// }
+// Set-Cookie: refresh_token=token123; HttpOnly; Secure; SameSite=Strict
+
+// Client uses accessToken in Authorization header
+// GET /api/protected
+// Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+// When access token expires, client sends refresh request
+// POST /auth/refresh
+// (refresh_token cookie is sent automatically)
+```
+
+### Rate Limiter
+
+Servex includes a built-in rate limiting middleware:
+
+```go
+// Configure and start server with rate limiting
+srv := servex.New(
+    servex.WithRPS(100), // 100 requests per second
+    servex.WithRateLimitExcludePaths("/health", "/docs")
+)
 
 
-### Configuration Options
+// Rate limiting by username for login attempts
+customKeyFunc := func(r *http.Request) string {
+    // Extract username from request for more accurate rate limiting
+    // on login endpoints
+    if r.URL.Path == "/login" {
+        username := r.FormValue("username")
+        if username != "" {
+            return "user:" + username
+        }
+    }
+    // Fall back to IP-based limiting
+    return r.RemoteAddr
+}
+
+srv := servex.New(
+    servex.WithRateLimitConfig(servex.RateLimitConfig{
+        RequestsPerInterval: 5,
+        Interval:            time.Minute,
+        KeyFunc:             customKeyFunc,
+    }),
+)
+```
+
+## Configuration Options
 
 Servex allows customization through options passed during server instantiation. Here's how you can configure it:
 
@@ -183,6 +354,10 @@ Servex allows customization through options passed during server instantiation. 
 - **WithMetrics**: Attach a metrics handler to track requests.
 - **WithLogger**: Specify a custom logging mechanism.
 - **WithRequestLogger**: Customizes request logging separately from server logging.
+- **WithAuth**: Configure JWT-based authentication with roles.
+- **WithRateLimitConfig**: Configure rate limiting with custom options.
+- **WithRPM**: Set rate limit to requests per minute.
+- **WithRPS**: Set rate limit to requests per second.
 
 Example:
 
@@ -191,6 +366,7 @@ options := []servex.Option{
     servex.WithReadTimeout(30 * time.Second),
     servex.WithIdleTimeout(120 * time.Second),
     servex.WithAuthToken("s3cret"),
+    servex.WithRPS(10), // Limit to 10 requests per second
 }
 
 // Create server with options
@@ -198,9 +374,26 @@ server := servex.NewWithOptions(servex.Options{
     ReadTimeout:   30 * time.Second,
     IdleTimeout:   120 * time.Second,
     AuthToken:     "s3cret",
+    RateLimit: servex.RateLimitConfig{
+        RequestsPerInterval: 10,
+        Interval:            time.Second,
+        BurstSize:           20, // Allow bursts of up to 20 requests
+        ExcludePaths:        []string{"/health", "/metrics"},
+    },
 })
 ```
 
+## Key Features
+
+- **Simplified HTTP Handling**: Context-based request/response handling with type safety
+- **Flexible Routing**: Powered by gorilla/mux with subrouters, path variables, etc.
+- **Built-in Authentication**: JWT-based authentication with refresh tokens and role-based access
+- **Rate Limiting**: Built-in middleware for restricting request frequency with customizable options
+- **Structured Error Responses**: Consistent error formatting across all endpoints
+- **Graceful Shutdown**: Clean shutdown capabilities for both HTTP and HTTPS servers
+- **TLS Support**: Easy HTTPS configuration with certificate management
+- **Integrated Middleware**: Logging, authentication, panic recovery out of the box
+- **Type-Safe JSON Handling**: Generic functions for reading and validating JSON requests
 
 ## Pros and Cons
 
@@ -209,10 +402,13 @@ server := servex.NewWithOptions(servex.Options{
 - **Flexible Routing**: Powered by `gorilla/mux`, allowing for precise routing and path handling.
 - **Built-in Middleware**: Includes logging, authentication, and panic recovery.
 - **Context-based Request Handling**: No more boilerplate for reading requests and sending responses.
+- **Type Safety**: Generics support for JSON handling with less boilerplate.
+- **Roles-Based Auth**: Built-in JWT authentication with refresh tokens and role-based access control.
 
 ### Cons
 - **Basic Documentation**: Might require understanding of underlying `gorilla/mux` for advanced use cases.
 - **Lack of Features**: It is not a framework for complex server architectures.
+- **Limited Database Options**: Currently supports only in-memory database for auth out of the box. You should implement it's own database it you want to use auth.
 
 ## Contributing
 
@@ -222,7 +418,7 @@ If you'd like to contribute to **servex**, submit a pull request or open an issu
 
 Servex is licensed under the MIT License. See the [LICENSE](LICENSE) file for more information.
 
-[version-img]: https://img.shields.io/badge/Go-%3E%3D%201.19-%23007d9c
+[version-img]: https://img.shields.io/badge/Go-%3E%3D%201.24-%23007d9c
 [doc-img]: https://pkg.go.dev/badge/github.com/maxbolgarin/servex
 [doc]: https://pkg.go.dev/github.com/maxbolgarin/servex
 [ci-img]: https://github.com/maxbolgarin/servex/actions/workflows/go.yml/badge.svg

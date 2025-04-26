@@ -776,21 +776,21 @@ type (
 )
 
 // MockAuthDatabase provides a mock implementation of the AuthDatabase interface for testing.
-type memoryAuthDatabase struct {
+type MemoryAuthDatabase struct {
 	mu            sync.RWMutex
 	users         map[string]User // Map username to User
 	usersByID     map[string]User // Map ID to User
 	userIDCounter int
 }
 
-func newMemoryAuthDatabase() *memoryAuthDatabase {
-	return &memoryAuthDatabase{
+func NewMemoryAuthDatabase() *MemoryAuthDatabase {
+	return &MemoryAuthDatabase{
 		users:     make(map[string]User),
 		usersByID: make(map[string]User),
 	}
 }
 
-func (db *memoryAuthDatabase) NewUser(ctx context.Context, username string, passwordHash string, roles ...UserRole) (string, error) {
+func (db *MemoryAuthDatabase) NewUser(ctx context.Context, username string, passwordHash string, roles ...UserRole) (string, error) {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 
@@ -811,7 +811,7 @@ func (db *memoryAuthDatabase) NewUser(ctx context.Context, username string, pass
 	return id, nil
 }
 
-func (db *memoryAuthDatabase) FindByID(ctx context.Context, id string) (User, bool, error) {
+func (db *MemoryAuthDatabase) FindByID(ctx context.Context, id string) (User, bool, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
@@ -819,7 +819,7 @@ func (db *memoryAuthDatabase) FindByID(ctx context.Context, id string) (User, bo
 	return user, exists, nil
 }
 
-func (db *memoryAuthDatabase) FindByUsername(ctx context.Context, username string) (User, bool, error) {
+func (db *MemoryAuthDatabase) FindByUsername(ctx context.Context, username string) (User, bool, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
@@ -827,7 +827,7 @@ func (db *memoryAuthDatabase) FindByUsername(ctx context.Context, username strin
 	return user, exists, nil
 }
 
-func (db *memoryAuthDatabase) FindAll(ctx context.Context) ([]User, error) {
+func (db *MemoryAuthDatabase) FindAll(ctx context.Context) ([]User, error) {
 	db.mu.RLock()
 	defer db.mu.RUnlock()
 
@@ -838,7 +838,7 @@ func (db *memoryAuthDatabase) FindAll(ctx context.Context) ([]User, error) {
 	return users, nil
 }
 
-func (db *memoryAuthDatabase) UpdateUser(ctx context.Context, id string, diff *UserDiff) error {
+func (db *MemoryAuthDatabase) UpdateUser(ctx context.Context, id string, diff *UserDiff) error {
 	db.mu.Lock()
 	defer db.mu.Unlock()
 

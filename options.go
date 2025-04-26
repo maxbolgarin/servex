@@ -63,6 +63,12 @@ type Options struct {
 
 	// Auth is the auth configuration for the server.
 	Auth AuthConfig
+
+	// RateLimit is the rate limit configuration for the server.
+	// If not set, rate limiting will be disabled.
+	// If RateLimit.RequestsPerInterval is not set, it will be disabled.
+	// If RateLimit.Interval is not set, it will be disabled.
+	RateLimit RateLimitConfig
 }
 
 // AuthConfig holds the configuration specific to authentication.
@@ -117,10 +123,53 @@ type AuthConfig struct {
 	enabled bool
 }
 
+// InitialUser represents a user to be created during server startup.
 type InitialUser struct {
+	// Username is the username of the user.
 	Username string
+
+	// Password is the password of the user.
 	Password string
-	Roles    []UserRole
+
+	// Roles are the roles assigned to the user.
+	Roles []UserRole
+}
+
+// RateLimitConfig holds configuration for the rate limiter middleware.
+type RateLimitConfig struct {
+	// RequestsPerInterval is the number of operations allowed per interval.
+	// If not set, rate limiting will be disabled.
+	RequestsPerInterval int
+
+	// Interval is the time after which the token bucket is refilled.
+	// If not set, it will be 1 minute.
+	Interval time.Duration
+
+	// BurstSize is the maximum burst size (can exceed RequestsPerInterval temporarily).
+	// If not set, it will be equal to RequestsPerInterval.
+	BurstSize int
+
+	// StatusCode is the HTTP status code returned when rate limit is exceeded.
+	// Defaults to 429 (Too Many Requests) if not set.
+	StatusCode int
+
+	// Message is the response message when rate limit is exceeded.
+	// Defaults to "rate limit exceeded, try again later." if not set.
+	Message string
+
+	// KeyFunc is a function that extracts the rate limit key from the request.
+	// Defaults to usernameKeyFunc() if not set.
+	KeyFunc func(r *http.Request) string
+
+	// ExcludePaths are paths that should be excluded from rate limiting.
+	ExcludePaths []string
+
+	// IncludePaths are paths that should be included in rate limiting.
+	// If empty, all paths are included except those in ExcludePaths if rate limiting is enabled.
+	IncludePaths []string
+
+	// NoRateInAuthRoutes, if true, will not rate limit requests to auth routes.
+	NoRateInAuthRoutes bool
 }
 
 // WithCertificate sets the TLS [Options.Certificate] to the [Options].
@@ -235,7 +284,7 @@ func WithAuth(db AuthDatabase) Option {
 // NOT RECOMMENDED FOR PRODUCTION USE. It will forget all users on applications shutdown.
 func WithAuthMemoryDatabase() Option {
 	return func(op *Options) {
-		op.Auth.Database = newMemoryAuthDatabase()
+		op.Auth.Database = NewMemoryAuthDatabase()
 	}
 }
 
@@ -305,6 +354,93 @@ func WithAuthNotRegisterRoutes(notRegisterRoutes bool) Option {
 func WithAuthInitialUsers(users ...InitialUser) Option {
 	return func(op *Options) {
 		op.Auth.InitialUsers = users
+	}
+}
+
+// WithRateLimitConfig sets the [Options.RateLimit] of the [Options] to the given [RateLimitConfig].
+func WithRateLimitConfig(rateLimit RateLimitConfig) Option {
+	if rateLimit.RequestsPerInterval <= 0 {
+		panic("requests per interval must be greater than 0")
+	}
+	return func(op *Options) {
+		op.RateLimit = rateLimit
+	}
+}
+
+// WithRPM sets the [Options.RateLimit.RequestsPerInterval] of the [Options] to the given value.
+// Interval is set to 1 minute.
+func WithRPM(rpm int) Option {
+	return func(op *Options) {
+		op.RateLimit.RequestsPerInterval = rpm
+		op.RateLimit.Interval = time.Minute
+	}
+}
+
+// WithRPS sets the [Options.RateLimit.RequestsPerInterval] of the [Options] to the given value.
+// Interval is set to 1 second.
+func WithRPS(rps int) Option {
+	return func(op *Options) {
+		op.RateLimit.RequestsPerInterval = rps
+		op.RateLimit.Interval = time.Second
+	}
+}
+
+// WithRequestsPerInterval sets the [Options.RateLimit.RequestsPerInterval] of the [Options] to the given value.
+func WithRequestsPerInterval(requestsPerInterval int, interval time.Duration) Option {
+	return func(op *Options) {
+		op.RateLimit.RequestsPerInterval = requestsPerInterval
+		op.RateLimit.Interval = interval
+	}
+}
+
+// WithBurstSize sets the [Options.RateLimit.BurstSize] of the [Options] to the given value.
+func WithBurstSize(burstSize int) Option {
+	return func(op *Options) {
+		op.RateLimit.BurstSize = burstSize
+	}
+}
+
+// WithRateLimitStatusCode sets the [Options.RateLimit.StatusCode] of the [Options] to the given value.
+func WithRateLimitStatusCode(statusCode int) Option {
+	return func(op *Options) {
+		op.RateLimit.StatusCode = statusCode
+	}
+}
+
+// WithRateLimitMessage sets the [Options.RateLimit.Message] of the [Options] to the given value.
+func WithRateLimitMessage(message string) Option {
+	return func(op *Options) {
+		op.RateLimit.Message = message
+	}
+}
+
+// WithRateLimitKeyFunc sets the [Options.RateLimit.KeyFunc] of the [Options] to the given function.
+func WithRateLimitKeyFunc(keyFunc func(r *http.Request) string) Option {
+	return func(op *Options) {
+		op.RateLimit.KeyFunc = keyFunc
+	}
+}
+
+// WithRateLimitExcludePaths sets the [Options.RateLimit.ExcludePaths] of the [Options] to the given paths.
+func WithRateLimitExcludePaths(paths ...string) Option {
+	return func(op *Options) {
+		op.RateLimit.ExcludePaths = paths
+	}
+}
+
+// WithRateLimitIncludePaths sets the [Options.RateLimit.IncludePaths] of the [Options] to the given paths.
+// If empty, all paths are included except those in ExcludePaths if rate limiting is enabled.
+func WithRateLimitIncludePaths(paths ...string) Option {
+	return func(op *Options) {
+		op.RateLimit.IncludePaths = paths
+	}
+}
+
+// WithNoRateInAuthRoutes sets the [Options.RateLimit.NoRateInAuthRoutes] of the [Options] to true.
+// If true, will not set rate limit for requests to auth routes automatically.
+func WithNoRateInAuthRoutes() Option {
+	return func(op *Options) {
+		op.RateLimit.NoRateInAuthRoutes = true
 	}
 }
 
