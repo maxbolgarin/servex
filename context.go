@@ -207,7 +207,7 @@ func (ctx *Context) ReadAndValidate(body interface{ Validate() error }) error {
 
 // NoLog marks to not log the request after returning from the handler.
 func (ctx *Context) NoLog() {
-	setNoLog(ctx.r)
+	ctx.setNoLog()
 }
 
 // SetContentType sets the Content-Type header.
@@ -247,7 +247,7 @@ func (ctx *Context) Response(code int, bodyRaw ...any) {
 			msg := `{"message":"Internal Server Error: Failed to marshal response JSON"}`
 			http.Error(ctx.w, msg, http.StatusInternalServerError)
 			// Set error context for logging middleware, even though we short-circuited
-			setError(ctx.r, fmt.Errorf("marshal response: %w", err), http.StatusInternalServerError, msg)
+			ctx.setError(fmt.Errorf("marshal response: %w", err), http.StatusInternalServerError, msg)
 			return
 		}
 		toWrite = jsonBytes
@@ -263,7 +263,7 @@ func (ctx *Context) Response(code int, bodyRaw ...any) {
 		// Log the write error if possible (though Context doesn't have logger)
 		// Cannot call ctx.Error as headers are already written.
 		// We can potentially set the error in context for logging, though the request is mostly finished.
-		setError(ctx.r, fmt.Errorf("write response: %w", err), code, "failed to write response body")
+		ctx.setError(fmt.Errorf("write response: %w", err), code, "failed to write response body")
 		// No return here, let the handler finish, but the response is likely broken.
 	}
 }
@@ -377,7 +377,7 @@ func (ctx *Context) Error(err error, code int, msg string, args ...any) {
 		msg = fmt.Sprintf(msg, args...)
 	}
 
-	setError(ctx.r, err, code, msg)
+	ctx.setError(err, code, msg)
 
 	body := []byte(`{"message":"` + msg + `"}`)
 
@@ -389,9 +389,32 @@ func (ctx *Context) Error(err error, code int, msg string, args ...any) {
 		// Log the write error if possible (though Context doesn't have logger)
 		// Cannot call ctx.Error as headers are already written.
 		// We can potentially set the error in context for logging, though the request is mostly finished.
-		setError(ctx.r, fmt.Errorf("write error response: %w", writeErr), code, "failed to write error response body, original error: "+err.Error())
+		ctx.setError(fmt.Errorf("write error response: %w", writeErr), code, "failed to write error response body, original error: "+err.Error())
 		// No return here, let the handler finish, but the response is likely broken.
 	}
+}
+
+func (ctx *Context) setError(err error, code int, msg string) {
+	// Also store the error details directly on the loggingResponseWriter if possible
+	if lrw, ok := ctx.w.(*loggingResponseWriter); ok {
+		lrw.loggedError = err
+		lrw.loggedMsg = msg
+		lrw.loggedCode = code
+		lrw.errorCodeSet = true // Mark that these values were explicitly set
+		return
+	}
+	rCtx := context.WithValue(ctx.r.Context(), errorKey{}, err)
+	rCtx = context.WithValue(rCtx, msgKey{}, msg)
+	rCtx = context.WithValue(rCtx, codeKey{}, code)
+	ctx.r = ctx.r.WithContext(rCtx)
+}
+
+func (ctx *Context) setNoLog() {
+	if lrw, ok := ctx.w.(*loggingResponseWriter); ok {
+		lrw.noLog = true
+		return
+	}
+	ctx.r = ctx.r.WithContext(context.WithValue(ctx.r.Context(), noLogKey{}, true))
 }
 
 // https://pkg.go.dev/context#WithValue
@@ -432,18 +455,6 @@ func generateAndSetRequestID(r *http.Request) string {
 	ctx = context.WithValue(ctx, requestIDKey{}, requestID)
 	*r = *r.WithContext(ctx)
 	return requestID
-}
-
-func setError(r *http.Request, err error, code int, msg string) {
-	ctx := context.WithValue(r.Context(), errorKey{}, err)
-	ctx = context.WithValue(ctx, msgKey{}, msg)
-	ctx = context.WithValue(ctx, codeKey{}, code)
-	*r = *r.WithContext(ctx)
-}
-
-func setNoLog(r *http.Request) {
-	ctx := context.WithValue(r.Context(), noLogKey{}, true)
-	*r = *r.WithContext(ctx)
 }
 
 var (

@@ -43,12 +43,13 @@ type RequestLogger interface {
 
 // RequestLogBundle represents a bundle of information for logging a request.
 type RequestLogBundle struct {
-	Request      *http.Request
-	RequestID    string
-	Error        error
-	ErrorMessage string
-	StatusCode   int
-	StartTime    time.Time
+	Request           *http.Request
+	RequestID         string
+	Error             error
+	ErrorMessage      string
+	StatusCode        int
+	StartTime         time.Time
+	NoLogClientErrors bool
 }
 
 // LogFields returns a slice of fields to set to logger using With method.
@@ -116,13 +117,23 @@ func (l *BaseRequestLogger) Log(r RequestLogBundle) {
 		msg = "https"
 	}
 
-	if r.Error != nil {
-		l.Logger.Error(msg, fields...)
-	} else {
+	if r.Error == nil {
 		l.Logger.Debug(msg, fields...)
+		return
 	}
+
+	if r.NoLogClientErrors && r.StatusCode >= 400 && r.StatusCode < 500 {
+		l.Logger.Debug(msg, fields...)
+		return
+	}
+
+	l.Logger.Error(msg, fields...)
 }
 
 type BaseRequestLogger struct {
 	Logger
 }
+
+type noopRequestLogger struct{}
+
+func (l *noopRequestLogger) Log(RequestLogBundle) {}
