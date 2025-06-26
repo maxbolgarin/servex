@@ -61,6 +61,9 @@ type Options struct {
 	// NoLogClientErrors, if true, will not log client errors with code 400-499
 	NoLogClientErrors bool
 
+	// SendErrorToClient, if true, will send golang error to client in response body.
+	SendErrorToClient bool
+
 	// Auth is the auth configuration for the server.
 	Auth AuthConfig
 
@@ -258,6 +261,13 @@ func WithNoRequestLog() Option {
 func WithNoLogClientErrors() Option {
 	return func(op *Options) {
 		op.NoLogClientErrors = true
+	}
+}
+
+// WithSendErrorToClient sets the [Options.SendErrorToClient] of the [Options] to the given value.
+func WithSendErrorToClient(sendErrorToClient bool) Option {
+	return func(op *Options) {
+		op.SendErrorToClient = sendErrorToClient
 	}
 }
 

@@ -66,9 +66,10 @@ func NewWithOptions(opts Options) *Server {
 	}
 
 	RegisterRateLimitMiddleware(s.router, opts.RateLimit)
-	RegisterLoggingMiddleware(s.router, opts.RequestLogger, opts.Metrics, opts.NoLogClientErrors)
+	RegisterLoggingMiddleware(s.router, opts.RequestLogger, opts.Metrics)
 	RegisterRecoverMiddleware(s.router, opts.Logger)
 	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken)
+	registerOptsMiddleware(s.router, opts)
 
 	if opts.Auth.enabled {
 		if !opts.Auth.NotRegisterRoutes {

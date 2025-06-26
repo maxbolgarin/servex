@@ -91,7 +91,8 @@ type Context struct {
 	w http.ResponseWriter
 	r *http.Request
 
-	isSetContentType bool
+	isSendErrorToClient bool
+	isSetContentType    bool
 }
 
 // NewContext returns a new context for the provided request.
@@ -115,6 +116,11 @@ func C(w http.ResponseWriter, r *http.Request) *Context {
 // RequestID returns the request ID for the request.
 func (ctx *Context) RequestID() string {
 	return getOrSetRequestID(ctx.r)
+}
+
+// SetSendErrorToClient add golang error to response body in case of error.
+func (ctx *Context) SetSendErrorToClient(sendErrorToClient bool) {
+	ctx.isSendErrorToClient = sendErrorToClient
 }
 
 // APIVersion returns the API version of the handler from the path.
@@ -441,6 +447,11 @@ func (ctx *Context) Error(err error, code int, msg string, args ...any) {
 
 	ctx.setError(err, code, msg)
 
+	isSendErrorToClient := GetFromContext[bool](ctx.r, sendErrorToClientKey{})
+	if isSendErrorToClient || ctx.isSendErrorToClient {
+		msg = fmt.Sprintf("%s: %s", msg, err.Error())
+	}
+
 	body := []byte(`{"message":"` + msg + `"}`)
 
 	ctx.SetHeader("Content-Length", strconv.Itoa(len(body)))
@@ -489,6 +500,9 @@ type (
 	msgKey       struct{}
 	codeKey      struct{}
 	noLogKey     struct{}
+
+	sendErrorToClientKey struct{}
+	noLogClientErrorsKey struct{}
 )
 
 func getOrSetRequestID(r *http.Request) string {
@@ -496,15 +510,9 @@ func getOrSetRequestID(r *http.Request) string {
 	if rIDHeader != "" {
 		return rIDHeader
 	}
-	ctx := r.Context()
 
-	requestIDRaw := ctx.Value(requestIDKey{})
-	if requestIDRaw == nil {
-		return generateAndSetRequestID(r)
-	}
-
-	requestID, ok := requestIDRaw.(string)
-	if !ok {
+	requestID := GetFromContext[string](r, requestIDKey{})
+	if requestID == "" {
 		return generateAndSetRequestID(r)
 	}
 
@@ -537,4 +545,16 @@ func getRandomBytes(n int) []byte {
 		out[i] = defaultAlphabet[out[i]&(alphabetLen-1)]
 	}
 	return out
+}
+
+func GetFromContext[T any](r *http.Request, key any) (empty T) {
+	raw := r.Context().Value(key)
+	if raw == nil {
+		return empty
+	}
+	res, ok := raw.(T)
+	if !ok {
+		return empty
+	}
+	return res
 }
