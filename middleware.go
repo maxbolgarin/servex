@@ -1,6 +1,7 @@
 package servex
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -24,7 +25,7 @@ type MiddlewareRouter interface {
 // It also integrates with a Metrics handler if provided.
 // If the logger is nil, it defaults to a BaseRequestLogger using slog.Default().
 // Requests can be excluded from logging by calling ctx.NoLog() within the handler.
-func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, metrics Metrics, disableLoggingClientErrors bool) {
+func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, metrics Metrics, noLogClientErrors ...bool) {
 	if logger == nil {
 		logger = &BaseRequestLogger{
 			Logger: slog.Default(),
@@ -42,8 +43,7 @@ func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, me
 
 			next.ServeHTTP(lrw, r)
 
-			ctx := r.Context()
-			noLog, _ := ctx.Value(noLogKey{}).(bool)
+			noLog := GetFromContext[bool](r, noLogKey{})
 			if noLog {
 				return
 			}
@@ -52,7 +52,10 @@ func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, me
 				Request:           r,
 				RequestID:         getOrSetRequestID(r),
 				StartTime:         start,
-				NoLogClientErrors: disableLoggingClientErrors,
+				NoLogClientErrors: GetFromContext[bool](r, noLogClientErrorsKey{}),
+			}
+			if len(noLogClientErrors) > 0 {
+				logBundle.NoLogClientErrors = noLogClientErrors[0]
 			}
 
 			// Check if error details were explicitly set on the response writer wrapper
@@ -63,9 +66,9 @@ func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, me
 			} else {
 				// Fallback: Try reading from context (might be incorrect if handler modified request context pointer)
 				// and use the status code captured by the wrapper.
-				logBundle.Error, _ = ctx.Value(errorKey{}).(error)
-				logBundle.ErrorMessage, _ = ctx.Value(msgKey{}).(string)
-				logBundle.StatusCode, _ = ctx.Value(codeKey{}).(int)
+				logBundle.Error = GetFromContext[error](r, errorKey{})
+				logBundle.ErrorMessage = GetFromContext[string](r, msgKey{})
+				logBundle.StatusCode = GetFromContext[int](r, codeKey{})
 			}
 
 			logger.Log(logBundle)
@@ -198,4 +201,21 @@ func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
 		lrw.WriteHeader(http.StatusOK) // Default to 200 OK if Write is called before WriteHeader
 	}
 	return lrw.ResponseWriter.Write(b)
+}
+
+func registerOptsMiddleware(router MiddlewareRouter, opts Options) {
+	if !opts.NoLogClientErrors && !opts.SendErrorToClient {
+		return
+	}
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if opts.NoLogClientErrors {
+				r = r.WithContext(context.WithValue(r.Context(), noLogClientErrorsKey{}, true))
+			}
+			if opts.SendErrorToClient {
+				r = r.WithContext(context.WithValue(r.Context(), sendErrorToClientKey{}, true))
+			}
+			next.ServeHTTP(w, r)
+		})
+	})
 }
