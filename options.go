@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"regexp"
 	"time"
+
+	"github.com/maxbolgarin/lang"
 )
 
 var (
@@ -217,22 +219,16 @@ func WithCertificateFromFile(certFilePath, keyFilePath string) Option {
 // A zero or negative value sets default value of 60 seconds.
 func WithReadTimeout(tm time.Duration) Option {
 	return func(op *Options) {
-		if op.ReadTimeout <= 0 {
-			op.ReadTimeout = defaultReadTimeout
-		}
-		op.ReadTimeout = tm
+		op.ReadTimeout = lang.If(tm <= 0, defaultReadTimeout, tm)
 	}
 }
 
 // WithReadHeaderTimeout sets the [Options.ReadHeaderTimeout] of the [Options] to the given duration.
 // ReadHeaderTimeout is the maximum duration for reading the request headers (without body).
-// A zero or negative value means there will be no timeout (using ReadTimeout for all request).
+// A zero or negative value sets default value of 60 seconds.
 func WithReadHeaderTimeout(tm time.Duration) Option {
 	return func(op *Options) {
-		if op.ReadHeaderTimeout <= 0 {
-			op.ReadHeaderTimeout = 0
-		}
-		op.ReadHeaderTimeout = tm
+		op.ReadHeaderTimeout = lang.If(tm <= 0, defaultReadTimeout, tm)
 	}
 }
 
@@ -241,10 +237,7 @@ func WithReadHeaderTimeout(tm time.Duration) Option {
 // A zero or negative value sets default value of 180 seconds.
 func WithIdleTimeout(tm time.Duration) Option {
 	return func(op *Options) {
-		if op.IdleTimeout <= 0 {
-			op.IdleTimeout = defaultIdleTimeout
-		}
-		op.IdleTimeout = tm
+		op.IdleTimeout = lang.If(tm <= 0, defaultIdleTimeout, tm)
 	}
 }
 
