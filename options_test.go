@@ -23,6 +23,34 @@ func TestWithCertificate(t *testing.T) {
 	}
 }
 
+// TestWithCertificatePtr tests whether the WithCertificatePtr option sets the TLS certificate pointer correctly.
+func TestWithCertificatePtr(t *testing.T) {
+	cert := &tls.Certificate{}
+	option := servex.WithCertificatePtr(cert)
+	options := servex.Options{}
+	option(&options)
+
+	if options.Certificate != cert {
+		t.Errorf("expected certificate pointer to be %p, got %p", cert, options.Certificate)
+	}
+}
+
+// TestWithCertificateFromFile tests whether the WithCertificateFromFile option sets the certificate file paths correctly.
+func TestWithCertificateFromFile(t *testing.T) {
+	certFilePath := "cert.pem"
+	keyFilePath := "key.pem"
+	option := servex.WithCertificateFromFile(certFilePath, keyFilePath)
+	options := servex.Options{}
+	option(&options)
+
+	if options.CertFilePath != certFilePath {
+		t.Errorf("expected cert file path to be %q, got %q", certFilePath, options.CertFilePath)
+	}
+	if options.KeyFilePath != keyFilePath {
+		t.Errorf("expected key file path to be %q, got %q", keyFilePath, options.KeyFilePath)
+	}
+}
+
 // TestWithReadTimeout verifies the WithReadTimeout sets the ReadTimeout properly.
 func TestWithReadTimeout(t *testing.T) {
 	timeout := 30 * time.Second
@@ -590,5 +618,38 @@ func TestWithNoRateInAuthRoutes(t *testing.T) {
 
 	if !options.RateLimit.NoRateInAuthRoutes {
 		t.Errorf("expected NoRateInAuthRoutes to be true, got false")
+	}
+}
+
+// TestReadCertificate tests the ReadCertificate utility function with invalid data.
+func TestReadCertificate(t *testing.T) {
+	// Test with invalid certificate data
+	invalidCert := []byte("invalid cert data")
+	invalidKey := []byte("invalid key data")
+
+	_, err := servex.ReadCertificate(invalidCert, invalidKey)
+	if err == nil {
+		t.Errorf("expected error for invalid certificate data, got nil")
+	}
+
+	// Test with empty data
+	_, err = servex.ReadCertificate([]byte{}, []byte{})
+	if err == nil {
+		t.Errorf("expected error for empty certificate data, got nil")
+	}
+}
+
+// TestReadCertificateFromFile tests the ReadCertificateFromFile utility function with non-existent files.
+func TestReadCertificateFromFile(t *testing.T) {
+	// Test with non-existent files
+	_, err := servex.ReadCertificateFromFile("nonexistent-cert.pem", "nonexistent-key.pem")
+	if err == nil {
+		t.Errorf("expected error for non-existent certificate files, got nil")
+	}
+
+	// Test with empty file paths
+	_, err = servex.ReadCertificateFromFile("", "")
+	if err == nil {
+		t.Errorf("expected error for empty certificate file paths, got nil")
 	}
 }

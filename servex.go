@@ -198,8 +198,16 @@ func (s *Server) StartHTTP(address string) error {
 // It returns an error if the server cannot be started, address is invalid or no certificate is provided in config.
 func (s *Server) StartHTTPS(address string) error {
 	if s.opts.Certificate == nil {
-		return errors.New("TLS certificate is required for HTTPS server")
+		if s.opts.CertFilePath == "" || s.opts.KeyFilePath == "" {
+			return errors.New("TLS certificate is required for HTTPS server")
+		}
+		cert, err := ReadCertificateFromFile(s.opts.CertFilePath, s.opts.KeyFilePath)
+		if err != nil {
+			return fmt.Errorf("read certificate from file cert=%s, key=%s: %w", s.opts.CertFilePath, s.opts.KeyFilePath, err)
+		}
+		s.opts.Certificate = &cert
 	}
+
 	s.https = &http.Server{
 		Addr:              address,
 		Handler:           s.router,
@@ -208,6 +216,7 @@ func (s *Server) StartHTTPS(address string) error {
 		IdleTimeout:       lang.Check(s.opts.IdleTimeout, defaultIdleTimeout),
 		TLSConfig:         GetTLSConfig(s.opts.Certificate),
 	}
+
 	if err := s.start(address, s.https.Serve, func(netType, addr string) (net.Listener, error) {
 		return tls.Listen(netType, addr, s.https.TLSConfig)
 	}); err != nil {

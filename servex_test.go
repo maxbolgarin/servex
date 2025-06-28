@@ -278,6 +278,74 @@ func TestServerStartWithShutdownHTTPS(t *testing.T) {
 	}
 }
 
+// TestServerStartHTTPSWithCertFilePaths tests HTTPS server startup with certificate file paths but non-existent files.
+func TestServerStartHTTPSWithCertFilePaths(t *testing.T) {
+	// Test with non-existent certificate files
+	server := servex.New(servex.WithCertificateFromFile("nonexistent-cert.pem", "nonexistent-key.pem"))
+	address := randAddress()
+
+	err := server.StartHTTPS(address)
+	if err == nil {
+		t.Fatalf("expected error for non-existent certificate files, got: nil")
+	}
+
+	// The error should contain information about reading the certificate
+	expectedErrorSubstring := "read certificate from file"
+	if !strings.Contains(err.Error(), expectedErrorSubstring) {
+		t.Errorf("expected error to contain %q, got: %s", expectedErrorSubstring, err.Error())
+	}
+}
+
+// TestPrepareServerWithCertFiles tests the prepareServer function with certificate files in BaseConfig.
+func TestPrepareServerWithCertFiles(t *testing.T) {
+	cfg := servex.BaseConfig{
+		HTTP:     ":8080",
+		CertFile: "nonexistent-cert.pem",
+		KeyFile:  "nonexistent-key.pem",
+	}
+
+	_, err := servex.Start(cfg, func(r *mux.Router) {
+		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("Hello"))
+		})
+	})
+
+	if err == nil {
+		t.Fatalf("expected error for non-existent certificate files, got: nil")
+	}
+
+	// The error should contain information about reading the certificate
+	expectedErrorSubstring := "read certificate"
+	if !strings.Contains(err.Error(), expectedErrorSubstring) {
+		t.Errorf("expected error to contain %q, got: %s", expectedErrorSubstring, err.Error())
+	}
+}
+
+// TestPrepareServerWithValidConfig tests the prepareServer function with valid config but no certificate files.
+func TestPrepareServerWithValidConfig(t *testing.T) {
+	cfg := servex.BaseConfig{
+		HTTP: ":8080",
+		// No certificate files specified
+	}
+
+	shutdown, err := servex.Start(cfg, func(r *mux.Router) {
+		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.Write([]byte("Hello"))
+		})
+	})
+
+	if err != nil {
+		t.Fatalf("unexpected error for valid config: %v", err)
+	}
+
+	// Clean up
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+	if shutdown != nil {
+		shutdown(ctx)
+	}
+}
+
 func TestAuthMiddleware(t *testing.T) {
 	server := servex.New(servex.WithAuthToken("valid-token"))
 	router := server.Router()

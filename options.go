@@ -32,6 +32,12 @@ type Options struct {
 	// If not set, the server will not start HTTPS server.
 	Certificate *tls.Certificate
 
+	// CertFilePath is the path to the TLS certificate file.
+	CertFilePath string
+
+	// KeyFilePath is the path to the TLS key file.
+	KeyFilePath string
+
 	// ReadTimeout is the maximum duration for reading the entire request.
 	ReadTimeout time.Duration
 
@@ -183,6 +189,23 @@ type RateLimitConfig struct {
 func WithCertificate(cert tls.Certificate) Option {
 	return func(op *Options) {
 		op.Certificate = &cert
+	}
+}
+
+// WithCertificatePtr sets the TLS [Options.Certificate] to the [Options].
+// TLS certificate is required to start HTTPS server.
+func WithCertificatePtr(cert *tls.Certificate) Option {
+	return func(op *Options) {
+		op.Certificate = cert
+	}
+}
+
+// WithCertificateFromFile sets the [Options.CertFilePath] and [Options.KeyFilePath] to the [Options] from the given cert and key files.
+// TLS certificate is required to start HTTPS server.
+func WithCertificateFromFile(certFilePath, keyFilePath string) Option {
+	return func(op *Options) {
+		op.CertFilePath = certFilePath
+		op.KeyFilePath = keyFilePath
 	}
 }
 
