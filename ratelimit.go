@@ -1,7 +1,9 @@
 package servex
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net/http"
 	"slices"
 	"sync"
@@ -178,19 +180,25 @@ func (m *rateLimiterMiddleware) getLimiter(key string) *rate.Limiter {
 }
 
 // UsernameKeyFunc returns a key function that uses the username from the request body
-// as the rate limit key for login attempts. Falls backto IP if no username found.
+// as the rate limit key for login attempts. Falls back to IP if no username found.
+// This function preserves the request body for subsequent handlers.
 func getUsernameKeyFunc() func(r *http.Request) string {
 	ipKeyFunc := getIPKeyFunc()
 	return func(r *http.Request) string {
 		// Only try to extract username from login/register endpoints
 		if r.Method == http.MethodPost && (r.URL.Path == "/login" || r.URL.Path == "/register") {
-			// Try to parse JSON from body
-			var req struct {
-				Username string `json:"username"`
-			}
-			ctx := NewContext(nil, r)
-			if err := ctx.ReadJSON(&req); err == nil && req.Username != "" {
-				return "username:" + req.Username
+			// Read body and preserve it for the actual handler
+			if body, err := io.ReadAll(r.Body); err == nil && len(body) > 0 {
+				// Restore the body for subsequent handlers
+				r.Body = io.NopCloser(bytes.NewReader(body))
+
+				// Try to parse JSON from body copy
+				var req struct {
+					Username string `json:"username"`
+				}
+				if err := json.Unmarshal(body, &req); err == nil && req.Username != "" {
+					return "username:" + req.Username
+				}
 			}
 		}
 		// Fall back to IP-based limiting

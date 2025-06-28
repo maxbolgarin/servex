@@ -2,8 +2,10 @@ package servex_test
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -488,5 +490,51 @@ func TestRateLimitMiddleware_DefaultValues(t *testing.T) {
 	// Default status code should be 429
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Errorf("Expected status TooManyRequests, got %v", resp.StatusCode)
+	}
+}
+
+// TestRateLimitMiddleware_RequestBodyPreservation tests that the rate limiter preserves the request body
+// for subsequent handlers when extracting username for rate limiting.
+func TestRateLimitMiddleware_RequestBodyPreservation(t *testing.T) {
+	cfg := servex.RateLimitConfig{
+		RequestsPerInterval: 10,
+		Interval:            time.Minute,
+		BurstSize:           1,
+	}
+
+	router := &TestRouter{}
+	servex.RegisterRateLimitMiddleware(router, cfg)
+
+	// Create a test handler that reads the request body
+	var receivedBody string
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("failed to read body in handler: %v", err)
+		}
+		receivedBody = string(body)
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// Apply middleware
+	middlewareHandler := router.middleware(handler)
+
+	// Create test request with JSON body containing username
+	requestBody := `{"username":"testuser","password":"testpass"}`
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	// Execute request
+	middlewareHandler.ServeHTTP(w, req)
+
+	// Verify the request body was preserved for the handler
+	if receivedBody != requestBody {
+		t.Errorf("expected body %q, got %q", requestBody, receivedBody)
+	}
+
+	// Verify the response is OK (not rate limited)
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
 	}
 }
