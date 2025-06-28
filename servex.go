@@ -26,6 +26,7 @@ type Server struct {
 	opts   Options
 
 	basePath string
+	cleanup  func()
 }
 
 // New creates a new instance of the [Server]. You can provide a list of options using With* methods.
@@ -68,7 +69,7 @@ func NewWithOptions(opts Options) *Server {
 		// So we dont need to include auth routes in the include list
 	}
 
-	RegisterRateLimitMiddleware(s.router, opts.RateLimit)
+	s.cleanup = RegisterRateLimitMiddleware(s.router, opts.RateLimit)
 	RegisterLoggingMiddleware(s.router, opts.RequestLogger, opts.Metrics)
 	RegisterRecoverMiddleware(s.router, opts.Logger)
 	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken)
@@ -259,6 +260,9 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		if err := s.https.Shutdown(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("shutdown HTTPS: %w", err))
 		}
+	}
+	if s.cleanup != nil {
+		s.cleanup()
 	}
 	return errors.Join(errs...)
 }

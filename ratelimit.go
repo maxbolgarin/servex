@@ -21,17 +21,21 @@ type visitor struct {
 
 // rateLimiterMiddleware provides rate limiting middleware functionality.
 type rateLimiterMiddleware struct {
-	cfg       RateLimitConfig
-	visitors  map[string]*visitor
-	mu        sync.Mutex
-	statusMsg string
+	cfg         RateLimitConfig
+	visitors    map[string]*visitor
+	mu          sync.RWMutex
+	statusMsg   string
+	cleanupDone chan struct{}
+	cleanupOnce sync.Once
 }
 
 // RegisterRateLimitMiddleware adds rate limiting middleware to the router.
 // If the config is not enabled, no middleware will be registered.
-func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig) {
+// It returns a function that can be used to stop the cleanup routine.
+// RequestsPerInterval must be greater than 0.
+func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig) func() {
 	if cfg.RequestsPerInterval <= 0 {
-		return
+		return nil
 	}
 
 	cfg.BurstSize = lang.Check(cfg.BurstSize, cfg.RequestsPerInterval)
@@ -44,27 +48,58 @@ func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig) {
 	}
 
 	m := &rateLimiterMiddleware{
-		cfg:      cfg,
-		visitors: make(map[string]*visitor),
+		cfg:         cfg,
+		visitors:    make(map[string]*visitor),
+		cleanupDone: make(chan struct{}),
 	}
 
 	router.Use(m.middleware)
+
+	// Start cleanup goroutine only once
+	m.cleanupOnce.Do(func() {
+		go m.startCleanupRoutine()
+	})
+
+	return m.Stop
+}
+
+// startCleanupRoutine runs a background cleanup task to remove stale visitors.
+func (m *rateLimiterMiddleware) startCleanupRoutine() {
+	// Run cleanup every 30 minutes instead of every 18 minutes (cleanupInterval/10)
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			m.cleanup()
+		case <-m.cleanupDone:
+			return
+		}
+	}
+}
+
+// cleanup removes stale visitors from the map.
+func (m *rateLimiterMiddleware) cleanup() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	now := time.Now()
+	for key, v := range m.visitors {
+		if now.Sub(v.lastSeen) > cleanupInterval {
+			delete(m.visitors, key)
+		}
+	}
+}
+
+// Stop gracefully stops the cleanup routine.
+func (m *rateLimiterMiddleware) Stop() {
+	close(m.cleanupDone)
 }
 
 // middleware is the actual rate limiting middleware function.
 func (m *rateLimiterMiddleware) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		defer func() {
-			m.mu.Lock()
-			defer m.mu.Unlock()
-
-			for ip, v := range m.visitors {
-				if time.Since(v.lastSeen) > cleanupInterval {
-					delete(m.visitors, ip)
-				}
-			}
-		}()
-
 		// Check if the path should be rate limited
 		if !m.shouldRateLimit(r) {
 			next.ServeHTTP(w, r)
@@ -109,27 +144,37 @@ func (m *rateLimiterMiddleware) shouldRateLimit(r *http.Request) bool {
 
 // getLimiter retrieves or creates a rate limiter for a visitor.
 func (m *rateLimiterMiddleware) getLimiter(key string) *rate.Limiter {
+	// First try with read lock for better performance
+	m.mu.RLock()
+	if v, exists := m.visitors[key]; exists {
+		v.lastSeen = time.Now()
+		limiter := v.limiter
+		m.mu.RUnlock()
+		return limiter
+	}
+	m.mu.RUnlock()
+
+	// If not found, acquire write lock and create new limiter
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	v, exists := m.visitors[key]
-
-	if !exists {
-		limiter := rate.NewLimiter(
-			rate.Limit(float64(m.cfg.RequestsPerInterval)/m.cfg.Interval.Seconds()),
-			m.cfg.BurstSize,
-		)
-
-		m.visitors[key] = &visitor{
-			limiter:  limiter,
-			lastSeen: time.Now(),
-		}
-
-		return limiter
+	// Double-check in case another goroutine created it while we were waiting
+	if v, exists := m.visitors[key]; exists {
+		v.lastSeen = time.Now()
+		return v.limiter
 	}
 
-	v.lastSeen = time.Now()
-	return v.limiter
+	limiter := rate.NewLimiter(
+		rate.Limit(float64(m.cfg.RequestsPerInterval)/m.cfg.Interval.Seconds()),
+		m.cfg.BurstSize,
+	)
+
+	m.visitors[key] = &visitor{
+		limiter:  limiter,
+		lastSeen: time.Now(),
+	}
+
+	return limiter
 }
 
 // UsernameKeyFunc returns a key function that uses the username from the request body
