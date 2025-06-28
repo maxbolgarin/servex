@@ -41,8 +41,11 @@ func NewWithOptions(opts Options) *Server {
 			Level: slog.LevelDebug,
 		}))
 	}
-	if opts.RequestLogger == nil {
+	if opts.RequestLogger == nil && !opts.DisableRequestLogging {
 		opts.RequestLogger = &BaseRequestLogger{opts.Logger}
+	}
+	if opts.DisableRequestLogging {
+		opts.RequestLogger = &noopRequestLogger{}
 	}
 	opts.Auth.enabled = opts.Auth.Database != nil
 

@@ -58,6 +58,9 @@ type Options struct {
 	// If not set it will use [Options.Logger].
 	RequestLogger RequestLogger
 
+	// DisableRequestLogging, if true, will not log requests.
+	DisableRequestLogging bool
+
 	// NoLogClientErrors, if true, will not log client errors with code 400-499
 	NoLogClientErrors bool
 
@@ -254,6 +257,15 @@ func WithRequestLogger(r RequestLogger) Option {
 func WithNoRequestLog() Option {
 	return func(op *Options) {
 		op.RequestLogger = &noopRequestLogger{}
+		op.DisableRequestLogging = true
+	}
+}
+
+// WithDisableRequestLogging disables request logging.
+func WithDisableRequestLogging() Option {
+	return func(op *Options) {
+		op.RequestLogger = &noopRequestLogger{}
+		op.DisableRequestLogging = true
 	}
 }
 

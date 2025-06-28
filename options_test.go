@@ -109,6 +109,46 @@ func TestWithRequestLogger(t *testing.T) {
 	}
 }
 
+// TestWithNoRequestLog verifies that WithNoRequestLog disables request logging.
+func TestWithNoRequestLog(t *testing.T) {
+	option := servex.WithNoRequestLog()
+	options := servex.Options{}
+	option(&options)
+
+	if !options.DisableRequestLogging {
+		t.Errorf("expected DisableRequestLogging to be true, got false")
+	}
+
+	// Verify that RequestLogger is set to noopRequestLogger by checking its behavior
+	if options.RequestLogger == nil {
+		t.Errorf("expected RequestLogger to be set to noopRequestLogger, got nil")
+	}
+
+	// Test that the logger doesn't actually log anything (noop behavior)
+	bundle := servex.RequestLogBundle{}
+	options.RequestLogger.Log(bundle) // Should do nothing
+}
+
+// TestWithDisableRequestLogging verifies that WithDisableRequestLogging disables request logging.
+func TestWithDisableRequestLogging(t *testing.T) {
+	option := servex.WithDisableRequestLogging()
+	options := servex.Options{}
+	option(&options)
+
+	if !options.DisableRequestLogging {
+		t.Errorf("expected DisableRequestLogging to be true, got false")
+	}
+
+	// Verify that RequestLogger is set to noopRequestLogger by checking its behavior
+	if options.RequestLogger == nil {
+		t.Errorf("expected RequestLogger to be set to noopRequestLogger, got nil")
+	}
+
+	// Test that the logger doesn't actually log anything (noop behavior)
+	bundle := servex.RequestLogBundle{}
+	options.RequestLogger.Log(bundle) // Should do nothing
+}
+
 func TestBaseConfigValidate(t *testing.T) {
 	tests := []struct {
 		config   servex.BaseConfig
