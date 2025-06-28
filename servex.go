@@ -96,6 +96,23 @@ func NewWithOptions(opts Options) *Server {
 // It returns an error if there was an error starting either of the servers.
 // You should provide a function that sets the handlers for the server to the router.
 // It returns shutdown function so you should shutdown the server manually.
+//
+// Example:
+//
+//	cfg := servex.BaseConfig{
+//		HTTPS: ":8443",
+//		CertFile: "cert.pem",
+//		KeyFile:  "key.pem",
+//	}
+//
+//	shutdown, err := servex.Start(cfg, func(r *mux.Router) {
+//		r.HandleFunc("/api/users", handleUsers)
+//		r.HandleFunc("/api/health", handleHealth)
+//	}, servex.WithAuthToken("secret-token"))
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	defer shutdown(context.Background())
 func Start(cfg BaseConfig, handlerSetter func(*mux.Router), opts ...Option) (shutdown func(context.Context) error, err error) {
 	s, err := prepareServer(cfg, handlerSetter, opts...)
 	if err != nil {
@@ -109,6 +126,28 @@ func Start(cfg BaseConfig, handlerSetter func(*mux.Router), opts ...Option) (shu
 // It returns an error if there was an error starting either of the servers.
 // You should provide a function that sets the handlers for the server to the router.
 // It shutdowns the server when the context is closed (it starts a goroutine to check [Context.Done]).
+//
+// Example:
+//
+//	ctx, cancel := context.WithCancel(context.Background())
+//	defer cancel()
+//
+//	cfg := servex.BaseConfig{
+//		HTTPS: ":8443",
+//		CertFile: "cert.pem",
+//		KeyFile:  "key.pem",
+//	}
+//
+//	err := servex.StartWithShutdown(ctx, cfg, func(r *mux.Router) {
+//		r.HandleFunc("/api/users", handleUsers)
+//		r.HandleFunc("/api/health", handleHealth)
+//	}, servex.WithAuthToken("secret-token"))
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Server will automatically shutdown when ctx is cancelled
+//	// or when the context deadline is reached
 func StartWithShutdown(ctx context.Context, cfg BaseConfig, handlerSetter func(*mux.Router), opts ...Option) error {
 	s, err := prepareServer(cfg, handlerSetter, opts...)
 	if err != nil {
