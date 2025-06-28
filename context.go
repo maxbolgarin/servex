@@ -467,13 +467,19 @@ func (ctx *Context) Error(err error, code int, msg string, args ...any) {
 		msg = fmt.Sprintf("%s: %s", msg, err.Error())
 	}
 
-	body := []byte(`{"message":"` + msg + `"}`)
+	body := ErrorResponse{
+		Message: msg,
+	}
+	jsonBytes, err := json.Marshal(body)
+	if err != nil {
+		jsonBytes = []byte(`{"message":"failed to marshal error response"}`)
+	}
 
-	ctx.SetHeader("Content-Length", strconv.Itoa(len(body)))
+	ctx.SetHeader("Content-Length", strconv.Itoa(len(jsonBytes)))
 	ctx.SetContentType(MIMETypeJSON)
 	ctx.w.WriteHeader(code)
 
-	if _, writeErr := ctx.w.Write(body); writeErr != nil {
+	if _, writeErr := ctx.w.Write(jsonBytes); writeErr != nil {
 		// Log the write error if possible (though Context doesn't have logger)
 		// Cannot call ctx.Error as headers are already written.
 		// We can potentially set the error in context for logging, though the request is mostly finished.
