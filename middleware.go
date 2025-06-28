@@ -2,6 +2,7 @@ package servex
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -133,6 +134,7 @@ func RegisterSimpleAuthMiddleware(router MiddlewareRouter, authToken string) {
 	if authToken == "" {
 		return // Don't register auth middleware if no token is configured
 	}
+	authTokenBytes := []byte(authToken)
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
@@ -155,7 +157,7 @@ func RegisterSimpleAuthMiddleware(router MiddlewareRouter, authToken string) {
 				return
 			}
 
-			if providedToken == authToken {
+			if subtle.ConstantTimeCompare([]byte(providedToken), authTokenBytes) == 1 {
 				next.ServeHTTP(w, r) // Token is valid, proceed to the next handler
 				return
 			}
