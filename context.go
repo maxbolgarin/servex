@@ -332,6 +332,10 @@ func (ctx *Context) Response(code int, bodyRaw ...any) {
 	}
 }
 
+// ResponseFile writes the file to the [http.ResponseWriter].
+// It sets the Content-Type header to the provided mime type.
+// It sets the Content-Disposition header to "attachment; filename=" + filename.
+// It sets the Content-Length header to the length of the body.
 func (ctx *Context) ResponseFile(filename string, mimeType string, body []byte) {
 	ctx.SetContentType(mimeType)
 	ctx.SetHeader("Content-Disposition", "attachment; filename="+filename)
