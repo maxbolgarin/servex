@@ -45,6 +45,35 @@ func TestReadJSON(t *testing.T) {
 	}
 }
 
+// TestRead tests the global Read function.
+func TestRead(t *testing.T) {
+	testData := "Hello, World!"
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(testData))
+	defer req.Body.Close()
+
+	body, err := servex.Read(req)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if string(body) != testData {
+		t.Errorf("expected %q, got %q", testData, string(body))
+	}
+}
+
+// TestReadEmpty tests the global Read function with empty request body.
+func TestReadEmpty(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	defer req.Body.Close()
+
+	body, err := servex.Read(req)
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if len(body) != 0 {
+		t.Errorf("expected empty body, got %q", string(body))
+	}
+}
+
 func TestReadAndValidate_Valid(t *testing.T) {
 	testData := testStruct{Foo: "bar"}
 	data, _ := json.Marshal(testData)
@@ -538,5 +567,57 @@ func TestContext_ResponseFile(t *testing.T) {
 	// Check file contents
 	if !bytes.Equal(body, fileContents) {
 		t.Errorf("expected file contents %q, got %q", fileContents, body)
+	}
+}
+
+// TestContext_Body tests the Body method that reads request body without error handling.
+func TestContext_Body(t *testing.T) {
+	testData := "Hello, World!"
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(testData))
+	ctx := servex.NewContext(httptest.NewRecorder(), req)
+
+	body := ctx.Body()
+	if string(body) != testData {
+		t.Errorf("expected %q, got %q", testData, string(body))
+	}
+}
+
+// TestContext_BodyEmpty tests the Body method with empty request body.
+func TestContext_BodyEmpty(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := servex.NewContext(httptest.NewRecorder(), req)
+
+	body := ctx.Body()
+	if len(body) != 0 {
+		t.Errorf("expected empty body, got %q", string(body))
+	}
+}
+
+// TestContext_Read tests the Read method that reads request body with error handling.
+func TestContext_Read(t *testing.T) {
+	testData := "Hello, World!"
+	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(testData))
+	ctx := servex.NewContext(httptest.NewRecorder(), req)
+
+	body, err := ctx.Read()
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if string(body) != testData {
+		t.Errorf("expected %q, got %q", testData, string(body))
+	}
+}
+
+// TestContext_ReadEmpty tests the Read method with empty request body.
+func TestContext_ReadEmpty(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	ctx := servex.NewContext(httptest.NewRecorder(), req)
+
+	body, err := ctx.Read()
+	if err != nil {
+		t.Errorf("expected no error, got %v", err)
+	}
+	if len(body) != 0 {
+		t.Errorf("expected empty body, got %q", string(body))
 	}
 }

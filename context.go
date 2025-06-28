@@ -227,8 +227,19 @@ func (ctx *Context) ParseUnixFromQuery(key string) (time.Time, error) {
 }
 
 // Read reads the request body.
+// It is a shortcut for [io.ReadAll].
 func (ctx *Context) Read() ([]byte, error) {
 	return io.ReadAll(ctx.r.Body)
+}
+
+// Body returns the request body.
+// It is a shortcut for [io.ReadAll] without error handling.
+func (ctx *Context) Body() []byte {
+	bytes, err := io.ReadAll(ctx.r.Body)
+	if err != nil {
+		return nil
+	}
+	return bytes
 }
 
 // ReadJSON reads a JSON from the request body.
