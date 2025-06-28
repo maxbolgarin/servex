@@ -133,6 +133,9 @@ type AuthConfig struct {
 
 	// enabled indicates whether authentication is enabled.
 	enabled bool
+
+	// isInitialized indicates whether the auth is initialized.
+	isInitialized bool
 }
 
 // InitialUser represents a user to be created during server startup.

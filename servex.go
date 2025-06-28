@@ -74,19 +74,8 @@ func NewWithOptions(opts Options) *Server {
 	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken)
 	registerOptsMiddleware(s.router, opts)
 
-	if opts.Auth.enabled {
-		if !opts.Auth.NotRegisterRoutes {
-			s.auth.RegisterRoutes(s.router)
-		}
-		for _, user := range opts.Auth.InitialUsers {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
-			err := s.auth.CreateUser(ctx, user.Username, user.Password, user.Roles...)
-			if err != nil {
-				s.opts.Logger.Error("cannot create initial user", "error", err, "username", user.Username)
-			}
-		}
+	if opts.Auth.enabled && !opts.Auth.NotRegisterRoutes {
+		s.auth.RegisterRoutes(s.router)
 	}
 
 	return s
@@ -416,6 +405,19 @@ func (s *Server) HFA(path string, f http.HandlerFunc, roles ...UserRole) *mux.Ro
 func (s *Server) start(address string, serve func(net.Listener) error, getListener func(string, string) (net.Listener, error)) error {
 	if address == "" {
 		return errors.New("address is required")
+	}
+
+	if s.opts.Auth.enabled && !s.opts.Auth.isInitialized {
+		for _, user := range s.opts.Auth.InitialUsers {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			err := s.auth.CreateUser(ctx, user.Username, user.Password, user.Roles...)
+			if err != nil {
+				return fmt.Errorf("cannot create initial user with name=%s: %w", user.Username, err)
+			}
+		}
+		s.opts.Auth.isInitialized = true
 	}
 
 	l, err := getListener("tcp", address)
