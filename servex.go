@@ -107,7 +107,9 @@ func Start(cfg BaseConfig, handlerSetter func(*mux.Router), opts ...Option) (shu
 	if err != nil {
 		return nil, err
 	}
-	s.Start(cfg.HTTP, cfg.HTTPS)
+	if err := s.Start(cfg.HTTP, cfg.HTTPS); err != nil {
+		return nil, err
+	}
 	return s.Shutdown, nil
 }
 
