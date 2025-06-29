@@ -1,4 +1,4 @@
-package servex_test
+package servex
 
 import (
 	"fmt"
@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/maxbolgarin/servex"
 )
 
 // TestRouter is a simple implementation of MiddlewareRouter for testing
@@ -45,7 +44,7 @@ func TestRateLimitMiddleware_Basic(t *testing.T) {
 	router := &TestRouter{}
 
 	// Configure rate limiting with a static key function to ensure all requests use the same key
-	cfg := servex.RateLimitConfig{
+	cfg := RateLimitConfig{
 		RequestsPerInterval: 3,
 		Interval:            time.Second,
 		StatusCode:          http.StatusTooManyRequests,
@@ -54,7 +53,7 @@ func TestRateLimitMiddleware_Basic(t *testing.T) {
 	}
 
 	// Register middleware
-	servex.RegisterRateLimitMiddleware(router, cfg)
+	RegisterRateLimitMiddleware(router, cfg)
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -99,12 +98,12 @@ func TestRateLimitMiddleware_Disabled(t *testing.T) {
 	router := &TestRouter{}
 
 	// Configure rate limiting with 0 requests per interval (disabled)
-	cfg := servex.RateLimitConfig{
+	cfg := RateLimitConfig{
 		RequestsPerInterval: 0,
 	}
 
 	// Register middleware
-	servex.RegisterRateLimitMiddleware(router, cfg)
+	RegisterRateLimitMiddleware(router, cfg)
 
 	// The middleware should not be set
 	if router.middleware != nil {
@@ -117,7 +116,7 @@ func TestRateLimitMiddleware_ExcludePaths(t *testing.T) {
 	router := &TestRouter{}
 
 	// Configure rate limiting with excluded paths and a static key function
-	cfg := servex.RateLimitConfig{
+	cfg := RateLimitConfig{
 		RequestsPerInterval: 2,
 		Interval:            time.Second,
 		StatusCode:          http.StatusTooManyRequests,
@@ -127,7 +126,7 @@ func TestRateLimitMiddleware_ExcludePaths(t *testing.T) {
 	}
 
 	// Register middleware
-	servex.RegisterRateLimitMiddleware(router, cfg)
+	RegisterRateLimitMiddleware(router, cfg)
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -187,7 +186,7 @@ func TestRateLimitMiddleware_IncludePaths(t *testing.T) {
 	router := &TestRouter{}
 
 	// Configure rate limiting with included paths and a static key function
-	cfg := servex.RateLimitConfig{
+	cfg := RateLimitConfig{
 		RequestsPerInterval: 2,
 		Interval:            time.Second,
 		StatusCode:          http.StatusTooManyRequests,
@@ -197,7 +196,7 @@ func TestRateLimitMiddleware_IncludePaths(t *testing.T) {
 	}
 
 	// Register middleware
-	servex.RegisterRateLimitMiddleware(router, cfg)
+	RegisterRateLimitMiddleware(router, cfg)
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -262,7 +261,7 @@ func TestRateLimitMiddleware_KeyFunction(t *testing.T) {
 	}
 
 	// Configure rate limiting with a custom key function
-	cfg := servex.RateLimitConfig{
+	cfg := RateLimitConfig{
 		RequestsPerInterval: 2,
 		Interval:            time.Second,
 		StatusCode:          http.StatusTooManyRequests,
@@ -271,7 +270,7 @@ func TestRateLimitMiddleware_KeyFunction(t *testing.T) {
 	}
 
 	// Register middleware
-	servex.RegisterRateLimitMiddleware(router, cfg)
+	RegisterRateLimitMiddleware(router, cfg)
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -324,7 +323,7 @@ func TestRateLimitMiddleware_BurstSize(t *testing.T) {
 	router := &TestRouter{}
 
 	// Configure rate limiting with a burst size larger than requests per interval and a static key
-	cfg := servex.RateLimitConfig{
+	cfg := RateLimitConfig{
 		RequestsPerInterval: 2,
 		BurstSize:           4, // Allow bursts of up to 4 requests
 		Interval:            time.Second,
@@ -334,7 +333,7 @@ func TestRateLimitMiddleware_BurstSize(t *testing.T) {
 	}
 
 	// Register middleware
-	servex.RegisterRateLimitMiddleware(router, cfg)
+	RegisterRateLimitMiddleware(router, cfg)
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -395,14 +394,14 @@ func TestRateLimitMiddleware_CleanupInterval(t *testing.T) {
 	router := &TestRouter{}
 
 	// Configure rate limiting
-	cfg := servex.RateLimitConfig{
+	cfg := RateLimitConfig{
 		RequestsPerInterval: 2,
 		Interval:            time.Second,
 		KeyFunc:             staticKeyFunc("test-client"),
 	}
 
 	// Register middleware
-	servex.RegisterRateLimitMiddleware(router, cfg)
+	RegisterRateLimitMiddleware(router, cfg)
 
 	// The cleanup should happen automatically in the middleware
 	// We can't directly test it without exposing internals, but we can verify
@@ -447,13 +446,13 @@ func TestRateLimitMiddleware_DefaultValues(t *testing.T) {
 	router := &TestRouter{}
 
 	// Configure rate limiting with minimal configuration and a static key
-	cfg := servex.RateLimitConfig{
+	cfg := RateLimitConfig{
 		RequestsPerInterval: 3,
 		KeyFunc:             staticKeyFunc("test-client"),
 	}
 
 	// Register middleware
-	servex.RegisterRateLimitMiddleware(router, cfg)
+	RegisterRateLimitMiddleware(router, cfg)
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -496,14 +495,14 @@ func TestRateLimitMiddleware_DefaultValues(t *testing.T) {
 // TestRateLimitMiddleware_RequestBodyPreservation tests that the rate limiter preserves the request body
 // for subsequent handlers when extracting username for rate limiting.
 func TestRateLimitMiddleware_RequestBodyPreservation(t *testing.T) {
-	cfg := servex.RateLimitConfig{
+	cfg := RateLimitConfig{
 		RequestsPerInterval: 10,
 		Interval:            time.Minute,
 		BurstSize:           1,
 	}
 
 	router := &TestRouter{}
-	servex.RegisterRateLimitMiddleware(router, cfg)
+	RegisterRateLimitMiddleware(router, cfg)
 
 	// Create a test handler that reads the request body
 	var receivedBody string
@@ -536,5 +535,442 @@ func TestRateLimitMiddleware_RequestBodyPreservation(t *testing.T) {
 	// Verify the response is OK (not rate limited)
 	if w.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d", w.Code)
+	}
+}
+
+// TestIPKeyExtraction tests the IP key extraction functions directly.
+func TestIPKeyExtraction(t *testing.T) {
+	tests := []struct {
+		name           string
+		trustedProxies []string
+		remoteAddr     string
+		headers        map[string]string
+		expectedKey    string
+	}{
+		{
+			name:           "No trusted proxies - ignores X-Forwarded-For",
+			trustedProxies: []string{},
+			remoteAddr:     "192.168.1.100:12345",
+			headers:        map[string]string{"X-Forwarded-For": "10.0.0.1"},
+			expectedKey:    "192.168.1.100",
+		},
+		{
+			name:           "No trusted proxies - ignores X-Real-IP",
+			trustedProxies: []string{},
+			remoteAddr:     "192.168.1.100:12345",
+			headers:        map[string]string{"X-Real-IP": "10.0.0.1"},
+			expectedKey:    "192.168.1.100",
+		},
+		{
+			name:           "Untrusted proxy - ignores headers",
+			trustedProxies: []string{"10.0.0.0/24"},
+			remoteAddr:     "192.168.1.100:12345",
+			headers:        map[string]string{"X-Forwarded-For": "10.0.0.1"},
+			expectedKey:    "192.168.1.100",
+		},
+		{
+			name:           "Trusted proxy - uses X-Forwarded-For",
+			trustedProxies: []string{"10.0.0.0/24"},
+			remoteAddr:     "10.0.0.5:12345",
+			headers:        map[string]string{"X-Forwarded-For": "203.0.113.1"},
+			expectedKey:    "203.0.113.1",
+		},
+		{
+			name:           "Trusted proxy - uses X-Real-IP",
+			trustedProxies: []string{"10.0.0.5"},
+			remoteAddr:     "10.0.0.5:12345",
+			headers:        map[string]string{"X-Real-IP": "203.0.113.2"},
+			expectedKey:    "203.0.113.2",
+		},
+		{
+			name:           "Trusted proxy - multiple IPs in X-Forwarded-For",
+			trustedProxies: []string{"10.0.0.0/24"},
+			remoteAddr:     "10.0.0.5:12345",
+			headers:        map[string]string{"X-Forwarded-For": "203.0.113.1, 10.0.0.10, 10.0.0.5"},
+			expectedKey:    "203.0.113.1",
+		},
+		{
+			name:           "Trusted proxy - invalid IP in header falls back to RemoteAddr",
+			trustedProxies: []string{"10.0.0.0/24"},
+			remoteAddr:     "10.0.0.5:12345",
+			headers:        map[string]string{"X-Forwarded-For": "invalid-ip"},
+			expectedKey:    "10.0.0.5",
+		},
+		{
+			name:           "IPv6 trusted proxy",
+			trustedProxies: []string{"2001:db8::/32"},
+			remoteAddr:     "[2001:db8::1]:12345",
+			headers:        map[string]string{"X-Real-IP": "203.0.113.1"},
+			expectedKey:    "203.0.113.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create the IP key function with trusted proxies
+			keyFunc := getIPKeyFuncWithProxies(tt.trustedProxies)
+
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			req.RemoteAddr = tt.remoteAddr
+
+			for key, value := range tt.headers {
+				req.Header.Set(key, value)
+			}
+
+			actualKey := keyFunc(req)
+
+			if actualKey != tt.expectedKey {
+				t.Errorf("expected key %q, got %q", tt.expectedKey, actualKey)
+			}
+		})
+	}
+}
+
+// TestTrustedProxyEdgeCases tests edge cases for trusted proxy validation.
+func TestTrustedProxyEdgeCases(t *testing.T) {
+	tests := []struct {
+		name           string
+		trustedProxies []string
+		remoteAddr     string
+		headers        map[string]string
+		expectedKey    string
+	}{
+		{
+			name:           "Single IP without CIDR becomes /32",
+			trustedProxies: []string{"10.0.0.5"},
+			remoteAddr:     "10.0.0.5:12345",
+			headers:        map[string]string{"X-Real-IP": "203.0.113.1"},
+			expectedKey:    "203.0.113.1",
+		},
+		{
+			name:           "IPv6 single IP becomes /128",
+			trustedProxies: []string{"2001:db8::1"},
+			remoteAddr:     "[2001:db8::1]:12345",
+			headers:        map[string]string{"X-Real-IP": "203.0.113.1"},
+			expectedKey:    "203.0.113.1",
+		},
+		{
+			name:           "Invalid proxy config ignored",
+			trustedProxies: []string{"invalid-ip", "10.0.0.0/24"},
+			remoteAddr:     "10.0.0.5:12345",
+			headers:        map[string]string{"X-Real-IP": "203.0.113.1"},
+			expectedKey:    "203.0.113.1",
+		},
+		{
+			name:           "RemoteAddr without port",
+			trustedProxies: []string{"10.0.0.0/24"},
+			remoteAddr:     "10.0.0.5",
+			headers:        map[string]string{"X-Real-IP": "203.0.113.1"},
+			expectedKey:    "203.0.113.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create the IP key function with trusted proxies
+			keyFunc := getIPKeyFuncWithProxies(tt.trustedProxies)
+
+			req := httptest.NewRequest(http.MethodGet, "/test", nil)
+			req.RemoteAddr = tt.remoteAddr
+
+			for key, value := range tt.headers {
+				req.Header.Set(key, value)
+			}
+
+			actualKey := keyFunc(req)
+
+			if actualKey != tt.expectedKey {
+				t.Errorf("expected key %q, got %q", tt.expectedKey, actualKey)
+			}
+		})
+	}
+}
+
+// TestUsernameRateLimiting tests username-based rate limiting functionality.
+func TestUsernameRateLimiting(t *testing.T) {
+	tests := []struct {
+		name           string
+		method         string
+		path           string
+		requestBody    string
+		trustedProxies []string
+		remoteAddr     string
+		headers        map[string]string
+		expectedKey    string
+		description    string
+	}{
+		{
+			name:        "Login endpoint with username extracts username",
+			method:      http.MethodPost,
+			path:        "/login",
+			requestBody: `{"username":"testuser","password":"testpass"}`,
+			expectedKey: "testuser",
+			description: "Should extract username from login request body",
+		},
+		{
+			name:        "Register endpoint with username extracts username",
+			method:      http.MethodPost,
+			path:        "/register",
+			requestBody: `{"username":"newuser","password":"newpass","email":"test@example.com"}`,
+			expectedKey: "newuser",
+			description: "Should extract username from register request body",
+		},
+		{
+			name:        "Login with empty username falls back to IP",
+			method:      http.MethodPost,
+			path:        "/login",
+			requestBody: `{"username":"","password":"testpass"}`,
+			remoteAddr:  "192.168.1.100:12345",
+			expectedKey: "192.168.1.100",
+			description: "Should fall back to IP when username is empty",
+		},
+		{
+			name:        "Login with missing username falls back to IP",
+			method:      http.MethodPost,
+			path:        "/login",
+			requestBody: `{"password":"testpass"}`,
+			remoteAddr:  "192.168.1.100:12345",
+			expectedKey: "192.168.1.100",
+			description: "Should fall back to IP when username field is missing",
+		},
+		{
+			name:        "Login with invalid JSON falls back to IP",
+			method:      http.MethodPost,
+			path:        "/login",
+			requestBody: `{invalid-json}`,
+			remoteAddr:  "192.168.1.100:12345",
+			expectedKey: "192.168.1.100",
+			description: "Should fall back to IP when JSON is invalid",
+		},
+		{
+			name:        "Login with empty body falls back to IP",
+			method:      http.MethodPost,
+			path:        "/login",
+			requestBody: "",
+			remoteAddr:  "192.168.1.100:12345",
+			expectedKey: "192.168.1.100",
+			description: "Should fall back to IP when body is empty",
+		},
+		{
+			name:        "Non-auth endpoint uses IP",
+			method:      http.MethodPost,
+			path:        "/api/data",
+			requestBody: `{"username":"testuser","data":"some data"}`,
+			remoteAddr:  "192.168.1.100:12345",
+			expectedKey: "192.168.1.100",
+			description: "Should use IP for non-auth endpoints even with username in body",
+		},
+		{
+			name:        "GET request to login uses IP",
+			method:      http.MethodGet,
+			path:        "/login",
+			requestBody: `{"username":"testuser","password":"testpass"}`,
+			remoteAddr:  "192.168.1.100:12345",
+			expectedKey: "192.168.1.100",
+			description: "Should use IP for non-POST requests to auth endpoints",
+		},
+		{
+			name:           "Login with trusted proxy and username",
+			method:         http.MethodPost,
+			path:           "/login",
+			requestBody:    `{"username":"proxyuser","password":"testpass"}`,
+			trustedProxies: []string{"10.0.0.0/24"},
+			remoteAddr:     "10.0.0.5:12345",
+			headers:        map[string]string{"X-Real-IP": "203.0.113.1"},
+			expectedKey:    "proxyuser",
+			description:    "Should extract username even when request comes through trusted proxy",
+		},
+		{
+			name:           "Non-auth endpoint with trusted proxy uses real IP",
+			method:         http.MethodPost,
+			path:           "/api/data",
+			requestBody:    `{"data":"some data"}`,
+			trustedProxies: []string{"10.0.0.0/24"},
+			remoteAddr:     "10.0.0.5:12345",
+			headers:        map[string]string{"X-Real-IP": "203.0.113.1"},
+			expectedKey:    "203.0.113.1",
+			description:    "Should use real IP from trusted proxy for non-auth endpoints",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create the username key function with trusted proxies
+			keyFunc := getUsernameKeyFuncWithProxies(tt.trustedProxies)
+
+			req := httptest.NewRequest(tt.method, tt.path, strings.NewReader(tt.requestBody))
+			req.Header.Set("Content-Type", "application/json")
+
+			if tt.remoteAddr != "" {
+				req.RemoteAddr = tt.remoteAddr
+			} else {
+				req.RemoteAddr = "127.0.0.1:12345" // default
+			}
+
+			for key, value := range tt.headers {
+				req.Header.Set(key, value)
+			}
+
+			actualKey := keyFunc(req)
+
+			if actualKey != tt.expectedKey {
+				t.Errorf("%s: expected key %q, got %q", tt.description, tt.expectedKey, actualKey)
+			}
+		})
+	}
+}
+
+// TestUsernameRateLimitingBodyPreservation tests that username extraction preserves the request body.
+func TestUsernameRateLimitingBodyPreservation(t *testing.T) {
+	requestBody := `{"username":"testuser","password":"secretpass","extra":"data"}`
+
+	// Create the username key function
+	keyFunc := getUsernameKeyFuncWithProxies(nil)
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(requestBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "127.0.0.1:12345"
+
+	// Extract the key (this should preserve the body)
+	actualKey := keyFunc(req)
+
+	// Verify the key is the username
+	if actualKey != "testuser" {
+		t.Errorf("expected key to be 'testuser', got %q", actualKey)
+	}
+
+	// Verify the body is still readable
+	body, err := io.ReadAll(req.Body)
+	if err != nil {
+		t.Fatalf("failed to read preserved body: %v", err)
+	}
+
+	if string(body) != requestBody {
+		t.Errorf("expected preserved body %q, got %q", requestBody, string(body))
+	}
+}
+
+// TestUsernameRateLimitingIntegration tests username rate limiting through the full middleware.
+func TestUsernameRateLimitingIntegration(t *testing.T) {
+	cfg := RateLimitConfig{
+		RequestsPerInterval: 2, // Allow only 2 requests
+		Interval:            time.Minute,
+		BurstSize:           2,
+	}
+
+	router := &TestRouter{}
+	RegisterRateLimitMiddleware(router, cfg)
+
+	var requestBodies []string
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Read and store the body to verify it's preserved
+		body, _ := io.ReadAll(r.Body)
+		requestBodies = append(requestBodies, string(body))
+		w.WriteHeader(http.StatusOK)
+	})
+
+	middlewareHandler := router.middleware(handler)
+
+	// Test 1: First login for user1 - should succeed
+	req1 := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"user1","password":"pass1"}`))
+	req1.Header.Set("Content-Type", "application/json")
+	w1 := httptest.NewRecorder()
+	middlewareHandler.ServeHTTP(w1, req1)
+
+	if w1.Code != http.StatusOK {
+		t.Errorf("first request for user1 should succeed, got status %d", w1.Code)
+	}
+
+	// Test 2: Second login for user1 - should succeed (within burst)
+	req2 := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"user1","password":"pass1"}`))
+	req2.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	middlewareHandler.ServeHTTP(w2, req2)
+
+	if w2.Code != http.StatusOK {
+		t.Errorf("second request for user1 should succeed, got status %d", w2.Code)
+	}
+
+	// Test 3: Third login for user1 - should be rate limited
+	req3 := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"user1","password":"pass1"}`))
+	req3.Header.Set("Content-Type", "application/json")
+	w3 := httptest.NewRecorder()
+	middlewareHandler.ServeHTTP(w3, req3)
+
+	if w3.Code != http.StatusTooManyRequests {
+		t.Errorf("third request for user1 should be rate limited, got status %d", w3.Code)
+	}
+
+	// Test 4: First login for user2 - should succeed (different user)
+	req4 := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"user2","password":"pass2"}`))
+	req4.Header.Set("Content-Type", "application/json")
+	w4 := httptest.NewRecorder()
+	middlewareHandler.ServeHTTP(w4, req4)
+
+	if w4.Code != http.StatusOK {
+		t.Errorf("first request for user2 should succeed, got status %d", w4.Code)
+	}
+
+	// Verify that request bodies were preserved for successful requests
+	expectedBodies := []string{
+		`{"username":"user1","password":"pass1"}`,
+		`{"username":"user1","password":"pass1"}`,
+		`{"username":"user2","password":"pass2"}`,
+	}
+
+	if len(requestBodies) != len(expectedBodies) {
+		t.Errorf("expected %d preserved bodies, got %d", len(expectedBodies), len(requestBodies))
+	}
+
+	for i, expected := range expectedBodies {
+		if i < len(requestBodies) && requestBodies[i] != expected {
+			t.Errorf("request %d: expected body %q, got %q", i+1, expected, requestBodies[i])
+		}
+	}
+}
+
+// TestUsernameRateLimitingFallbackToIP tests that invalid username requests fall back to IP-based limiting.
+func TestUsernameRateLimitingFallbackToIP(t *testing.T) {
+	cfg := RateLimitConfig{
+		RequestsPerInterval: 2, // Allow only 2 requests
+		Interval:            time.Minute,
+		BurstSize:           2,
+	}
+
+	router := &TestRouter{}
+	RegisterRateLimitMiddleware(router, cfg)
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	middlewareHandler := router.middleware(handler)
+
+	// All requests from same IP with invalid JSON should be rate limited together
+	baseReq := func() *http.Request {
+		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{invalid-json}`))
+		req.RemoteAddr = "192.168.1.100:12345"
+		return req
+	}
+
+	// First request - should succeed
+	w1 := httptest.NewRecorder()
+	middlewareHandler.ServeHTTP(w1, baseReq())
+	if w1.Code != http.StatusOK {
+		t.Errorf("first request should succeed, got status %d", w1.Code)
+	}
+
+	// Second request - should succeed
+	w2 := httptest.NewRecorder()
+	middlewareHandler.ServeHTTP(w2, baseReq())
+	if w2.Code != http.StatusOK {
+		t.Errorf("second request should succeed, got status %d", w2.Code)
+	}
+
+	// Third request - should be rate limited (IP-based)
+	w3 := httptest.NewRecorder()
+	middlewareHandler.ServeHTTP(w3, baseReq())
+	if w3.Code != http.StatusTooManyRequests {
+		t.Errorf("third request should be rate limited, got status %d", w3.Code)
 	}
 }

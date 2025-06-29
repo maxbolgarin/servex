@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,7 +48,7 @@ func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig) f
 	cfg.Message = lang.Check(cfg.Message, "rate limit exceeded, try again later.")
 
 	if cfg.KeyFunc == nil {
-		cfg.KeyFunc = getUsernameKeyFunc()
+		cfg.KeyFunc = getUsernameKeyFuncWithProxies(cfg.TrustedProxies)
 	}
 
 	m := &rateLimiterMiddleware{
@@ -62,7 +64,9 @@ func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig) f
 		go m.startCleanupRoutine()
 	})
 
-	return m.Stop
+	return func() {
+		close(m.cleanupDone)
+	}
 }
 
 // startCleanupRoutine runs a background cleanup task to remove stale visitors.
@@ -92,11 +96,6 @@ func (m *rateLimiterMiddleware) cleanup() {
 			delete(m.visitors, key)
 		}
 	}
-}
-
-// Stop gracefully stops the cleanup routine.
-func (m *rateLimiterMiddleware) Stop() {
-	close(m.cleanupDone)
 }
 
 // middleware is the actual rate limiting middleware function.
@@ -179,11 +178,11 @@ func (m *rateLimiterMiddleware) getLimiter(key string) *rate.Limiter {
 	return limiter
 }
 
-// UsernameKeyFunc returns a key function that uses the username from the request body
+// getUsernameKeyFuncWithProxies returns a key function that uses the username from the request body
 // as the rate limit key for login attempts. Falls back to IP if no username found.
 // This function preserves the request body for subsequent handlers.
-func getUsernameKeyFunc() func(r *http.Request) string {
-	ipKeyFunc := getIPKeyFunc()
+func getUsernameKeyFuncWithProxies(trustedProxies []string) func(r *http.Request) string {
+	ipKeyFunc := getIPKeyFuncWithProxies(trustedProxies)
 	return func(r *http.Request) string {
 		// Only try to extract username from login/register endpoints
 		if r.Method == http.MethodPost && (r.URL.Path == "/login" || r.URL.Path == "/register") {
@@ -192,12 +191,16 @@ func getUsernameKeyFunc() func(r *http.Request) string {
 				// Restore the body for subsequent handlers
 				r.Body = io.NopCloser(bytes.NewReader(body))
 
-				// Try to parse JSON from body copy
+				// Try to parse JSON from body copy using a temporary request
+				tempReq := *r
+				tempReq.Body = io.NopCloser(bytes.NewReader(body))
+				ctx := NewContext(nil, &tempReq)
+
 				var req struct {
 					Username string `json:"username"`
 				}
-				if err := json.Unmarshal(body, &req); err == nil && req.Username != "" {
-					return "username:" + req.Username
+				if err := ctx.ReadJSON(&req); err == nil && req.Username != "" {
+					return req.Username
 				}
 			}
 		}
@@ -206,18 +209,99 @@ func getUsernameKeyFunc() func(r *http.Request) string {
 	}
 }
 
-// IPKeyFunc returns a key function that uses the client's IP address as the rate limit key.
-// It tries to get the real IP from common proxy headers if they exist.
-func getIPKeyFunc() func(r *http.Request) string {
+// getIPKeyFuncWithProxies returns a key function that uses the client's IP address as the rate limit key.
+// It only trusts proxy headers (X-Forwarded-For, X-Real-IP) when the request comes from a trusted proxy.
+func getIPKeyFuncWithProxies(trustedProxies []string) func(r *http.Request) string {
+	// Parse trusted proxy networks once
+	var trustedNets []*net.IPNet
+	if len(trustedProxies) > 0 {
+		for _, proxy := range trustedProxies {
+			// Handle both single IPs and CIDR ranges
+			if !strings.Contains(proxy, "/") {
+				// Single IP, convert to /32 or /128
+				if ip := net.ParseIP(proxy); ip != nil {
+					if ip.To4() != nil {
+						proxy += "/32"
+					} else {
+						proxy += "/128"
+					}
+				}
+			}
+			if _, network, err := net.ParseCIDR(proxy); err == nil {
+				trustedNets = append(trustedNets, network)
+			}
+		}
+	}
+
 	return func(r *http.Request) string {
-		// Try to get real IP from headers that might be set by proxies
-		if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
+		// Get the remote address
+		remoteAddr := getRemoteAddr(r)
+
+		// If no trusted proxies configured, always use RemoteAddr for security
+		if len(trustedNets) == 0 {
+			return remoteAddr
+		}
+
+		// Check if the request comes from a trusted proxy
+		if !isFromTrustedProxy(remoteAddr, trustedNets) {
+			return remoteAddr
+		}
+
+		// Try to get real IP from trusted proxy headers
+		if ip := extractIPFromHeaders(r); ip != "" && isValidIP(ip) {
 			return ip
 		}
-		if ip := r.Header.Get("X-Real-IP"); ip != "" {
-			return ip
-		}
+
 		// Fall back to RemoteAddr
+		return remoteAddr
+	}
+}
+
+// getRemoteAddr extracts the remote address from the request.
+func getRemoteAddr(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		// RemoteAddr might not have port (e.g., during testing)
 		return r.RemoteAddr
 	}
+	return host
+}
+
+// isFromTrustedProxy checks if the remote address is from a trusted proxy.
+func isFromTrustedProxy(remoteAddr string, trustedNets []*net.IPNet) bool {
+	ip := net.ParseIP(remoteAddr)
+	if ip == nil {
+		return false
+	}
+
+	for _, network := range trustedNets {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// extractIPFromHeaders extracts the real client IP from proxy headers.
+func extractIPFromHeaders(r *http.Request) string {
+	// Check X-Forwarded-For header (can contain multiple IPs)
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		// X-Forwarded-For can contain multiple IPs separated by commas
+		// The first IP is the original client IP
+		if ips := strings.Split(xff, ","); len(ips) > 0 {
+			return strings.TrimSpace(ips[0])
+		}
+	}
+
+	// Check X-Real-IP header
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		return strings.TrimSpace(xri)
+	}
+
+	return ""
+}
+
+// isValidIP validates that the given string is a valid IP address.
+func isValidIP(ip string) bool {
+	return net.ParseIP(ip) != nil
 }

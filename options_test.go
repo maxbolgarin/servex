@@ -621,6 +621,24 @@ func TestWithNoRateInAuthRoutes(t *testing.T) {
 	}
 }
 
+// TestWithRateLimitTrustedProxies verifies that WithRateLimitTrustedProxies sets the trusted proxies correctly.
+func TestWithRateLimitTrustedProxies(t *testing.T) {
+	trustedProxies := []string{"10.0.0.0/24", "192.168.1.1", "2001:db8::/32"}
+	option := servex.WithRateLimitTrustedProxies(trustedProxies...)
+	options := servex.Options{}
+	option(&options)
+
+	if len(options.RateLimit.TrustedProxies) != len(trustedProxies) {
+		t.Errorf("expected %d trusted proxies, got %d", len(trustedProxies), len(options.RateLimit.TrustedProxies))
+	}
+
+	for i, expected := range trustedProxies {
+		if options.RateLimit.TrustedProxies[i] != expected {
+			t.Errorf("expected trusted proxy %q at index %d, got %q", expected, i, options.RateLimit.TrustedProxies[i])
+		}
+	}
+}
+
 // TestReadCertificate tests the ReadCertificate utility function with invalid data.
 func TestReadCertificate(t *testing.T) {
 	// Test with invalid certificate data

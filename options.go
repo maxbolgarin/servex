@@ -187,6 +187,11 @@ type RateLimitConfig struct {
 
 	// NoRateInAuthRoutes, if true, will not rate limit requests to auth routes.
 	NoRateInAuthRoutes bool
+
+	// TrustedProxies is a list of trusted proxy IP addresses or CIDR ranges.
+	// Only requests from these IPs will have their proxy headers (X-Forwarded-For, X-Real-IP) trusted.
+	// If empty, proxy headers are not trusted and RemoteAddr is always used.
+	TrustedProxies []string
 }
 
 // WithCertificate sets the TLS [Options.Certificate] to the [Options].
@@ -482,6 +487,16 @@ func WithRateLimitIncludePaths(paths ...string) Option {
 func WithNoRateInAuthRoutes() Option {
 	return func(op *Options) {
 		op.RateLimit.NoRateInAuthRoutes = true
+	}
+}
+
+// WithRateLimitTrustedProxies sets the [Options.RateLimit.TrustedProxies] to the given proxies.
+// Only requests from these trusted proxy IP addresses or CIDR ranges will have their
+// X-Forwarded-For and X-Real-IP headers trusted for rate limiting.
+// If not set, proxy headers are ignored and RemoteAddr is always used for security.
+func WithRateLimitTrustedProxies(proxies ...string) Option {
+	return func(op *Options) {
+		op.RateLimit.TrustedProxies = proxies
 	}
 }
 
