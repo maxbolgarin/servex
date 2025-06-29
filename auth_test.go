@@ -163,7 +163,7 @@ func (db *MockAuthDatabase) Reset() {
 }
 
 // Helper function to create a new AuthManager configured for testing
-func newTestAuthManager(db servex.AuthDatabase) (*servex.AuthManager, servex.AuthConfig) {
+func newTestAuthManager(db servex.AuthDatabase, t *testing.T) (*servex.AuthManager, servex.AuthConfig) {
 	// Use the actual default path for consistency in tests
 	defaultAuthPath := "/api/v1/auth"
 	defaultCookieName := "_servexrt" // Default refresh token cookie name
@@ -178,7 +178,11 @@ func newTestAuthManager(db servex.AuthDatabase) (*servex.AuthManager, servex.Aut
 		AuthBasePath:           defaultAuthPath,   // Explicitly set the base path
 		RefreshTokenCookieName: defaultCookieName, // Explicitly set the cookie name
 	}
-	return servex.NewAuthManager(authCfg), authCfg
+	authManager, err := servex.NewAuthManager(authCfg)
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	return authManager, authCfg
 }
 
 // Helper function to create a request with a JSON body
@@ -208,7 +212,7 @@ func decodeJsonResponse(t *testing.T, rr *httptest.ResponseRecorder, target inte
 
 func TestAuthManager_CreateUser(t *testing.T) {
 	mockDB := NewMockAuthDatabase()
-	authManager, _ := newTestAuthManager(mockDB)
+	authManager, _ := newTestAuthManager(mockDB, t)
 	ctx := context.Background()
 
 	tests := []struct {
@@ -390,7 +394,7 @@ func TestUserUpdateRequest_Validate(t *testing.T) {
 
 func TestAuthManager_RegisterHandler(t *testing.T) {
 	mockDB := NewMockAuthDatabase()
-	authManager, cfg := newTestAuthManager(mockDB)
+	authManager, cfg := newTestAuthManager(mockDB, t)
 	router := mux.NewRouter()
 	authManager.RegisterRoutes(router) // Use the actual RegisterRoutes method
 
@@ -495,7 +499,7 @@ func TestAuthManager_RegisterHandler(t *testing.T) {
 
 func TestAuthManager_LoginHandler(t *testing.T) {
 	mockDB := NewMockAuthDatabase()
-	authManager, cfg := newTestAuthManager(mockDB)
+	authManager, cfg := newTestAuthManager(mockDB, t)
 	router := mux.NewRouter()
 	authManager.RegisterRoutes(router)
 
@@ -597,7 +601,7 @@ func TestAuthManager_LoginHandler(t *testing.T) {
 
 func TestAuthManager_GetCurrentUserHandler(t *testing.T) {
 	mockDB := NewMockAuthDatabase()
-	authManager, cfg := newTestAuthManager(mockDB)
+	authManager, cfg := newTestAuthManager(mockDB, t)
 	router := mux.NewRouter()
 	authManager.RegisterRoutes(router) // This sets up the /me route with WithAuth implicitly
 
@@ -813,7 +817,7 @@ func generateAndStoreRefreshToken(t *testing.T, cfg servex.AuthConfig, db *MockA
 
 func TestAuthManager_RefreshHandler(t *testing.T) {
 	mockDB := NewMockAuthDatabase()
-	authManager, cfg := newTestAuthManager(mockDB)
+	authManager, cfg := newTestAuthManager(mockDB, t)
 	router := mux.NewRouter()
 	authManager.RegisterRoutes(router)
 
@@ -986,7 +990,7 @@ func TestAuthManager_RefreshHandler(t *testing.T) {
 
 func TestAuthManager_LogoutHandler(t *testing.T) {
 	mockDB := NewMockAuthDatabase()
-	authManager, cfg := newTestAuthManager(mockDB)
+	authManager, cfg := newTestAuthManager(mockDB, t)
 	router := mux.NewRouter()
 	authManager.RegisterRoutes(router)
 

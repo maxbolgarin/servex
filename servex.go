@@ -53,7 +53,6 @@ func NewWithOptions(opts Options) *Server {
 	s := &Server{
 		router: mux.NewRouter(),
 		opts:   opts,
-		auth:   NewAuthManager(opts.Auth),
 	}
 
 	if opts.RateLimit.RequestsPerInterval <= 0 && !opts.RateLimit.NoRateInAuthRoutes {
@@ -414,6 +413,12 @@ func (s *Server) start(address string, serve func(net.Listener) error, getListen
 	}
 
 	if s.opts.Auth.enabled && !s.opts.Auth.isInitialized {
+		authManager, err := NewAuthManager(s.opts.Auth)
+		if err != nil {
+			return fmt.Errorf("cannot create auth manager: %w", err)
+		}
+		s.auth = authManager
+
 		for _, user := range s.opts.Auth.InitialUsers {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()

@@ -98,10 +98,10 @@ type (
 	RoleContextKey struct{}
 )
 
-// NewAuthManager creates a new AuthManager with the provided configuration.
+// NewAuthManager creates a new [AuthManager] with the provided configuration.
 // It initializes default values for configuration fields if they are not provided
 // and generates random secrets if JWT secrets are empty.
-func NewAuthManager(cfg AuthConfig) *AuthManager {
+func NewAuthManager(cfg AuthConfig) (*AuthManager, error) {
 	cfg.RefreshTokenCookieName = lang.Check(cfg.RefreshTokenCookieName, refreshTokenCookieName)
 	cfg.AuthBasePath = lang.Check(cfg.AuthBasePath, authBasePath)
 	cfg.AccessTokenDuration = lang.Check(cfg.AccessTokenDuration, accessTokenDuration)
@@ -116,12 +116,23 @@ func NewAuthManager(cfg AuthConfig) *AuthManager {
 		cfg.JWTRefreshSecret = hex.EncodeToString(getRandomBytes(32))
 	}
 
-	cfg.accessSecret, _ = hex.DecodeString(cfg.JWTAccessSecret)
-	cfg.refreshSecret, _ = hex.DecodeString(cfg.JWTRefreshSecret)
+	accessSecret, err := hex.DecodeString(cfg.JWTAccessSecret)
+	if err != nil {
+		return nil, fmt.Errorf("decode access secret: %w", err)
+	}
+	cfg.accessSecret = accessSecret
 
-	return &AuthManager{
+	refreshSecret, err := hex.DecodeString(cfg.JWTRefreshSecret)
+	if err != nil {
+		return nil, fmt.Errorf("decode refresh secret: %w", err)
+	}
+	cfg.refreshSecret = refreshSecret
+
+	authManager := &AuthManager{
 		service: newService(cfg),
 	}
+
+	return authManager, nil
 }
 
 // RegisterRoutes registers the authentication-related HTTP routes on the provided router.
