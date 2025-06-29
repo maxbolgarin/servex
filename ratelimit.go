@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/maxbolgarin/lang"
@@ -22,7 +23,18 @@ const (
 // visitor represents a client accessing the server.
 type visitor struct {
 	limiter  *rate.Limiter
-	lastSeen time.Time
+	lastSeen int64 // Use atomic int64 for Unix timestamp to avoid race conditions
+}
+
+// getLastSeen returns the last seen time safely
+func (v *visitor) getLastSeen() time.Time {
+	timestamp := atomic.LoadInt64(&v.lastSeen)
+	return time.Unix(timestamp, 0)
+}
+
+// updateLastSeen updates the last seen time safely
+func (v *visitor) updateLastSeen() {
+	atomic.StoreInt64(&v.lastSeen, time.Now().Unix())
 }
 
 // rateLimiterMiddleware provides rate limiting middleware functionality.
@@ -93,7 +105,7 @@ func (m *rateLimiterMiddleware) cleanup() {
 
 	now := time.Now()
 	for key, v := range m.visitors {
-		if now.Sub(v.lastSeen) > cleanupInterval {
+		if now.Sub(v.getLastSeen()) > cleanupInterval {
 			delete(m.visitors, key)
 		}
 	}
@@ -137,7 +149,8 @@ func (m *rateLimiterMiddleware) getLimiter(key string) *rate.Limiter {
 	// First try with read lock for better performance
 	m.mu.RLock()
 	if v, exists := m.visitors[key]; exists {
-		v.lastSeen = time.Now()
+		// Update lastSeen atomically - no race condition
+		v.updateLastSeen()
 		limiter := v.limiter
 		m.mu.RUnlock()
 		return limiter
@@ -150,7 +163,7 @@ func (m *rateLimiterMiddleware) getLimiter(key string) *rate.Limiter {
 
 	// Double-check in case another goroutine created it while we were waiting
 	if v, exists := m.visitors[key]; exists {
-		v.lastSeen = time.Now()
+		v.updateLastSeen()
 		return v.limiter
 	}
 
@@ -161,7 +174,7 @@ func (m *rateLimiterMiddleware) getLimiter(key string) *rate.Limiter {
 
 	m.visitors[key] = &visitor{
 		limiter:  limiter,
-		lastSeen: time.Now(),
+		lastSeen: time.Now().Unix(),
 	}
 
 	return limiter
