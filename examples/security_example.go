@@ -1,9 +1,6 @@
 package main
 
 import (
-	"context"
-	"fmt"
-	"log"
 	"net/http"
 	"time"
 
@@ -31,7 +28,7 @@ func securityExampleMain() {
 }
 
 func basicSecurityExample() {
-	fmt.Println("=== Basic Security Headers Example ===")
+	// === Basic Security Headers Example ===
 
 	server := servex.New(
 		// Enable basic security headers with recommended defaults
@@ -39,15 +36,15 @@ func basicSecurityExample() {
 	)
 
 	server.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Data endpoint with basic security headers")
+		w.Write([]byte("Data endpoint with basic security headers"))
 	})
 
-	fmt.Println("Server with basic security headers configured")
-	fmt.Println("Headers applied: X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, etc.")
+	// Server with basic security headers configured
+	// Headers applied: X-Content-Type-Options, X-Frame-Options, X-XSS-Protection, etc.
 }
 
 func strictSecurityExample() {
-	fmt.Println("\n=== Strict Security Headers Example ===")
+	// === Strict Security Headers Example ===
 
 	server := servex.New(
 		// Enable strict security headers for high-security applications
@@ -55,15 +52,15 @@ func strictSecurityExample() {
 	)
 
 	server.HandleFunc("/api/secure", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Secure endpoint with strict security headers")
+		w.Write([]byte("Secure endpoint with strict security headers"))
 	})
 
-	fmt.Println("Server with strict security headers configured")
-	fmt.Println("Includes: CSP, HSTS, strict referrer policy, permissions policy, etc.")
+	// Server with strict security headers configured
+	// Includes: CSP, HSTS, strict referrer policy, permissions policy, etc.
 }
 
 func customSecurityExample() {
-	fmt.Println("\n=== Custom Security Configuration Example ===")
+	// === Custom Security Configuration Example ===
 
 	// Create custom security configuration
 	customSecurity := servex.SecurityConfig{
@@ -91,14 +88,14 @@ func customSecurityExample() {
 	)
 
 	server.HandleFunc("/api/custom", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Endpoint with custom security configuration")
+		w.Write([]byte("Endpoint with custom security configuration"))
 	})
 
-	fmt.Println("Server with custom security configuration")
+	// Server with custom security configuration
 }
 
 func pathSpecificSecurityExample() {
-	fmt.Println("\n=== Path-Specific Security Example ===")
+	// === Path-Specific Security Example ===
 
 	server := servex.New(
 		// Apply security headers only to specific paths
@@ -110,22 +107,22 @@ func pathSpecificSecurityExample() {
 	)
 
 	server.HandleFunc("/api/v1/secure", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Secure API endpoint - security headers applied")
+		w.Write([]byte("Secure API endpoint - security headers applied"))
 	})
 
 	server.HandleFunc("/api/v1/public", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Public API endpoint - no security headers (not in include paths)")
+		w.Write([]byte("Public API endpoint - no security headers (not in include paths)"))
 	})
 
 	server.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Health check - excluded from security headers")
+		w.Write([]byte("Health check - excluded from security headers"))
 	})
 
-	fmt.Println("Server with path-specific security headers")
+	// Server with path-specific security headers
 }
 
 func productionSecurityExample() {
-	fmt.Println("\n=== Production Security Example ===")
+	// === Production Security Example ===
 
 	// Production-ready server with comprehensive security
 	server := servex.New(
@@ -176,10 +173,10 @@ func productionSecurityExample() {
 	server.HandleFunc("/health", handleSecureHealth)
 	server.HandleFunc("/metrics", handleSecureMetrics)
 
-	fmt.Println("Production server with comprehensive security configured")
+	// Production server with comprehensive security configured
 
 	// Example of starting the server with graceful shutdown
-	fmt.Println("Starting secure server on :8443...")
+	// Starting secure server on :8443...
 
 	// In a real application:
 	// ctx, cancel := context.WithCancel(context.Background())
@@ -205,52 +202,101 @@ func handleSecureLogin(w http.ResponseWriter, r *http.Request) {
 	ctx := servex.C(w, r)
 	ctx.Response(200, map[string]string{
 		"message": "Login endpoint with security headers",
-		"csrf":    "Use proper CSRF protection in production",
 	})
 }
 
 func handleSecureAdminDashboard(w http.ResponseWriter, r *http.Request) {
 	ctx := servex.C(w, r)
 	ctx.Response(200, map[string]string{
-		"message": "Admin dashboard with strict security headers",
-		"warning": "This endpoint should require additional authentication",
+		"message": "Admin dashboard with security headers",
 	})
 }
 
 func handleSecureHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	fmt.Fprintf(w, `{"status": "healthy", "timestamp": "%s"}`, time.Now().Format(time.RFC3339))
+	w.Write([]byte("OK"))
 }
 
 func handleSecureMetrics(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain")
-	fmt.Fprintf(w, "# Metrics endpoint\nhttp_requests_total 1000\n")
+	w.Write([]byte("# metrics\nrequests_total 100\n"))
 }
 
-// Real-world usage example with graceful shutdown
 func realWorldSecurityExample() {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// === Real-World Security Example ===
 
-	// Create production server
+	// Example of a complete security setup for a production web application
 	server := servex.New(
-		servex.WithStrictSecurityHeaders(),
-		servex.WithHSTSHeader(31536000, true, true),
-		servex.WithCustomHeaders(map[string]string{
-			"X-API-Version": "v1.0",
-		}),
-		servex.WithSecurityExcludePaths("/health", "/metrics"),
+		// Start with production preset for base security
+		append(servex.ProductionPreset(),
+			// Enhanced security configuration
+			servex.WithContentSecurityPolicy(
+				"default-src 'self'; "+
+					"script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "+
+					"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "+
+					"font-src 'self' https://fonts.gstatic.com; "+
+					"img-src 'self' data: https: blob:; "+
+					"connect-src 'self' https://api.myservice.com wss://ws.myservice.com; "+
+					"media-src 'self' https://media.myservice.com; "+
+					"object-src 'none'; "+
+					"base-uri 'self'; "+
+					"form-action 'self'; "+
+					"frame-ancestors 'none'; "+
+					"upgrade-insecure-requests",
+			),
+
+			// Additional request filtering
+			servex.WithBlockedUserAgentsRegex(
+				".*[Bb]ot.*",
+				".*[Ss]craper.*",
+				".*[Cc]rawler.*",
+				".*[Ss]pider.*",
+			),
+
+			// Block suspicious query parameters
+			servex.WithBlockedQueryParams(map[string][]string{
+				"debug":    {"true", "1", "on", "yes"},
+				"test":     {"true", "1", "on", "yes"},
+				"admin":    {"true", "1", "on", "yes"},
+				"internal": {"true", "1", "on", "yes"},
+			}),
+
+			// Custom security headers
+			servex.WithCustomHeaders(map[string]string{
+				"X-Download-Options":                "noopen",
+				"X-Permitted-Cross-Domain-Policies": "none",
+				"X-DNS-Prefetch-Control":            "off",
+			}),
+		)...,
 	)
 
-	// Add routes
-	server.HandleFunc("/api/data", handleSecureUsers)
-	server.HandleFunc("/health", handleSecureHealth)
+	// Application routes
+	server.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		ctx := servex.C(w, r)
+		ctx.Response(200, map[string]string{
+			"message": "Secure web application",
+			"version": "1.0.0",
+		})
+	})
 
-	// Start server with graceful shutdown
-	if err := server.StartWithShutdown(ctx, ":8080", ":8443"); err != nil {
-		log.Fatal("Server startup failed:", err)
-	}
+	server.HandleFunc("/api/v1/data", func(w http.ResponseWriter, r *http.Request) {
+		ctx := servex.C(w, r)
+		ctx.Response(200, map[string]interface{}{
+			"data":      []string{"item1", "item2", "item3"},
+			"timestamp": time.Now().Format(time.RFC3339),
+		})
+	})
 
-	fmt.Println("Server started with security headers middleware")
-	fmt.Println("Security headers are automatically applied to all responses except /health and /metrics")
+	// Real-world production security configuration complete
+	// Features enabled:
+	// - Comprehensive Content Security Policy
+	// - HSTS with preload for 1 year
+	// - Bot and crawler blocking
+	// - Debug parameter filtering
+	// - Custom security headers
+	// - Rate limiting (100 RPS)
+	// - Server identification removal
+
+	// To run this server:
+	// ctx, cancel := context.WithCancel(context.Background())
+	// defer cancel()
+	// server.StartWithShutdown(ctx, ":8080", ":8443")
 }

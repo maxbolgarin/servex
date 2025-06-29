@@ -88,9 +88,55 @@ go get -u github.com/maxbolgarin/servex
 
 ## Usage
 
-### Starting a Server
+**New in Servex**: We've added **configuration presets** to make server setup much easier! Choose from common configurations like `ProductionPreset()`, `APIServerPreset()`, `WebAppPreset()`, and more.
 
-There are multiple ways to set up a Servex server:
+### Quick Start with Presets
+
+The fastest way to get started is using our configuration presets:
+
+```go
+// Development server - minimal setup for development
+server := servex.New(servex.DevelopmentPreset()...)
+
+// Production server - security, rate limiting, monitoring
+server := servex.New(servex.ProductionPreset()...)
+
+// REST API server - optimized for APIs
+server := servex.New(servex.APIServerPreset()...)
+
+// Web application - security headers for web apps
+server := servex.New(servex.WebAppPreset()...)
+
+// Microservice - fast timeouts, minimal security
+server := servex.New(servex.MicroservicePreset()...)
+
+// High security - maximum security features
+server := servex.New(servex.HighSecurityPreset()...)
+
+// SSL-enabled server - production + SSL certificate
+server := servex.New(servex.QuickTLSPreset("cert.pem", "key.pem")...)
+
+// API with authentication - API server + JWT auth
+server := servex.New(append(servex.AuthAPIPreset(),
+    servex.WithAuthMemoryDatabase(),
+)...)
+```
+
+You can also combine presets with custom options:
+
+```go
+// Start with production preset and add custom configuration
+server := servex.New(append(servex.ProductionPreset(),
+    servex.WithAuthMemoryDatabase(),
+    servex.WithCustomHeaders(map[string]string{
+        "X-Company": "ACME Corp",
+    }),
+)...)
+```
+
+### Manual Configuration
+
+There are multiple ways to set up a Servex server manually:
 
 #### 1. Quick Start with Configuration
 

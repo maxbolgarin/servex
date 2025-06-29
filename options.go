@@ -30,345 +30,1297 @@ type Option func(*Options)
 
 // Options represents the configuration for a server.
 type Options struct {
-	// Certificate is the TLS certificate for the server.
-	// If not set, the server will not start HTTPS server.
+	// Certificate is the TLS certificate for HTTPS server support.
+	// This enables HTTPS support when the server is started with an HTTPS address.
+	// Use WithCertificate() to set a pre-loaded certificate, or WithCertificateFromFile()
+	// to load from files. If not set, only HTTP will be available.
+	//
+	// Example:
+	//   cert, _ := tls.LoadX509KeyPair("server.crt", "server.key")
+	//   options.Certificate = &cert
 	Certificate *tls.Certificate
 
-	// CertFilePath is the path to the TLS certificate file.
+	// CertFilePath is the path to the TLS certificate file for loading at server startup.
+	// The file should contain the PEM-encoded certificate chain.
+	// Used with KeyFilePath to enable HTTPS. Set via WithCertificateFromFile().
+	//
+	// Examples:
+	//   - "/etc/ssl/certs/server.crt"
+	//   - "./certs/certificate.pem"
+	//   - "/path/to/fullchain.pem" (Let's Encrypt style)
 	CertFilePath string
 
-	// KeyFilePath is the path to the TLS key file.
+	// KeyFilePath is the path to the TLS private key file for loading at server startup.
+	// The file should contain the PEM-encoded private key.
+	// Used with CertFilePath to enable HTTPS. Set via WithCertificateFromFile().
+	//
+	// Examples:
+	//   - "/etc/ssl/private/server.key"
+	//   - "./certs/private.pem"
+	//   - "/path/to/privkey.pem" (Let's Encrypt style)
 	KeyFilePath string
 
-	// ReadTimeout is the maximum duration for reading the entire request.
+	// ReadTimeout is the maximum duration for reading the entire request, including the body.
+	// This timeout starts when the connection is accepted and ends when the request body
+	// is fully read. Set via WithReadTimeout().
+	//
+	// Recommended values:
+	//   - API servers: 10-30 seconds
+	//   - Web applications: 30-60 seconds
+	//   - File upload services: 5-15 minutes
+	//   - Microservices: 5-15 seconds
+	//
+	// Default: 60 seconds if not set or zero.
 	ReadTimeout time.Duration
 
-	// ReadHeaderTimeout is the maximum duration for reading the request headers.
+	// ReadHeaderTimeout is the maximum duration for reading request headers.
+	// This timeout is specifically for reading the HTTP headers, not the body.
+	// After headers are read, ReadTimeout takes over for the body. Set via WithReadHeaderTimeout().
+	//
+	// Recommended values:
+	//   - Most applications: 2-10 seconds
+	//   - High-performance APIs: 2-5 seconds
+	//   - Development: 10-30 seconds
+	//
+	// Default: 60 seconds if not set or zero.
 	ReadHeaderTimeout time.Duration
 
-	// IdleTimeout is the maximum duration the server should keep connections alive.
+	// IdleTimeout is the maximum duration that idle Keep-Alive connections will be kept open.
+	// After this timeout, idle connections are closed. Set via WithIdleTimeout().
+	//
+	// Recommended values:
+	//   - Web applications: 120-180 seconds
+	//   - APIs with frequent requests: 60-120 seconds
+	//   - Microservices: 30-60 seconds
+	//   - WebSocket services: 300+ seconds
+	//
+	// Default: 180 seconds if not set or zero.
 	IdleTimeout time.Duration
 
-	// AuthToken is the token that will be checked in the Authorization header.
+	// AuthToken enables simple token-based authentication using the Authorization header.
+	// When set, the server will check for "Authorization: Bearer <token>" headers on
+	// protected routes. Set via WithAuthToken().
+	//
+	// Use cases:
+	//   - Simple API authentication
+	//   - Service-to-service communication
+	//   - Development and testing
+	//
+	// For advanced authentication with user management, JWT tokens, and roles,
+	// use the Auth field instead.
 	AuthToken string
 
-	// Metrics is the metrics handler for the server.
+	// Metrics is a custom metrics collector that will be called on each HTTP request.
+	// The metrics handler receives the http.Request for each incoming request.
+	// Set via WithMetrics().
+	//
+	// Use for:
+	//   - Prometheus metrics collection
+	//   - Custom analytics
+	//   - Request counting and monitoring
+	//   - Performance tracking
 	Metrics Metrics
 
-	// Logger is the logger for the server.
-	// If not set, there will be [slog.New] with [slog.NewJSONHandler] with logging to stderr.
-	// Debug level is used to log successful requests if RequestLogger is not set.
-	// Info level is used to log 'http(s) server started'
-	// Error level is used to log request errors, panics, serve errors and shutodwn in StartContext errors
+	// Logger is a custom logger for server events, errors, and panics.
+	// The logger must implement the servex.Logger interface. Set via WithLogger().
+	//
+	// If not set, servex will create a JSON logger that writes to stderr.
+	//
+	// The logger receives:
+	//   - Server startup/shutdown events (Info level)
+	//   - Request errors and panics (Error level)
+	//   - Debug information when available (Debug level)
 	Logger Logger
 
-	// RequestLogger is the logger for the requests.
-	// If not set it will use [Options.Logger].
+	// RequestLogger is a custom logger specifically for HTTP request logging.
+	// This is separate from the main logger and focuses on request/response details.
+	// Set via WithRequestLogger().
+	//
+	// If not set, it will use the main Logger in debug level for successful requests.
+	//
+	// Use for:
+	//   - Structured request logging
+	//   - Access logs
+	//   - Request metrics
+	//   - Audit trails
 	RequestLogger RequestLogger
 
-	// DisableRequestLogging, if true, will not log requests.
+	// DisableRequestLogging disables HTTP request logging completely.
+	// No requests will be logged regardless of status or errors.
+	// Set to true via WithNoRequestLog() or WithDisableRequestLogging().
+	//
+	// Use when:
+	//   - You have external request logging (load balancer, proxy)
+	//   - You want to reduce log volume
+	//   - Performance is critical and logging overhead matters
+	//   - You're implementing custom request logging middleware
 	DisableRequestLogging bool
 
-	// NoLogClientErrors, if true, will not log client errors with code 400-499
+	// NoLogClientErrors disables logging of client errors (HTTP status codes 400-499).
+	// Server errors (5xx) and successful requests will still be logged if request logging is enabled.
+	// Set to true via WithNoLogClientErrors().
+	//
+	// Use to:
+	//   - Reduce log noise from bad requests
+	//   - Focus on server-side issues
+	//   - Improve log readability in production
 	NoLogClientErrors bool
 
-	// SendErrorToClient, if true, will send golang error to client in response body.
+	// SendErrorToClient configures the server to include detailed error information
+	// in HTTP responses when errors occur. This includes Go error messages and stack traces.
+	// Set to true via WithSendErrorToClient().
+	//
+	// Security considerations:
+	//   - NEVER enable this in production
+	//   - Error details can reveal system information
+	//   - Use only for development and testing
+	//
+	// When enabled, responses might include:
+	//   - Internal error messages
+	//   - Stack traces for panics
+	//   - Database connection errors
+	//   - File system errors
 	SendErrorToClient bool
 
-	// Auth is the auth configuration for the server.
+	// Auth is the JWT-based authentication configuration with user management, roles, and JWT tokens.
+	// Set via WithAuth(), WithAuthMemoryDatabase(), or WithAuthConfig().
+	//
+	// When configured, this automatically registers these endpoints:
+	//   - POST /api/v1/auth/register - User registration
+	//   - POST /api/v1/auth/login - User login
+	//   - POST /api/v1/auth/refresh - Token refresh
+	//   - POST /api/v1/auth/logout - User logout
+	//   - GET /api/v1/auth/me - Current user info
+	//
+	// Use for:
+	//   - Multi-user applications
+	//   - Role-based access control
+	//   - Persistent user data
+	//   - Production authentication systems
 	Auth AuthConfig
 
-	// RateLimit is the rate limit configuration for the server.
-	// If not set, rate limiting will be disabled.
-	// If RateLimit.RequestsPerInterval is not set, it will be disabled.
-	// If RateLimit.Interval is not set, it will be disabled.
+	// RateLimit is the rate limiting configuration to control request frequency per client.
+	// Set via WithRateLimitConfig(), WithRPS(), WithRPM(), or other rate limiting options.
+	//
+	// If RequestsPerInterval is not set, rate limiting will be disabled.
+	//
+	// Common configurations:
+	//   - Public APIs: 60-1000 RPM
+	//   - Internal APIs: 1000-10000 RPM
+	//   - File uploads: 10-100 RPM
+	//   - Authentication: 10-60 RPM
 	RateLimit RateLimitConfig
 
-	// Filter is the request filter configuration for the server.
-	// If not set, request filtering will be disabled.
+	// Filter is the request filtering configuration for IP addresses, User-Agents, headers, and query parameters.
+	// Set via WithFilterConfig() or individual filter options like WithAllowedIPs(), WithBlockedUserAgents(), etc.
+	//
+	// Use for:
+	//   - IP whitelisting/blacklisting
+	//   - Bot protection
+	//   - Geographic restrictions
+	//   - Header-based filtering
+	//   - Query parameter validation
 	Filter FilterConfig
 
-	// Security is the security headers configuration for the server.
-	// If not set or disabled, security headers will not be applied.
+	// Security is the security headers configuration for web application protection.
+	// Set via WithSecurityConfig(), WithSecurityHeaders(), WithStrictSecurityHeaders(), or individual header options.
+	//
+	// Common headers include:
+	//   - Content-Security-Policy
+	//   - X-Frame-Options
+	//   - X-Content-Type-Options
+	//   - Strict-Transport-Security
+	//   - X-XSS-Protection
+	//
+	// Use for:
+	//   - XSS protection
+	//   - Clickjacking prevention
+	//   - MIME type sniffing protection
+	//   - HTTPS enforcement
 	Security SecurityConfig
 
-	// CustomHeaders is the custom headers configuration for the server.
-	// If not set or disabled, custom headers will not be applied.
+	// CustomHeaders are custom HTTP headers that will be added to all responses.
+	// These headers are applied after security headers and can override them.
+	// Set via WithCustomHeaders().
+	//
+	// Use for:
+	//   - API versioning headers
+	//   - Service identification
+	//   - Custom caching policies
+	//   - CORS configuration
+	//   - Application-specific headers
 	CustomHeaders map[string]string
 
-	// HeadersToRemove is the header removal configuration for the server.
-	// If not set or disabled, header removal will not be applied.
+	// HeadersToRemove specifies headers to remove from responses.
+	// This is useful for removing server identification headers or other unwanted headers.
+	// Set via WithRemoveHeaders().
+	//
+	// Common headers to remove:
+	//   - "Server": Web server software identification
+	//   - "X-Powered-By": Technology stack identification
+	//   - "X-AspNet-Version": ASP.NET version (if proxying)
+	//
+	// Use for:
+	//   - Security through obscurity
+	//   - Reduce information disclosure
+	//   - Clean up response headers
 	HeadersToRemove []string
 
-	// EnableHealthEndpoint, if true, will automatically register a health check endpoint.
+	// EnableHealthEndpoint enables an automatic health check endpoint that returns server status.
+	// This creates a simple endpoint that responds with "OK" and HTTP 200 status.
+	// Set to true via WithHealthEndpoint().
+	//
+	// The health endpoint:
+	//   - Returns 200 OK with "OK" body when server is running
+	//   - Bypasses authentication and filtering
+	//   - Suitable for load balancer health checks
+	//   - Kubernetes liveness/readiness probes
 	EnableHealthEndpoint bool
 
 	// HealthPath is the path for the health check endpoint.
-	// Defaults to "/health" if not set.
+	// Only used when EnableHealthEndpoint is true. Set via WithHealthPath().
+	//
+	// Common health check paths:
+	//   - "/health" (default)
+	//   - "/ping"
+	//   - "/status"
+	//   - "/healthz" (Kubernetes style)
+	//
+	// Default: "/health" if EnableHealthEndpoint is true and this is empty.
 	HealthPath string
 }
 
-// AuthConfig holds the configuration specific to authentication.
+// AuthConfig holds the JWT-based authentication configuration with user management, roles, and JWT tokens.
+// This configuration enables a complete authentication system with automatic endpoint registration.
+//
+// When authentication is enabled, the following endpoints are automatically registered:
+//   - POST {AuthBasePath}/register - User registration
+//   - POST {AuthBasePath}/login - User login
+//   - POST {AuthBasePath}/refresh - Token refresh
+//   - POST {AuthBasePath}/logout - User logout
+//   - GET {AuthBasePath}/me - Current user info
+//
+// Example configuration:
+//
+//	auth := AuthConfig{
+//		Database: myAuthDatabase,
+//		AccessTokenDuration: 15 * time.Minute,
+//		RefreshTokenDuration: 7 * 24 * time.Hour,
+//		AuthBasePath: "/api/v1/auth",
+//		IssuerNameInJWT: "my-app",
+//		RolesOnRegister: []UserRole{"user"},
+//	}
 type AuthConfig struct {
 	// Database is the interface for user data persistence.
+	// Must implement AuthDatabase interface for user CRUD operations.
+	// Set via WithAuth() or WithAuthMemoryDatabase().
+	//
+	// The database handles:
+	//   - User creation and retrieval
+	//   - Password hashing and verification
+	//   - Role management
+	//   - Session tracking
+	//
+	// Use WithAuthMemoryDatabase() for development/testing (data is lost on restart).
+	// Use WithAuth() with a persistent database implementation for production.
 	Database AuthDatabase
 
 	// JWTAccessSecret is the secret key used for signing access tokens (hex encoded).
-	// If empty, a random key will be generated.
+	// Set via WithAuthKey(). If empty, a random key will be generated.
+	//
+	// Security requirements:
+	//   - Use strong, randomly generated keys
+	//   - Different from refresh token secret
+	//   - Store securely (environment variables, key management systems)
+	//   - Rotate periodically in production
+	//
+	// Example: "your-32-byte-hex-encoded-access-key"
 	JWTAccessSecret string
 
 	// JWTRefreshSecret is the secret key used for signing refresh tokens (hex encoded).
-	// If empty, a random key will be generated.
+	// Set via WithAuthKey(). If empty, a random key will be generated.
+	//
+	// Security requirements:
+	//   - Use strong, randomly generated keys
+	//   - Different from access token secret
+	//   - Store securely (environment variables, key management systems)
+	//   - Rotate periodically in production
+	//
+	// Example: "your-32-byte-hex-encoded-refresh-key"
 	JWTRefreshSecret string
 
 	// AccessTokenDuration specifies the validity duration for access tokens.
-	// Defaults to 5 minutes if not set.
+	// Set via WithAuthTokensDuration(). Defaults to 5 minutes if not set.
+	//
+	// Recommended patterns:
+	//   - Web apps: 15-60 min
+	//   - APIs: 5-30 min
+	//   - Mobile apps: 30-60 min
+	//   - High security: 5-15 min
+	//
+	// Shorter tokens improve security but require more refresh operations.
 	AccessTokenDuration time.Duration
 
 	// RefreshTokenDuration specifies the validity duration for refresh tokens.
-	// Defaults to 7 days if not set.
+	// Set via WithAuthTokensDuration(). Defaults to 7 days if not set.
+	//
+	// Recommended patterns:
+	//   - Web apps: 7-30 days
+	//   - APIs: 1-7 days
+	//   - Mobile apps: 30-90 days
+	//   - High security: 1-3 days
+	//
+	// Longer refresh tokens improve user experience but increase security risk if compromised.
 	RefreshTokenDuration time.Duration
 
-	// IssuerNameInJWT is the issuer name included in the JWT claims.
-	// Defaults to "testing" if not set.
+	// IssuerNameInJWT is the issuer name included in JWT token claims.
+	// This helps identify which service issued the token and can be used for validation.
+	// Set via WithAuthIssuer(). Defaults to "testing" if not set.
+	//
+	// Use descriptive names like:
+	//   - Application name: "user-service", "payment-api"
+	//   - Environment-specific: "my-app-prod", "my-app-staging"
+	//   - Domain-based: "api.mycompany.com"
+	//
+	// The issuer appears in the JWT "iss" claim and can be verified by clients.
 	IssuerNameInJWT string
 
-	// RefreshTokenCookieName is the name of the cookie used to store the refresh token.
-	// Defaults to "_servexrt" if not set.
+	// RefreshTokenCookieName is the name of the HTTP cookie used to store refresh tokens.
+	// Set via WithAuthRefreshTokenCookieName(). Defaults to "_servexrt" if not set.
+	//
+	// Cookie characteristics:
+	//   - HttpOnly: Cannot be accessed by JavaScript
+	//   - Secure: Only sent over HTTPS (in production)
+	//   - SameSite: Protection against CSRF attacks
+	//   - Expires: Set to refresh token duration
+	//
+	// Choose names that don't conflict with your application's other cookies.
 	RefreshTokenCookieName string
 
-	// AuthBasePath is the base path for the authentication API endpoints.
-	// Defaults to "/api/v1/auth" if not set.
+	// AuthBasePath is the base path for authentication API endpoints.
+	// All auth routes will be registered under this path.
+	// Set via WithAuthBasePath(). Defaults to "/api/v1/auth" if not set.
+	//
+	// Registered endpoints under the base path:
+	//   - POST {basePath}/register
+	//   - POST {basePath}/login
+	//   - POST {basePath}/refresh
+	//   - POST {basePath}/logout
+	//   - GET {basePath}/me
+	//
+	// Examples: "/auth", "/api/v2/auth", "/users/auth"
 	AuthBasePath string
 
-	// RolesOnRegister are the roles assigned to a newly registered user.
+	// RolesOnRegister are the default roles assigned to newly registered users.
+	// These roles are automatically assigned when users register through the /register endpoint.
+	// Set via WithAuthInitialRoles().
+	//
+	// Common role patterns:
+	//   - Basic: ["user"]
+	//   - Hierarchical: ["user", "member", "premium"]
+	//   - Functional: ["reader", "writer", "admin"]
+	//
+	// Users can have multiple roles. Additional roles can be assigned later
+	// through user management endpoints or database operations.
 	RolesOnRegister []UserRole
 
-	// InitialUsers is a list of initial users to be created.
+	// InitialUsers is a list of initial users to be created when the server starts.
+	// This is useful for creating admin accounts or seeding the database with test users.
+	// Set via WithAuthInitialUsers().
+	//
+	// Security considerations:
+	//   - Use strong passwords
+	//   - Consider loading from environment variables
+	//   - Remove or change default passwords in production
+	//   - Limit to essential accounts only
+	//
+	// The users are created if they don't already exist in the database.
 	InitialUsers []InitialUser
 
-	// NotRegisterRoutes, if true, prevents the automatic registration of default auth routes.
+	// NotRegisterRoutes prevents automatic registration of default authentication routes.
+	// Set to true via WithAuthNotRegisterRoutes() when you want to implement custom auth endpoints.
+	//
+	// When enabled, you must implement your own:
+	//   - User registration endpoint
+	//   - Login endpoint
+	//   - Token refresh endpoint
+	//   - Logout endpoint
+	//   - User profile endpoint
+	//
+	// You can still use the AuthManager methods for token generation and validation.
 	NotRegisterRoutes bool
 
-	// accessSecret is the decoded access secret key.
+	// accessSecret is the decoded access secret key (internal use).
+	// This field is populated automatically from JWTAccessSecret during initialization.
 	accessSecret []byte
 
-	// refreshSecret is the decoded refresh secret key.
+	// refreshSecret is the decoded refresh secret key (internal use).
+	// This field is populated automatically from JWTRefreshSecret during initialization.
 	refreshSecret []byte
 
-	// enabled indicates whether authentication is enabled.
+	// enabled indicates whether authentication is enabled (internal use).
+	// This field is set automatically when a Database is configured.
 	enabled bool
 
-	// isInitialized indicates whether the auth is initialized.
+	// isInitialized indicates whether the auth system is initialized (internal use).
+	// This field is set automatically during server startup.
 	isInitialized bool
 }
 
 // InitialUser represents a user to be created during server startup.
+// This is used with AuthConfig.InitialUsers to seed the database with admin accounts
+// or test users. Set via WithAuthInitialUsers().
+//
+// Example usage:
+//
+//	initialUsers := []InitialUser{
+//		{
+//			Username: "admin",
+//			Password: "secure-admin-password",
+//			Roles:    []UserRole{"admin", "user"},
+//		},
+//		{
+//			Username: "testuser",
+//			Password: "test-password",
+//			Roles:    []UserRole{"user"},
+//		},
+//	}
+//
+// Security considerations:
+//   - Use strong, unique passwords
+//   - Consider loading passwords from environment variables
+//   - Remove or change default passwords in production
+//   - Limit to essential accounts only
 type InitialUser struct {
-	// Username is the username of the user.
+	// Username is the unique username for the user.
+	// This will be used for login and user identification.
+	//
+	// Requirements:
+	//   - Must be unique across all users
+	//   - Should follow your application's username policy
+	//   - Cannot be empty
+	//
+	// Examples: "admin", "testuser", "service-account"
 	Username string
 
-	// Password is the password of the user.
+	// Password is the plain text password for the user.
+	// The password will be automatically hashed before storing in the database.
+	//
+	// Security considerations:
+	//   - Use strong passwords (consider password generators)
+	//   - Minimum 8 characters recommended
+	//   - Include mix of letters, numbers, and symbols
+	//   - Never commit passwords to source control
+	//   - Consider loading from environment variables
+	//
+	// Example: os.Getenv("ADMIN_PASSWORD") or "SecurePassword123!"
 	Password string
 
-	// Roles are the roles assigned to the user.
+	// Roles are the roles assigned to the user upon creation.
+	// These roles determine the user's permissions and access levels.
+	//
+	// Common roles:
+	//   - "admin": Full system access
+	//   - "user": Standard user access
+	//   - "moderator": Content management access
+	//   - "api": API-only access
+	//
+	// Users can have multiple roles for fine-grained permissions.
+	// Additional roles can be assigned later through user management.
 	Roles []UserRole
 }
 
 // RateLimitConfig holds configuration for the rate limiter middleware.
+// This controls request frequency per client using a token bucket algorithm.
+//
+// Rate limiting helps protect your server from:
+//   - DDoS attacks
+//   - Brute force attempts
+//   - Resource exhaustion
+//   - Abusive clients
+//
+// Example configurations:
+//
+//	// API server: 100 requests per minute with burst of 20
+//	rateLimit := RateLimitConfig{
+//		RequestsPerInterval: 100,
+//		Interval:           time.Minute,
+//		BurstSize:          20,
+//		StatusCode:         429,
+//		Message:           "Rate limit exceeded. Try again later.",
+//	}
+//
+//	// High-security: 10 requests per second, no burst
+//	rateLimit := RateLimitConfig{
+//		RequestsPerInterval: 10,
+//		Interval:           time.Second,
+//		BurstSize:          1,
+//	}
 type RateLimitConfig struct {
-	// RequestsPerInterval is the number of operations allowed per interval.
-	// If not set, rate limiting will be disabled.
+	// RequestsPerInterval is the number of requests allowed per time interval.
+	// Set via WithRPM(), WithRPS(), or WithRequestsPerInterval().
+	// If not set or zero, rate limiting will be disabled.
+	//
+	// Common values:
+	//   - Public APIs: 60-1000 per minute
+	//   - Internal APIs: 1000-10000 per minute
+	//   - File uploads: 10-100 per minute
+	//   - Authentication: 10-60 per minute
+	//
+	// The rate limiter uses a token bucket algorithm, refilling tokens at a constant rate.
 	RequestsPerInterval int
 
-	// Interval is the time after which the token bucket is refilled.
-	// If not set, it will be 1 minute.
+	// Interval is the time window for the rate limit.
+	// Set via WithRPM() (1 minute), WithRPS() (1 second), or WithRequestsPerInterval().
+	// If not set, defaults to 1 minute.
+	//
+	// Common intervals:
+	//   - time.Second: For high-frequency APIs
+	//   - time.Minute: Most common, good balance
+	//   - time.Hour: For very restrictive limits
+	//   - 5*time.Minute: Custom business requirements
+	//
+	// Shorter intervals provide more responsive limiting but require more memory.
 	Interval time.Duration
 
-	// BurstSize is the maximum burst size (can exceed RequestsPerInterval temporarily).
-	// If not set, it will be equal to RequestsPerInterval.
+	// BurstSize is the maximum number of requests that can be made immediately.
+	// This allows clients to exceed the normal rate limit temporarily by "bursting".
+	// Set via WithBurstSize(). If not set, defaults to RequestsPerInterval.
+	//
+	// How it works:
+	//   - Clients can make up to BurstSize requests immediately
+	//   - After bursting, they must wait for tokens to refill
+	//   - Tokens refill at the configured rate (RequestsPerInterval/Interval)
+	//
+	// Use cases:
+	//   - Handle traffic spikes gracefully
+	//   - Allow batch operations
+	//   - Improve user experience for bursty clients
+	//   - Balance performance with protection
 	BurstSize int
 
 	// StatusCode is the HTTP status code returned when rate limit is exceeded.
-	// Defaults to 429 (Too Many Requests) if not set.
+	// Set via WithRateLimitStatusCode(). Defaults to 429 (Too Many Requests) if not set.
+	//
+	// Common status codes:
+	//   - 429 Too Many Requests (recommended)
+	//   - 503 Service Unavailable
+	//   - 502 Bad Gateway (for proxy scenarios)
+	//
+	// The 429 status code is specifically designed for rate limiting and is
+	// understood by most HTTP clients and libraries.
 	StatusCode int
 
-	// Message is the response message when rate limit is exceeded.
-	// Defaults to "rate limit exceeded, try again later." if not set.
+	// Message is the response body returned when rate limit is exceeded.
+	// Set via WithRateLimitMessage(). Defaults to "rate limit exceeded, try again later." if not set.
+	//
+	// Best practices:
+	//   - Be clear about the limit
+	//   - Suggest when to retry
+	//   - Keep messages user-friendly
+	//   - Include contact information for questions
+	//
+	// The message is returned as plain text in the response body.
 	Message string
 
-	// KeyFunc is a function that extracts the rate limit key from the request.
-	// Defaults to usernameKeyFunc() if not set.
+	// KeyFunc is a custom function to extract the rate limit key from requests.
+	// This determines how clients are identified for rate limiting purposes.
+	// Set via WithRateLimitKeyFunc().
+	//
+	// Default behavior uses client IP address. Custom key functions enable:
+	//   - User-based rate limiting (requires authentication)
+	//   - API key-based limits
+	//   - Different limits for different client types
+	//   - Combined identification strategies
+	//
+	// Example functions:
+	//   - IP-based: func(r *http.Request) string { return r.RemoteAddr }
+	//   - User-based: func(r *http.Request) string { return getUserID(r) }
+	//   - API key-based: func(r *http.Request) string { return r.Header.Get("X-API-Key") }
 	KeyFunc func(r *http.Request) string
 
 	// ExcludePaths are paths that should be excluded from rate limiting.
+	// Requests to these paths will not be counted against rate limits.
+	// Set via WithRateLimitExcludePaths().
+	//
+	// Common exclusions:
+	//   - Health checks: "/health", "/ping"
+	//   - Metrics: "/metrics", "/stats"
+	//   - Static files: "/static/*", "/assets/*"
+	//   - Documentation: "/docs/*", "/swagger/*"
+	//   - Infrastructure: "/robots.txt", "/favicon.ico"
+	//
+	// Path matching supports wildcards (*) for pattern matching.
 	ExcludePaths []string
 
 	// IncludePaths are paths that should be included in rate limiting.
-	// If empty, all paths are included except those in ExcludePaths if rate limiting is enabled.
+	// If set, only requests to these paths will be rate limited. All other paths are excluded.
+	// Set via WithRateLimitIncludePaths().
+	//
+	// If both IncludePaths and ExcludePaths are set:
+	//   1. Paths must match IncludePaths to be rate limited
+	//   2. Paths in ExcludePaths are then excluded from rate limiting
+	//
+	// Use cases:
+	//   - Protect only sensitive endpoints
+	//   - Apply different limits to different API versions
+	//   - Rate limit only external-facing endpoints
+	//   - Granular control over protection
 	IncludePaths []string
 
-	// NoRateInAuthRoutes, if true, will not rate limit requests to auth routes.
+	// NoRateInAuthRoutes disables rate limiting for authentication endpoints.
+	// This prevents auth routes from being double-limited when they have their own protection.
+	// Set to true via WithNoRateInAuthRoutes().
+	//
+	// Why use this:
+	//   - Auth endpoints often have built-in protection (login attempts, etc.)
+	//   - Prevents blocking legitimate auth operations
+	//   - Allows different limits for auth vs regular endpoints
+	//   - Avoids double-protection overhead
+	//
+	// Affected routes (when auth is enabled):
+	//   - POST /api/v1/auth/login
+	//   - POST /api/v1/auth/register
+	//   - POST /api/v1/auth/refresh
+	//   - POST /api/v1/auth/logout
+	//   - GET /api/v1/auth/me
 	NoRateInAuthRoutes bool
 
-	// TrustedProxies is a list of trusted proxy IP addresses or CIDR ranges.
-	// Only requests from these IPs will have their proxy headers (X-Forwarded-For, X-Real-IP) trusted.
-	// If empty, proxy headers are not trusted and RemoteAddr is always used.
+	// TrustedProxies is a list of trusted proxy IP addresses or CIDR ranges
+	// for accurate client IP detection in rate limiting.
+	// Set via WithRateLimitTrustedProxies().
+	//
+	// How it works:
+	//   - Without trusted proxies: Uses r.RemoteAddr (proxy IP)
+	//   - With trusted proxies: Uses X-Forwarded-For or X-Real-IP headers
+	//
+	// Common proxy ranges:
+	//   - AWS ALB: Check AWS documentation for current ranges
+	//   - Cloudflare: Use Cloudflare's published IP ranges
+	//   - Internal load balancers: Your internal network ranges
+	//   - Docker networks: 172.16.0.0/12, 10.0.0.0/8
+	//
+	// Security note: Only list IPs you actually trust. Malicious clients
+	// can spoof X-Forwarded-For headers if the proxy IP is trusted.
 	TrustedProxies []string
 }
 
 // FilterConfig holds configuration for request filtering middleware.
-// This is a pure data structure without any logic.
+// This enables filtering requests based on IP addresses, User-Agents, headers, and query parameters.
+//
+// Request filtering helps protect your server from:
+//   - Malicious IP addresses
+//   - Bot and scraper traffic
+//   - Invalid or dangerous requests
+//   - Geographic restrictions
+//   - Content-based attacks
+//
+// Example configuration:
+//
+//	filter := FilterConfig{
+//		AllowedIPs: []string{"192.168.1.0/24", "10.0.0.0/8"},
+//		BlockedUserAgents: []string{"BadBot", "Scraper"},
+//		AllowedHeaders: map[string][]string{
+//			"X-API-Version": {"v1", "v2"},
+//		},
+//		StatusCode: 403,
+//		Message: "Access denied by security filter",
+//	}
+//
+// This is a pure data structure without any logic - the filtering logic is implemented
+// in the middleware that uses this configuration.
 type FilterConfig struct {
 	// AllowedIPs is a list of IP addresses or CIDR ranges that are allowed.
+	// Only requests from these IPs will be allowed. All other IPs are blocked.
+	// Set via WithAllowedIPs().
+	//
+	// IP formats supported:
+	//   - Single IP: "192.168.1.100"
+	//   - CIDR range: "10.0.0.0/8", "192.168.1.0/24"
+	//   - IPv6: "2001:db8::1", "2001:db8::/32"
+	//
+	// Use cases:
+	//   - Restrict admin interfaces to office IPs
+	//   - Allow only partner/client IPs
+	//   - Internal-only APIs
+	//   - Development/staging environment protection
+	//
 	// If empty, all IPs are allowed unless blocked by BlockedIPs.
 	AllowedIPs []string
 
 	// BlockedIPs is a list of IP addresses or CIDR ranges that are blocked.
-	// Takes precedence over AllowedIPs.
+	// Requests from these IPs will be denied with the configured status code.
+	// Set via WithBlockedIPs().
+	//
+	// IP formats supported:
+	//   - Single IP: "192.168.1.100"
+	//   - CIDR range: "10.0.0.0/8", "192.168.1.0/24"
+	//   - IPv6: "2001:db8::1", "2001:db8::/32"
+	//
+	// Use cases:
+	//   - Block known malicious IPs
+	//   - Prevent competitor scraping
+	//   - Geographic restrictions
+	//   - Temporary IP bans
+	//
+	// Note: BlockedIPs takes precedence over AllowedIPs.
+	// If an IP is in both lists, it will be blocked.
 	BlockedIPs []string
 
 	// AllowedUserAgents is a list of exact User-Agent strings that are allowed.
-	// If empty, all User-Agents are allowed unless blocked.
+	// Only requests with these exact User-Agent headers will be allowed.
+	// Set via WithAllowedUserAgents().
+	//
+	// For pattern matching instead of exact strings, use AllowedUserAgentsRegex.
+	//
+	// Use cases:
+	//   - Restrict API to your apps only
+	//   - Block automated scrapers
+	//   - Allow only supported browsers
+	//   - Partner API access control
+	//
+	// If empty, all User-Agents are allowed unless blocked by BlockedUserAgents.
 	AllowedUserAgents []string
 
 	// AllowedUserAgentsRegex is a list of regex patterns for allowed User-Agents.
-	// More convenient than using "regex:" prefix.
+	// Only requests with User-Agent headers matching these patterns will be allowed.
+	// Set via WithAllowedUserAgentsRegex().
+	//
+	// Regex features:
+	//   - Use standard Go regex syntax
+	//   - Case-sensitive matching
+	//   - ^ and $ for exact matching
+	//   - \d+ for version numbers
+	//   - | for alternatives
+	//
+	// This is more flexible than AllowedUserAgents for version-aware filtering.
+	//
+	// Examples:
+	//   - `Chrome/\d+\.\d+` - Any Chrome browser
+	//   - `^MyApp/\d+\.\d+ \((iOS|Android)\)$` - Your app with any version
 	AllowedUserAgentsRegex []string
 
 	// BlockedUserAgents is a list of exact User-Agent strings that are blocked.
-	// Takes precedence over AllowedUserAgents.
+	// Requests with these exact User-Agent headers will be denied.
+	// Set via WithBlockedUserAgents().
+	//
+	// For pattern matching instead of exact strings, use BlockedUserAgentsRegex.
+	//
+	// Use cases:
+	//   - Block automated scrapers
+	//   - Prevent bot traffic
+	//   - Block specific tools
+	//   - Temporary user-agent bans
+	//
+	// Note: BlockedUserAgents takes precedence over AllowedUserAgents.
 	BlockedUserAgents []string
 
 	// BlockedUserAgentsRegex is a list of regex patterns for blocked User-Agents.
-	// Takes precedence over allowed patterns.
+	// Requests with User-Agent headers matching these patterns will be denied.
+	// Set via WithBlockedUserAgentsRegex().
+	//
+	// Regex features:
+	//   - (?i) for case-insensitive matching
+	//   - Use standard Go regex syntax
+	//   - ^ and $ for exact matching
+	//   - | for alternatives
+	//
+	// Examples:
+	//   - `(?i)(bot|crawler|spider|scraper)` - Block all bots and crawlers
+	//   - `^(curl|wget|python-requests)` - Block command line tools
+	//
+	// Note: BlockedUserAgentsRegex takes precedence over AllowedUserAgentsRegex.
 	BlockedUserAgentsRegex []string
 
 	// AllowedHeaders is a map of header names to exact allowed values.
-	// Header names are case-insensitive.
+	// Only requests with headers matching the specified exact values will be allowed.
+	// Set via WithAllowedHeaders().
+	//
+	// Header matching:
+	//   - Header names are case-insensitive
+	//   - Values must match exactly (case-sensitive)
+	//   - Multiple allowed values per header
+	//   - All specified headers must be present
+	//
+	// Use cases:
+	//   - API version enforcement
+	//   - Content-Type validation
+	//   - Custom authentication schemes
+	//   - Partner-specific headers
+	//
+	// For pattern matching instead of exact values, use AllowedHeadersRegex.
 	AllowedHeaders map[string][]string
 
 	// AllowedHeadersRegex is a map of header names to regex patterns for allowed values.
-	// Header names are case-insensitive.
+	// Only requests with headers matching the specified patterns will be allowed.
+	// Set via WithAllowedHeadersRegex().
+	//
+	// Regex features:
+	//   - Header names are case-insensitive
+	//   - Use standard Go regex syntax
+	//   - ^ and $ for exact matching
+	//   - Multiple patterns per header (OR logic)
+	//
+	// Examples:
+	//   - "Authorization": [`^Bearer [A-Za-z0-9+/=]+$`] - Any Bearer token
+	//   - "X-API-Version": [`^v\d+\.\d+$`] - Semantic versioning
+	//
+	// This is more flexible than AllowedHeaders for pattern-based validation.
 	AllowedHeadersRegex map[string][]string
 
 	// BlockedHeaders is a map of header names to exact blocked values.
-	// Header names are case-insensitive. Takes precedence over AllowedHeaders.
+	// Requests with headers matching the specified exact values will be denied.
+	// Set via WithBlockedHeaders().
+	//
+	// Header matching:
+	//   - Header names are case-insensitive
+	//   - Values must match exactly (case-sensitive)
+	//   - Multiple blocked values per header
+	//   - Any matching header causes blocking
+	//
+	// Use cases:
+	//   - Block deprecated API versions
+	//   - Security header filtering
+	//   - Malicious request detection
+	//   - Legacy client blocking
+	//
+	// Note: BlockedHeaders takes precedence over AllowedHeaders.
 	BlockedHeaders map[string][]string
 
 	// BlockedHeadersRegex is a map of header names to regex patterns for blocked values.
-	// Takes precedence over allowed patterns.
+	// Requests with headers matching the specified patterns will be denied.
+	// Set via WithBlockedHeadersRegex().
+	//
+	// Regex features:
+	//   - Header names are case-insensitive
+	//   - (?i) for case-insensitive pattern matching
+	//   - Use standard Go regex syntax
+	//   - Multiple patterns per header (OR logic)
+	//
+	// Examples:
+	//   - "X-Forwarded-For": [`(10\.0\.0\.|192\.168\.)`] - Block internal IPs
+	//   - "User-Agent": [`(?i)(bot|crawler|spider)`] - Block bots
+	//
+	// Note: BlockedHeadersRegex takes precedence over AllowedHeadersRegex.
 	BlockedHeadersRegex map[string][]string
 
 	// AllowedQueryParams is a map of query parameter names to exact allowed values.
+	// Only requests with query parameters matching the specified exact values will be allowed.
+	// Set via WithAllowedQueryParams().
+	//
+	// Parameter matching:
+	//   - Parameter names are case-sensitive
+	//   - Values must match exactly (case-sensitive)
+	//   - Multiple allowed values per parameter
+	//   - All specified parameters must be present
+	//
+	// Use cases:
+	//   - API parameter validation
+	//   - Prevent SQL injection via query params
+	//   - Business logic validation
+	//   - Feature flag enforcement
+	//
+	// For pattern matching instead of exact values, use AllowedQueryParamsRegex.
 	AllowedQueryParams map[string][]string
 
 	// AllowedQueryParamsRegex is a map of query parameter names to regex patterns for allowed values.
+	// Only requests with query parameters matching the specified patterns will be allowed.
+	// Set via WithAllowedQueryParamsRegex().
+	//
+	// Regex features:
+	//   - Parameter names are case-sensitive
+	//   - Use standard Go regex syntax
+	//   - ^ and $ for exact matching
+	//   - Multiple patterns per parameter (OR logic)
+	//
+	// Examples:
+	//   - "id": [`^\d+$`] - Numeric IDs only
+	//   - "email": [`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`] - Email format
+	//   - "uuid": [`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`] - UUID format
+	//
+	// This is more flexible than AllowedQueryParams for format validation.
 	AllowedQueryParamsRegex map[string][]string
 
 	// BlockedQueryParams is a map of query parameter names to exact blocked values.
-	// Takes precedence over AllowedQueryParams.
+	// Requests with query parameters matching the specified exact values will be denied.
+	// Set via WithBlockedQueryParams().
+	//
+	// Parameter matching:
+	//   - Parameter names are case-sensitive
+	//   - Values must match exactly (case-sensitive)
+	//   - Multiple blocked values per parameter
+	//   - Any matching parameter causes blocking
+	//
+	// Use cases:
+	//   - Security parameter filtering
+	//   - Debug mode blocking in production
+	//   - Malicious query detection
+	//   - Legacy parameter deprecation
+	//
+	// Note: BlockedQueryParams takes precedence over AllowedQueryParams.
 	BlockedQueryParams map[string][]string
 
 	// BlockedQueryParamsRegex is a map of query parameter names to regex patterns for blocked values.
-	// Takes precedence over allowed patterns.
+	// Requests with query parameters matching the specified patterns will be denied.
+	// Set via WithBlockedQueryParamsRegex().
+	//
+	// Regex features:
+	//   - Parameter names are case-sensitive
+	//   - (?i) for case-insensitive pattern matching
+	//   - Use standard Go regex syntax
+	//   - Multiple patterns per parameter (OR logic)
+	//
+	// Examples:
+	//   - "search": [`(?i)(union|select|drop|delete|insert|update)`] - Block SQL injection
+	//   - "callback": [`(?i)(<script|javascript:|vbscript:)`] - Block script injection
+	//   - "query": [`.{1000,}`] - Block excessive length
+	//
+	// Note: BlockedQueryParamsRegex takes precedence over AllowedQueryParamsRegex.
 	BlockedQueryParamsRegex map[string][]string
 
-	// ExcludePaths are paths that should be excluded from filtering.
+	// ExcludePaths are paths that should be excluded from request filtering.
+	// Requests to these paths will bypass all filtering rules.
+	// Set via WithFilterExcludePaths().
+	//
+	// Common exclusions:
+	//   - Health checks: "/health", "/ping"
+	//   - Public APIs: "/public/*", "/api/public/*"
+	//   - Documentation: "/docs/*", "/swagger/*"
+	//   - Static assets: "/static/*", "/assets/*"
+	//   - Monitoring: "/metrics", "/status"
+	//
+	// Path matching supports wildcards (*) for pattern matching.
+	// Excluded paths bypass ALL filtering rules (IP, User-Agent, headers, query params).
 	ExcludePaths []string
 
-	// IncludePaths are paths that should be included in filtering.
-	// If empty, all paths are included except those in ExcludePaths.
+	// IncludePaths are paths that should be included in request filtering.
+	// If set, only requests to these paths will be subject to filtering rules.
+	// Set via WithFilterIncludePaths().
+	//
+	// If both IncludePaths and ExcludePaths are set:
+	//   1. Paths must match IncludePaths to be filtered
+	//   2. Paths in ExcludePaths are then excluded from filtering
+	//
+	// Use cases:
+	//   - Protect only sensitive endpoints
+	//   - Apply filtering to specific API versions
+	//   - Filter only external-facing endpoints
+	//   - Granular security control
+	//
+	// Path matching supports wildcards (*) for pattern matching.
 	IncludePaths []string
 
-	// StatusCode is the HTTP status code returned when request is blocked.
-	// Defaults to 403 (Forbidden) if not set.
+	// StatusCode is the HTTP status code returned when requests are blocked by filters.
+	// Set via WithFilterStatusCode(). Default is 403 (Forbidden) if not set.
+	//
+	// Common status codes:
+	//   - 403 Forbidden (recommended) - Clear about blocking
+	//   - 404 Not Found - Hides endpoint existence
+	//   - 401 Unauthorized - Suggests authentication needed
+	//   - 429 Too Many Requests - Can mislead attackers
+	//
+	// Choose based on your security strategy and user experience needs.
 	StatusCode int
 
-	// Message is the response message when request is blocked.
-	// Defaults to "Request blocked by security filter" if not set.
+	// Message is the response body returned when requests are blocked by filters.
+	// Set via WithFilterMessage(). Default is "Request blocked by security filter" if not set.
+	//
+	// Best practices:
+	//   - Be clear but not too specific about the filter
+	//   - Include contact information for legitimate users
+	//   - Avoid revealing security implementation details
+	//   - Keep messages user-friendly
+	//
+	// The message is returned as plain text in the response body.
 	Message string
 
-	// TrustedProxies is a list of trusted proxy IP addresses or CIDR ranges.
-	// Only requests from these IPs will have their proxy headers trusted for IP filtering.
+	// TrustedProxies is a list of trusted proxy IP addresses or CIDR ranges
+	// for accurate client IP detection in filtering.
+	// Set via WithFilterTrustedProxies().
+	//
+	// How it works:
+	//   - Without trusted proxies: Uses r.RemoteAddr (proxy IP) for IP filtering
+	//   - With trusted proxies: Uses X-Forwarded-For or X-Real-IP headers
+	//
+	// Common proxy ranges:
+	//   - AWS ALB: Check AWS documentation for current ranges
+	//   - Cloudflare: Use Cloudflare's published IP ranges
+	//   - Internal load balancers: Your internal network ranges
+	//   - Docker networks: 172.16.0.0/12, 10.0.0.0/8
+	//
+	// Security considerations:
+	//   - Only list IPs you actually trust
+	//   - Malicious clients can spoof X-Forwarded-For headers
+	//   - Ensure proxy properly validates and forwards real client IPs
 	TrustedProxies []string
 }
 
 // SecurityConfig holds configuration for security headers middleware.
+// SecurityConfig holds configuration for security headers middleware.
+// These headers protect web applications from common security vulnerabilities.
+//
+// Security headers help prevent:
+//   - Cross-site scripting (XSS) attacks
+//   - Clickjacking attacks
+//   - MIME type sniffing vulnerabilities
+//   - Cross-origin policy violations
+//   - Content injection attacks
+//
+// Example configuration:
+//
+//	security := SecurityConfig{
+//		Enabled: true,
+//		ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'",
+//		XFrameOptions: "DENY",
+//		XContentTypeOptions: "nosniff",
+//		StrictTransportSecurity: "max-age=31536000; includeSubDomains",
+//	}
+//
+// Use WithStrictSecurityHeaders() for a preset of maximum security headers.
 type SecurityConfig struct {
 	// Enabled determines whether security headers middleware is active.
+	// Must be set to true for any security headers to be applied.
+	// Set via WithSecurityHeaders(), WithStrictSecurityHeaders(), or WithSecurityConfig().
+	//
+	// When disabled, no security headers will be added to responses,
+	// even if individual header values are configured.
 	Enabled bool
 
-	// ContentSecurityPolicy sets the Content-Security-Policy header.
-	// Example: "default-src 'self'; script-src 'self' 'unsafe-inline'"
+	// ContentSecurityPolicy sets the Content-Security-Policy header for XSS protection.
+	// This header controls which resources the browser is allowed to load.
+	// Set via WithContentSecurityPolicy() or WithStrictSecurityHeaders().
+	//
+	// Common policies:
+	//   - Basic: "default-src 'self'"
+	//   - With inline scripts: "default-src 'self'; script-src 'self' 'unsafe-inline'"
+	//   - Strict: "default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'"
+	//   - API-only: "default-src 'none'; frame-ancestors 'none'"
+	//
+	// Use CSP generators or testing tools to create appropriate policies.
+	// Start with a restrictive policy and gradually add exceptions as needed.
 	ContentSecurityPolicy string
 
-	// XContentTypeOptions sets the X-Content-Type-Options header.
-	// Recommended: "nosniff"
+	// XContentTypeOptions sets the X-Content-Type-Options header to prevent MIME sniffing.
+	// This prevents browsers from interpreting files differently than declared by Content-Type.
+	// Set via WithSecurityHeaders(), WithStrictSecurityHeaders(), or WithSecurityConfig().
+	//
+	// Standard value: "nosniff"
+	//
+	// Benefits:
+	//   - Prevents MIME confusion attacks
+	//   - Ensures Content-Type headers are respected
+	//   - Reduces risk of drive-by downloads
+	//   - Essential for file upload applications
 	XContentTypeOptions string
 
-	// XFrameOptions sets the X-Frame-Options header.
-	// Options: "DENY", "SAMEORIGIN", "ALLOW-FROM uri"
+	// XFrameOptions sets the X-Frame-Options header to prevent clickjacking attacks.
+	// This controls whether the page can be displayed in frames/iframes.
+	// Set via WithSecurityHeaders(), WithStrictSecurityHeaders(), or WithSecurityConfig().
+	//
+	// Options:
+	//   - "DENY": Page cannot be framed at all
+	//   - "SAMEORIGIN": Page can only be framed by same origin
+	//   - "ALLOW-FROM uri": Page can only be framed by specified URI
+	//
+	// Use "DENY" for maximum security unless you specifically need framing.
 	XFrameOptions string
 
-	// XXSSProtection sets the X-XSS-Protection header.
-	// Recommended: "1; mode=block"
+	// XXSSProtection sets the X-XSS-Protection header for legacy XSS protection.
+	// Modern browsers rely more on CSP, but this provides additional protection.
+	// Set via WithSecurityHeaders(), WithStrictSecurityHeaders(), or WithSecurityConfig().
+	//
+	// Common values:
+	//   - "1": Enable XSS filtering (basic)
+	//   - "1; mode=block": Enable XSS filtering and block rather than sanitize
+	//   - "0": Disable XSS filtering (not recommended)
+	//
+	// Note: This header is deprecated in favor of CSP but still useful for older browsers.
 	XXSSProtection string
 
-	// StrictTransportSecurity sets the Strict-Transport-Security header.
-	// Example: "max-age=31536000; includeSubDomains"
+	// StrictTransportSecurity sets the HSTS header to enforce HTTPS usage.
+	// This tells browsers to only access the site over HTTPS for a specified time.
+	// Set via WithHSTSHeader(), WithStrictSecurityHeaders(), or WithSecurityConfig().
+	//
+	// Format: "max-age=<seconds>; includeSubDomains; preload"
+	//
+	// Common configurations:
+	//   - Basic: "max-age=31536000" (1 year)
+	//   - With subdomains: "max-age=31536000; includeSubDomains"
+	//   - Maximum security: "max-age=63072000; includeSubDomains; preload" (2 years)
+	//
+	// Only set this if your site fully supports HTTPS and you're ready to commit to it.
 	StrictTransportSecurity string
 
-	// ReferrerPolicy sets the Referrer-Policy header.
-	// Options: "no-referrer", "same-origin", "strict-origin-when-cross-origin", etc.
+	// ReferrerPolicy sets the Referrer-Policy header to control referrer information.
+	// This controls how much referrer information is sent with requests.
+	// Set via WithStrictSecurityHeaders() or WithSecurityConfig().
+	//
+	// Options:
+	//   - "no-referrer": Never send referrer information
+	//   - "same-origin": Send referrer only for same-origin requests
+	//   - "strict-origin": Send origin only, and only for HTTPS-to-HTTPS
+	//   - "strict-origin-when-cross-origin": Full URL for same-origin, origin only for cross-origin
+	//   - "unsafe-url": Always send full URL (not recommended)
+	//
+	// Balance privacy protection with functionality needs.
 	ReferrerPolicy string
 
-	// PermissionsPolicy sets the Permissions-Policy header.
-	// Example: "geolocation=(), microphone=(), camera=()"
+	// PermissionsPolicy sets the Permissions-Policy header to control browser features.
+	// This restricts access to browser APIs and features for enhanced privacy/security.
+	// Set via WithStrictSecurityHeaders() or WithSecurityConfig().
+	//
+	// Format: "feature=(allowlist)"
+	//
+	// Examples:
+	//   - Block all: "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+	//   - Self only: "geolocation=(self), microphone=(self), camera=(self)"
+	//   - Specific origins: "geolocation=(\"https://maps.example.com\")"
+	//
+	// Common features: geolocation, microphone, camera, payment, usb, magnetometer, gyroscope
 	PermissionsPolicy string
 
 	// XPermittedCrossDomainPolicies sets the X-Permitted-Cross-Domain-Policies header.
-	// Recommended: "none"
+	// This controls cross-domain access for Flash and PDF files.
+	// Set via WithStrictSecurityHeaders() or WithSecurityConfig().
+	//
+	// Options:
+	//   - "none": No cross-domain access allowed (recommended)
+	//   - "master-only": Only master policy file is allowed
+	//   - "by-content-type": Policy files served with appropriate content type
+	//   - "all": All policy files allowed (not recommended)
+	//
+	// Use "none" unless you specifically need cross-domain Flash/PDF functionality.
 	XPermittedCrossDomainPolicies string
 
 	// CrossOriginEmbedderPolicy sets the Cross-Origin-Embedder-Policy header.
-	// Options: "require-corp", "unsafe-none"
+	// This header allows a document to control which cross-origin resources can be embedded.
+	// Set via WithStrictSecurityHeaders() or WithSecurityConfig().
+	//
+	// Options:
+	//   - "require-corp": Embedded resources must explicitly opt-in to being embedded
+	//   - "unsafe-none": No restrictions (default behavior)
+	//
+	// Use "require-corp" for applications that need to isolate their context
+	// from potentially malicious cross-origin resources.
 	CrossOriginEmbedderPolicy string
 
 	// CrossOriginOpenerPolicy sets the Cross-Origin-Opener-Policy header.
-	// Options: "same-origin", "same-origin-allow-popups", "unsafe-none"
+	// This header controls the opener relationship for windows opened via links.
+	// Set via WithStrictSecurityHeaders() or WithSecurityConfig().
+	//
+	// Options:
+	//   - "same-origin": Retain opener only for same-origin navigation
+	//   - "same-origin-allow-popups": Like same-origin but allows popups
+	//   - "unsafe-none": No restrictions (default)
+	//
+	// Use "same-origin" to prevent cross-origin pages from accessing your window object.
 	CrossOriginOpenerPolicy string
 
 	// CrossOriginResourcePolicy sets the Cross-Origin-Resource-Policy header.
-	// Options: "same-site", "same-origin", "cross-origin"
+	// This header controls which cross-origin requests can include this resource.
+	// Set via WithStrictSecurityHeaders() or WithSecurityConfig().
+	//
+	// Options:
+	//   - "same-site": Resource can be loaded by same-site requests only
+	//   - "same-origin": Resource can be loaded by same-origin requests only
+	//   - "cross-origin": Resource can be loaded by any origin
+	//
+	// Use "same-site" or "same-origin" for sensitive resources that shouldn't
+	// be embeddable by other origins.
 	CrossOriginResourcePolicy string
 
 	// ExcludePaths are paths that should be excluded from security headers.
+	// Requests to these paths will not have security headers applied.
+	// Set via WithSecurityExcludePaths().
+	//
+	// Common exclusions:
+	//   - API endpoints that need different policies: "/api/*"
+	//   - Legacy applications: "/legacy/*"
+	//   - Third-party integrations: "/webhooks/*"
+	//   - Public assets that need embedding: "/public/*"
+	//   - Development tools: "/debug/*"
+	//
+	// Path matching supports wildcards (*) for pattern matching.
 	ExcludePaths []string
 
-	// IncludePaths are paths that should be included in security headers.
-	// If empty, all paths are included except those in ExcludePaths.
+	// IncludePaths are paths that should have security headers applied.
+	// If set, only requests to these paths will receive security headers.
+	// Set via WithSecurityIncludePaths().
+	//
+	// If both IncludePaths and ExcludePaths are set:
+	//   1. Paths must match IncludePaths to receive security headers
+	//   2. Paths in ExcludePaths are then excluded from security headers
+	//
+	// Use cases:
+	//   - Apply security headers only to web UI: "/app/*", "/dashboard/*"
+	//   - Secure only public-facing endpoints: "/public/*"
+	//   - Protect specific application sections: "/admin/*", "/user/*"
+	//
+	// Path matching supports wildcards (*) for pattern matching.
 	IncludePaths []string
 }
 
-// WithCertificate sets the TLS [Options.Certificate] to the [Options].
-// TLS certificate is required to start HTTPS server.
+// WithCertificate sets the TLS certificate for the server from a pre-loaded tls.Certificate.
+// This enables HTTPS support on the server. You must start the server with an HTTPS address
+// for the certificate to be used.
+//
+// Example:
+//
+//	cert, _ := tls.LoadX509KeyPair("server.crt", "server.key")
+//	options.Certificate = &cert
+//	server := servex.New(servex.WithCertificate(cert))
+//	server.Start("", ":8443") // HTTPS only
+//
+// Use this when you have already loaded the certificate in memory, perhaps for
+// certificate rotation or when loading from embedded files.
 func WithCertificate(cert tls.Certificate) Option {
 	return func(op *Options) {
 		op.Certificate = &cert
 	}
 }
 
-// WithCertificatePtr sets the TLS [Options.Certificate] to the [Options].
-// TLS certificate is required to start HTTPS server.
+// WithCertificatePtr sets the TLS certificate for the server from a pointer to tls.Certificate.
+// This enables HTTPS support on the server. You must start the server with an HTTPS address
+// for the certificate to be used.
+//
+// Example:
+//
+//	cert, err := tls.LoadX509KeyPair("server.crt", "server.key")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	server := servex.New(servex.WithCertificatePtr(&cert))
+//	server.Start("", ":8443") // HTTPS only
+//
+// Use this when you need to pass a certificate pointer, useful when sharing
+// certificate instances or when the certificate is managed externally.
 func WithCertificatePtr(cert *tls.Certificate) Option {
 	return func(op *Options) {
 		op.Certificate = cert
 	}
 }
 
-// WithCertificateFromFile sets the [Options.CertFilePath] and [Options.KeyFilePath] to the [Options] from the given cert and key files.
-// TLS certificate is required to start HTTPS server.
+// WithCertificateFromFile configures the server to load TLS certificate from files.
+// This enables HTTPS support on the server. The certificate files will be loaded
+// when the server starts. You must start the server with an HTTPS address for
+// the certificate to be used.
+//
+// Parameters:
+//   - certFilePath: Path to the PEM-encoded certificate file
+//   - keyFilePath: Path to the PEM-encoded private key file
+//
+// Example:
+//
+//	// Load certificate from files
+//	server := servex.New(servex.WithCertificateFromFile("server.crt", "server.key"))
+//	server.Start(":8080", ":8443") // Both HTTP and HTTPS
+//
+//	// HTTPS only server
+//	server := servex.New(servex.WithCertificateFromFile("cert.pem", "key.pem"))
+//	server.Start("", ":8443") // HTTPS only
+//
+// This is the most common way to configure TLS certificates. Ensure the files
+// are readable by the application and contain valid PEM-encoded data.
 func WithCertificateFromFile(certFilePath, keyFilePath string) Option {
 	return func(op *Options) {
 		op.CertFilePath = certFilePath
@@ -376,65 +1328,230 @@ func WithCertificateFromFile(certFilePath, keyFilePath string) Option {
 	}
 }
 
-// WithReadTimeout sets the [Options.ReadTimeout] of the [Options] to the given duration.
-// ReadTimeout is the maximum duration for reading the entire request, including the body.
-// A zero or negative value sets default value of 60 seconds.
+// WithReadTimeout sets the maximum duration for reading the entire request, including the body.
+// This timeout starts when the connection is accepted and ends when the request body
+// is fully read. It includes time for reading headers and body.
+//
+// A zero or negative value sets the default of 60 seconds.
+//
+// Example:
+//
+//	// Short timeout for API servers
+//	server := servex.New(servex.WithReadTimeout(10 * time.Second))
+//
+//	// Longer timeout for file upload endpoints
+//	server := servex.New(servex.WithReadTimeout(5 * time.Minute))
+//
+// Recommended values:
+//   - API servers: 10-30 seconds
+//   - Web applications: 30-60 seconds
+//   - File upload services: 5-15 minutes
+//   - Microservices: 5-15 seconds
+//
+// Setting this too low may cause legitimate requests to timeout.
+// Setting this too high may allow slow clients to exhaust server resources.
 func WithReadTimeout(tm time.Duration) Option {
 	return func(op *Options) {
 		op.ReadTimeout = lang.If(tm <= 0, defaultReadTimeout, tm)
 	}
 }
 
-// WithReadHeaderTimeout sets the [Options.ReadHeaderTimeout] of the [Options] to the given duration.
-// ReadHeaderTimeout is the maximum duration for reading the request headers (without body).
-// A zero or negative value sets default value of 60 seconds.
+// WithReadHeaderTimeout sets the maximum duration for reading request headers.
+// This timeout is specifically for reading the HTTP headers, not the body.
+// After headers are read, ReadTimeout takes over for the body.
+//
+// A zero or negative value sets the default of 60 seconds.
+//
+// Example:
+//
+//	// Fast header timeout for performance
+//	server := servex.New(servex.WithReadHeaderTimeout(5 * time.Second))
+//
+//	// Combined with read timeout
+//	server := servex.New(
+//		servex.WithReadHeaderTimeout(5 * time.Second),
+//		servex.WithReadTimeout(30 * time.Second),
+//	)
+//
+// Recommended values:
+//   - Most applications: 2-10 seconds
+//   - High-performance APIs: 2-5 seconds
+//   - Development: 10-30 seconds
+//
+// This should typically be shorter than ReadTimeout since headers are usually small.
+// Protects against slow header attacks where clients send headers very slowly.
 func WithReadHeaderTimeout(tm time.Duration) Option {
 	return func(op *Options) {
 		op.ReadHeaderTimeout = lang.If(tm <= 0, defaultReadTimeout, tm)
 	}
 }
 
-// WithIdleTimeout sets the [Options.IdleTimeout] of the [Options] to the given duration.
-// IdleTimeout is the maximum duration an idle Keep-Alive connection will be kept open.
-// A zero or negative value sets default value of 180 seconds.
+// WithIdleTimeout sets the maximum duration that idle Keep-Alive connections
+// will be kept open. After this timeout, idle connections are closed.
+//
+// A zero or negative value sets the default of 180 seconds.
+//
+// Example:
+//
+//	// Short idle timeout for high-throughput servers
+//	server := servex.New(servex.WithIdleTimeout(30 * time.Second))
+//
+//	// Longer timeout for persistent connections
+//	server := servex.New(servex.WithIdleTimeout(5 * time.Minute))
+//
+// Recommended values:
+//   - Web applications: 120-180 seconds
+//   - APIs with frequent requests: 60-120 seconds
+//   - Microservices: 30-60 seconds
+//   - WebSocket services: 300+ seconds
+//
+// Shorter timeouts reduce resource usage but may impact performance for
+// clients making frequent requests. Longer timeouts improve performance
+// but consume more server resources.
 func WithIdleTimeout(tm time.Duration) Option {
 	return func(op *Options) {
 		op.IdleTimeout = lang.If(tm <= 0, defaultIdleTimeout, tm)
 	}
 }
 
-// WithAuthToken sets the [Options.AuthToken] of the [Options] to the given string.
-// AuthToken is the token that will be checked in the Authorization header.
+// WithAuthToken enables simple token-based authentication using the Authorization header.
+// When set, the server will check for "Authorization: Bearer <token>" headers on
+// protected routes and compare against this token.
+//
+// Example:
+//
+//	// Enable simple token auth
+//	server := servex.New(servex.WithAuthToken("my-secret-api-key"))
+//
+//	// Client usage:
+//	// curl -H "Authorization: Bearer my-secret-api-key" http://localhost:8080/api/protected
+//
+// Use this for:
+//   - Simple API authentication
+//   - Service-to-service communication
+//   - Development and testing
+//
+// For more advanced authentication with user management, JWT tokens, and roles,
+// use WithAuth() or WithAuthMemoryDatabase() instead.
+//
+// Note: This is a simple string comparison. For production use with multiple
+// users or complex authorization, consider using the full JWT authentication system.
 func WithAuthToken(t string) Option {
 	return func(op *Options) {
 		op.AuthToken = t
 	}
 }
 
-// WithMetrics sets the [Metrics] to the [Options].
+// WithMetrics sets a custom metrics collector that will be called on each HTTP request.
+// The metrics handler receives the http.Request for each incoming request.
+//
+// Example:
+//
+//	type MyMetrics struct {
+//		requestCount int64
+//	}
+//
+//	func (m *MyMetrics) HandleRequest(r *http.Request) {
+//		atomic.AddInt64(&m.requestCount, 1)
+//		// Log request details, update counters, etc.
+//	}
+//
+//	metrics := &MyMetrics{}
+//	server := servex.New(servex.WithMetrics(metrics))
+//
+// Use this for:
+//   - Prometheus metrics collection
+//   - Custom analytics
+//   - Request counting and monitoring
+//   - Performance tracking
+//
+// The metrics handler is called for every request, so ensure it's fast and non-blocking.
 func WithMetrics(m Metrics) Option {
 	return func(op *Options) {
 		op.Metrics = m
 	}
 }
 
-// WithLogger sets the [Logger] to the [Options].
-// If not set, there will be [slog.New] with [slog.NewJSONHandler]  with logging to stderr.
+// WithLogger sets a custom logger for server events, errors, and panics.
+// The logger must implement the servex.Logger interface with Debug, Info, and Error methods.
+//
+// If not set, servex will create a JSON logger that writes to stderr with debug level.
+//
+// Example:
+//
+//	// Using slog
+//	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+//		Level: slog.LevelInfo,
+//	}))
+//	server := servex.New(servex.WithLogger(logger))
+//
+//	// Custom logger implementation
+//	type MyLogger struct{}
+//	func (l *MyLogger) Debug(msg string, args ...any) { /* implementation */ }
+//	func (l *MyLogger) Info(msg string, args ...any)  { /* implementation */ }
+//	func (l *MyLogger) Error(msg string, args ...any) { /* implementation */ }
+//
+//	server := servex.New(servex.WithLogger(&MyLogger{}))
+//
+// The logger will receive:
+//   - Server startup/shutdown events (Info level)
+//   - Request errors and panics (Error level)
+//   - Debug information when available (Debug level)
 func WithLogger(l Logger) Option {
 	return func(op *Options) {
 		op.Logger = l
 	}
 }
 
-// WithRequestLogger sets the RequestLogger to the [Options].
-// If not set it will use [Options.Logger] or [Options.SLogger] in debug level.
+// WithRequestLogger sets a custom logger specifically for HTTP request logging.
+// This is separate from the main logger and focuses on request/response details.
+//
+// If not set, it will use the main logger in debug level for successful requests.
+//
+// Example:
+//
+//	type RequestLogger struct {
+//		logger *slog.Logger
+//	}
+//
+//	func (rl *RequestLogger) LogRequest(r *http.Request, status int, duration time.Duration) {
+//		rl.logger.Info("request",
+//			"method", r.Method,
+//			"path", r.URL.Path,
+//			"status", status,
+//			"duration", duration,
+//		)
+//	}
+//
+//	server := servex.New(servex.WithRequestLogger(&RequestLogger{logger: slog.Default()}))
+//
+// Use this for:
+//   - Structured request logging
+//   - Access logs
+//   - Request metrics
+//   - Audit trails
 func WithRequestLogger(r RequestLogger) Option {
 	return func(op *Options) {
 		op.RequestLogger = r
 	}
 }
 
-// WithNoRequestLog disables request logging.
+// WithNoRequestLog disables HTTP request logging completely.
+// No requests will be logged regardless of status or errors.
+//
+// Example:
+//
+//	// Disable all request logging
+//	server := servex.New(servex.WithNoRequestLog())
+//
+// Use this when:
+//   - You have external request logging (load balancer, proxy)
+//   - You want to reduce log volume
+//   - Performance is critical and logging overhead matters
+//   - You're implementing custom request logging middleware
+//
+// Note: This only disables request logging. Server events, errors, and panics
+// will still be logged through the main logger.
 func WithNoRequestLog() Option {
 	return func(op *Options) {
 		op.RequestLogger = &noopRequestLogger{}
@@ -442,7 +1559,14 @@ func WithNoRequestLog() Option {
 	}
 }
 
-// WithDisableRequestLogging disables request logging.
+// WithDisableRequestLogging disables HTTP request logging completely.
+// This is an alias for WithNoRequestLog().
+//
+// Example:
+//
+//	server := servex.New(servex.WithDisableRequestLogging())
+//
+// See WithNoRequestLog() for detailed documentation.
 func WithDisableRequestLogging() Option {
 	return func(op *Options) {
 		op.RequestLogger = &noopRequestLogger{}
@@ -450,17 +1574,59 @@ func WithDisableRequestLogging() Option {
 	}
 }
 
-// WithNoLogClientErrors disables logging of client errors with code 400-499.
+// WithNoLogClientErrors disables logging of client errors (HTTP status codes 400-499).
+// Server errors (5xx) and successful requests will still be logged if request logging is enabled.
+//
+// Example:
+//
+//	// Don't log 404s, 400s, etc. to reduce noise
+//	server := servex.New(servex.WithNoLogClientErrors())
+//
+// Use this to:
+//   - Reduce log noise from bad requests
+//   - Focus on server-side issues
+//   - Improve log readability in production
+//
+// Commonly filtered errors include:
+//   - 400 Bad Request
+//   - 401 Unauthorized
+//   - 403 Forbidden
+//   - 404 Not Found
+//   - 429 Too Many Requests
 func WithNoLogClientErrors() Option {
 	return func(op *Options) {
 		op.NoLogClientErrors = true
 	}
 }
 
-// WithSendErrorToClient sets the [Options.SendErrorToClient] of the [Options] to the given value.
-func WithSendErrorToClient(sendErrorToClient bool) Option {
+// WithSendErrorToClient configures the server to include detailed error information
+// in HTTP responses when errors occur. This includes Go error messages and stack traces.
+//
+// Example:
+//
+//	// Development server with detailed errors
+//	server := servex.New(servex.WithSendErrorToClient())
+//
+//	// Production server (don't send error details)
+//	server := servex.New() // Default is false
+//
+// When enabled, responses might include:
+//   - Internal error messages
+//   - Stack traces for panics
+//   - Database connection errors
+//   - File system errors
+//
+// Security considerations:
+//   - NEVER enable this in production
+//   - Error details can reveal system information
+//   - Use only for development and testing
+//   - Consider using structured error responses instead
+//
+// For production, implement proper error handling that returns safe, user-friendly
+// error messages while logging detailed errors server-side.
+func WithSendErrorToClient() Option {
 	return func(op *Options) {
-		op.SendErrorToClient = sendErrorToClient
+		op.SendErrorToClient = true
 	}
 }
 
@@ -476,29 +1642,129 @@ func ReadCertificateFromFile(certFile, keyFile string) (tls.Certificate, error) 
 	return tls.LoadX509KeyPair(certFile, keyFile)
 }
 
-// WithAuth sets the [Options.Auth.Database] of the [Options] to the given [AuthDatabase] and enables auth.
+// WithAuth enables JWT-based authentication with a custom database implementation.
+// This activates the full authentication system with user management, roles, and JWT tokens.
+//
+// The database must implement the AuthDatabase interface for user persistence.
+//
+// Example:
+//
+//	// Custom database implementation
+//	type MyAuthDB struct {
+//		users map[string]*User
+//	}
+//
+//	func (db *MyAuthDB) CreateUser(ctx context.Context, user User) error {
+//		// Implementation
+//	}
+//	// ... implement other AuthDatabase methods
+//
+//	server := servex.New(servex.WithAuth(&MyAuthDB{}))
+//
+// This automatically registers these endpoints:
+//   - POST /api/v1/auth/register - User registration
+//   - POST /api/v1/auth/login - User login
+//   - POST /api/v1/auth/refresh - Token refresh
+//   - POST /api/v1/auth/logout - User logout
+//   - GET /api/v1/auth/me - Current user info
+//
+// Use this for:
+//   - Multi-user applications
+//   - Role-based access control
+//   - Persistent user data
+//   - Production authentication systems
 func WithAuth(db AuthDatabase) Option {
 	return func(op *Options) {
 		op.Auth.Database = db
 	}
 }
 
-// WithAuthMemoryDatabase sets the [Options.Auth.Database] of the [Options] to the in-memory [AuthDatabase] and enables auth.
-// NOT RECOMMENDED FOR PRODUCTION USE. It will forget all users on applications shutdown.
+// WithAuthMemoryDatabase enables JWT authentication with an in-memory user database.
+// This is convenient for development, testing, and applications that don't need
+// persistent user data.
+//
+// WARNING: All users and sessions will be lost when the application restarts.
+// NOT RECOMMENDED FOR PRODUCTION USE.
+//
+// Example:
+//
+//	// Development server with auth
+//	server := servex.New(
+//		servex.WithAuthMemoryDatabase(),
+//		servex.WithAuthInitialUsers(servex.InitialUser{
+//			Username: "admin",
+//			Password: "admin123",
+//			Roles:    []servex.UserRole{"admin"},
+//		}),
+//	)
+//
+// This automatically registers the same endpoints as WithAuth().
+//
+// Use this for:
+//   - Development and testing
+//   - Prototypes and demos
+//   - Applications with temporary users
+//   - Learning and experimentation
+//
+// For production, implement a persistent database and use WithAuth() instead.
 func WithAuthMemoryDatabase() Option {
 	return func(op *Options) {
 		op.Auth.Database = NewMemoryAuthDatabase()
 	}
 }
 
-// WithAuthConfig sets the [Options.Auth] of the [Options] to the given [AuthConfig].
+// WithAuthConfig sets the complete authentication configuration at once.
+// This allows fine-grained control over all authentication settings.
+//
+// Example:
+//
+//	authConfig := servex.AuthConfig{
+//		Database:                myDB,
+//		AccessTokenDuration:     15 * time.Minute,
+//		RefreshTokenDuration:    7 * 24 * time.Hour,
+//		AuthBasePath:           "/auth",
+//		IssuerNameInJWT:        "my-app",
+//		RefreshTokenCookieName: "_refresh",
+//		RolesOnRegister:        []servex.UserRole{"user"},
+//		InitialUsers: []servex.InitialUser{
+//			{Username: "admin", Password: "secure-password", Roles: []servex.UserRole{"admin"}},
+//		},
+//	}
+//
+//	server := servex.New(servex.WithAuthConfig(authConfig))
+//
+// Use this when you need to configure multiple authentication settings at once
+// or when loading configuration from files or environment variables.
 func WithAuthConfig(auth AuthConfig) Option {
 	return func(op *Options) {
 		op.Auth = auth
 	}
 }
 
-// WithAuthKey sets the [Options.Auth.JWTAccessSecret] and [Options.Auth.JWTRefreshSecret] of the [Options] to the given keys.
+// WithAuthKey sets the JWT signing keys for access and refresh tokens.
+// Keys should be hex-encoded strings. If empty, random keys will be generated.
+//
+// Example:
+//
+//	// Use specific keys (recommended for production)
+//	accessKey := "your-32-byte-hex-encoded-access-key"
+//	refreshKey := "your-32-byte-hex-encoded-refresh-key"
+//	server := servex.New(servex.WithAuthKey(accessKey, refreshKey))
+//
+//	// Generate random keys (development only)
+//	server := servex.New(servex.WithAuthKey("", ""))
+//
+// Key requirements:
+//   - Use strong, randomly generated keys
+//   - Access and refresh keys should be different
+//   - Store keys securely (environment variables, key management systems)
+//   - Rotate keys periodically in production
+//
+// Security considerations:
+//   - Never hardcode keys in source code
+//   - Use environment variables or secure configuration
+//   - Different keys for different environments
+//   - Consider key rotation strategies
 func WithAuthKey(accessKey, refreshKey string) Option {
 	return func(op *Options) {
 		op.Auth.JWTAccessSecret = accessKey
@@ -506,35 +1772,141 @@ func WithAuthKey(accessKey, refreshKey string) Option {
 	}
 }
 
-// WithAuthIssuer sets the [Options.Auth.IssuerNameInJWT] of the [Options] to the given issuer name.
+// WithAuthIssuer sets the issuer name included in JWT token claims.
+// This helps identify which service issued the token and can be used for validation.
+//
+// Example:
+//
+//	// Set application name as issuer
+//	server := servex.New(servex.WithAuthIssuer("my-api-service"))
+//
+//	// Environment-specific issuer
+//	issuer := fmt.Sprintf("my-app-%s", os.Getenv("ENVIRONMENT"))
+//	server := servex.New(servex.WithAuthIssuer(issuer))
+//
+// The issuer appears in the JWT "iss" claim and can be verified by clients.
+// Default is "testing" if not set.
+//
+// Use descriptive names like:
+//   - Application name: "user-service", "payment-api"
+//   - Environment-specific: "my-app-prod", "my-app-staging"
+//   - Domain-based: "api.mycompany.com"
 func WithAuthIssuer(issuer string) Option {
 	return func(op *Options) {
 		op.Auth.IssuerNameInJWT = issuer
 	}
 }
 
-// WithAuthBasePath sets the [Options.Auth.AuthBasePath] of the [Options] to the given base path.
+// WithAuthBasePath sets the base path for authentication API endpoints.
+// All auth routes will be registered under this path.
+//
+// Example:
+//
+//	// Custom auth path
+//	server := servex.New(servex.WithAuthBasePath("/auth"))
+//	// Endpoints: /auth/login, /auth/register, etc.
+//
+//	// API versioned path
+//	server := servex.New(servex.WithAuthBasePath("/api/v2/auth"))
+//	// Endpoints: /api/v2/auth/login, /api/v2/auth/register, etc.
+//
+// Default is "/api/v1/auth" if not set.
+//
+// Registered endpoints under the base path:
+//   - POST {basePath}/register
+//   - POST {basePath}/login
+//   - POST {basePath}/refresh
+//   - POST {basePath}/logout
+//   - GET {basePath}/me
 func WithAuthBasePath(path string) Option {
 	return func(op *Options) {
 		op.Auth.AuthBasePath = path
 	}
 }
 
-// WithAuthInitialRoles sets the [Options.Auth.InitialRoles] of the [Options] to the given roles.
+// WithAuthInitialRoles sets the default roles assigned to newly registered users.
+// These roles are automatically assigned when users register through the /register endpoint.
+//
+// Example:
+//
+//	// All new users get "user" role
+//	server := servex.New(servex.WithAuthInitialRoles(servex.UserRole("user")))
+//
+//	// Multiple default roles
+//	server := servex.New(servex.WithAuthInitialRoles(
+//		servex.UserRole("user"),
+//		servex.UserRole("customer"),
+//	))
+//
+// Common role patterns:
+//   - Basic: "user"
+//   - Hierarchical: "user", "member", "premium"
+//   - Functional: "reader", "writer", "admin"
+//
+// Users can have multiple roles. Additional roles can be assigned later
+// through user management endpoints or database operations.
 func WithAuthInitialRoles(roles ...UserRole) Option {
 	return func(op *Options) {
 		op.Auth.RolesOnRegister = roles
 	}
 }
 
-// WithAuthRefreshTokenCookieName sets the [Options.Auth.RefreshTokenCookieName] of the [Options] to the given name.
+// WithAuthRefreshTokenCookieName sets the name of the HTTP cookie used to store refresh tokens.
+// The refresh token cookie is httpOnly and secure, providing protection against XSS attacks.
+//
+// Example:
+//
+//	// Custom cookie name
+//	server := servex.New(servex.WithAuthRefreshTokenCookieName("_my_refresh_token"))
+//
+//	// Short name for bandwidth
+//	server := servex.New(servex.WithAuthRefreshTokenCookieName("_rt"))
+//
+// Default is "_servexrt" if not set.
+//
+// Cookie characteristics:
+//   - HttpOnly: Cannot be accessed by JavaScript
+//   - Secure: Only sent over HTTPS (in production)
+//   - SameSite: Protection against CSRF attacks
+//   - Expires: Set to refresh token duration
+//
+// Choose names that don't conflict with your application's other cookies.
 func WithAuthRefreshTokenCookieName(name string) Option {
 	return func(op *Options) {
 		op.Auth.RefreshTokenCookieName = name
 	}
 }
 
-// WithAuthTokensDuration sets the [Options.Auth.AccessTokenDuration] and [Options.Auth.RefreshTokenDuration] of the [Options] to the given duration.
+// WithAuthTokensDuration sets the validity duration for access and refresh tokens.
+// Access tokens should be short-lived for security, while refresh tokens can be longer.
+//
+// Example:
+//
+//	// Typical web application
+//	server := servex.New(servex.WithAuthTokensDuration(
+//		15*time.Minute,  // Access token: 15 minutes
+//		7*24*time.Hour,  // Refresh token: 7 days
+//	))
+//
+//	// High-security application
+//	server := servex.New(servex.WithAuthTokensDuration(
+//		5*time.Minute,   // Access token: 5 minutes
+//		24*time.Hour,    // Refresh token: 1 day
+//	))
+//
+//	// Development environment
+//	server := servex.New(servex.WithAuthTokensDuration(
+//		1*time.Hour,     // Access token: 1 hour
+//		30*24*time.Hour, // Refresh token: 30 days
+//	))
+//
+// Recommended patterns:
+//   - Web apps: 15-60 min access, 7-30 days refresh
+//   - APIs: 5-30 min access, 1-7 days refresh
+//   - Mobile apps: 30-60 min access, 30-90 days refresh
+//   - High security: 5-15 min access, 1-3 days refresh
+//
+// Shorter access tokens improve security but require more refresh operations.
 func WithAuthTokensDuration(accessDuration, refreshDuration time.Duration) Option {
 	return func(op *Options) {
 		op.Auth.AccessTokenDuration = accessDuration
@@ -542,29 +1914,127 @@ func WithAuthTokensDuration(accessDuration, refreshDuration time.Duration) Optio
 	}
 }
 
-// WithAuthNotRegisterRoutes sets the [Options.Auth.NotRegisterRoutes] of the [Options] to the given value.
+// WithAuthNotRegisterRoutes prevents automatic registration of default authentication routes.
+// Use this when you want to implement custom authentication endpoints or integrate
+// with existing authentication systems.
+//
+// Example:
+//
+//	// Disable default auth routes
+//	server := servex.New(
+//		servex.WithAuthMemoryDatabase(),
+//		servex.WithAuthNotRegisterRoutes(true),
+//	)
+//
+//	// Register custom auth routes
+//	server.HandleFunc("/custom/login", myCustomLoginHandler)
+//	server.HandleFunc("/custom/register", myCustomRegisterHandler)
+//
+// When enabled, you must implement your own:
+//   - User registration endpoint
+//   - Login endpoint
+//   - Token refresh endpoint
+//   - Logout endpoint
+//   - User profile endpoint
+//
+// You can still use the AuthManager methods for token generation and validation.
+// This gives you full control over request/response formats and business logic.
 func WithAuthNotRegisterRoutes(notRegisterRoutes bool) Option {
 	return func(op *Options) {
 		op.Auth.NotRegisterRoutes = notRegisterRoutes
 	}
 }
 
-// WithAuthInitialUsers sets the [Options.Auth.InitialUsers] of the [Options] to the given users.
+// WithAuthInitialUsers creates initial users in the database when the server starts.
+// This is useful for creating admin accounts or seeding the database with test users.
+//
+// Example:
+//
+//	// Create admin user on startup
+//	server := servex.New(
+//		servex.WithAuthMemoryDatabase(),
+//		servex.WithAuthInitialUsers(servex.InitialUser{
+//			Username: "admin",
+//			Password: "secure-admin-password",
+//			Roles:    []servex.UserRole{"admin", "user"},
+//		}),
+//	)
+//
+//	// Multiple initial users
+//	server := servex.New(
+//		servex.WithAuthMemoryDatabase(),
+//		servex.WithAuthInitialUsers(
+//			servex.InitialUser{
+//				Username: "admin",
+//				Password: "admin-pass",
+//				Roles:    []servex.UserRole{"admin"},
+//			},
+//			servex.InitialUser{
+//				Username: "testuser",
+//				Password: "test-pass",
+//				Roles:    []servex.UserRole{"user"},
+//			},
+//		),
+//	)
+//
+// Security considerations:
+//   - Use strong passwords
+//   - Consider loading from environment variables
+//   - Remove or change default passwords in production
+//   - Limit to essential accounts only
+//
+// The users are created if they don't already exist in the database.
 func WithAuthInitialUsers(users ...InitialUser) Option {
 	return func(op *Options) {
 		op.Auth.InitialUsers = users
 	}
 }
 
-// WithRateLimitConfig sets the [Options.RateLimit] of the [Options] to the given [RateLimitConfig].
+// WithRateLimitConfig sets the complete rate limiting configuration at once.
+// This allows fine-grained control over all rate limiting settings.
+//
+// Example:
+//
+//	rateLimitConfig := servex.RateLimitConfig{
+//		RequestsPerInterval: 100,
+//		Interval:           time.Minute,
+//		BurstSize:          20,
+//		StatusCode:         429,
+//		Message:           "Rate limit exceeded. Try again later.",
+//		ExcludePaths:      []string{"/health", "/metrics"},
+//		TrustedProxies:    []string{"10.0.0.0/8"},
+//	}
+//
+//	server := servex.New(servex.WithRateLimitConfig(rateLimitConfig))
+//
+// Use this when you need to configure multiple rate limiting settings at once
+// or when loading configuration from files or environment variables.
 func WithRateLimitConfig(rateLimit RateLimitConfig) Option {
 	return func(op *Options) {
 		op.RateLimit = rateLimit
 	}
 }
 
-// WithRPM sets the [Options.RateLimit.RequestsPerInterval] of the [Options] to the given value.
-// Interval is set to 1 minute.
+// WithRPM sets rate limiting to allow a specific number of requests per minute.
+// This is a convenience function for simple rate limiting configuration.
+//
+// Example:
+//
+//	// Allow 1000 requests per minute per client
+//	server := servex.New(servex.WithRPM(1000))
+//
+//	// Strict rate limiting for public APIs
+//	server := servex.New(servex.WithRPM(60)) // 1 request per second average
+//
+// Equivalent to:
+//
+//	servex.WithRequestsPerInterval(rpm, time.Minute)
+//
+// Common RPM values:
+//   - Public APIs: 60-1000 RPM
+//   - Internal APIs: 1000-10000 RPM
+//   - File uploads: 10-100 RPM
+//   - Authentication: 10-60 RPM
 func WithRPM(rpm int) Option {
 	return func(op *Options) {
 		op.RateLimit.RequestsPerInterval = rpm
@@ -572,8 +2042,26 @@ func WithRPM(rpm int) Option {
 	}
 }
 
-// WithRPS sets the [Options.RateLimit.RequestsPerInterval] of the [Options] to the given value.
-// Interval is set to 1 second.
+// WithRPS sets rate limiting to allow a specific number of requests per second.
+// This is a convenience function for simple rate limiting configuration.
+//
+// Example:
+//
+//	// Allow 10 requests per second per client
+//	server := servex.New(servex.WithRPS(10))
+//
+//	// High-throughput API
+//	server := servex.New(servex.WithRPS(100))
+//
+// Equivalent to:
+//
+//	servex.WithRequestsPerInterval(rps, time.Second)
+//
+// Common RPS values:
+//   - Web applications: 1-10 RPS
+//   - APIs: 10-100 RPS
+//   - High-performance APIs: 100-1000 RPS
+//   - Microservices: 50-500 RPS
 func WithRPS(rps int) Option {
 	return func(op *Options) {
 		op.RateLimit.RequestsPerInterval = rps
@@ -581,7 +2069,27 @@ func WithRPS(rps int) Option {
 	}
 }
 
-// WithRequestsPerInterval sets the [Options.RateLimit.RequestsPerInterval] of the [Options] to the given value.
+// WithRequestsPerInterval sets custom rate limiting with a specific number of requests
+// allowed per time interval. This provides maximum flexibility for rate limiting configuration.
+//
+// Example:
+//
+//	// 500 requests per 5 minutes
+//	server := servex.New(servex.WithRequestsPerInterval(500, 5*time.Minute))
+//
+//	// 50 requests per 30 seconds
+//	server := servex.New(servex.WithRequestsPerInterval(50, 30*time.Second))
+//
+//	// 1000 requests per hour
+//	server := servex.New(servex.WithRequestsPerInterval(1000, time.Hour))
+//
+// Use cases:
+//   - Custom business requirements
+//   - Unusual time windows
+//   - Integration with external rate limits
+//   - Compliance with API provider limits
+//
+// The rate limiter uses a token bucket algorithm, refilling tokens at a constant rate.
 func WithRequestsPerInterval(requestsPerInterval int, interval time.Duration) Option {
 	return func(op *Options) {
 		op.RateLimit.RequestsPerInterval = requestsPerInterval
@@ -589,238 +2097,1025 @@ func WithRequestsPerInterval(requestsPerInterval int, interval time.Duration) Op
 	}
 }
 
-// WithBurstSize sets the [Options.RateLimit.BurstSize] of the [Options] to the given value.
+// WithBurstSize sets the maximum burst size for rate limiting.
+// This allows clients to exceed the normal rate limit temporarily by "bursting".
+//
+// Example:
+//
+//	// 10 RPS with burst of 50 requests
+//	server := servex.New(
+//		servex.WithRPS(10),
+//		servex.WithBurstSize(50),
+//	)
+//
+//	// No bursting allowed
+//	server := servex.New(
+//		servex.WithRPS(10),
+//		servex.WithBurstSize(1),
+//	)
+//
+// How it works:
+//   - Clients can make up to burstSize requests immediately
+//   - After bursting, they must wait for tokens to refill
+//   - Tokens refill at the configured rate (RPS/RPM)
+//
+// Use cases:
+//   - Handle traffic spikes gracefully
+//   - Allow batch operations
+//   - Improve user experience for bursty clients
+//   - Balance performance with protection
+//
+// If not set, defaults to the requests per interval value.
 func WithBurstSize(burstSize int) Option {
 	return func(op *Options) {
 		op.RateLimit.BurstSize = burstSize
 	}
 }
 
-// WithRateLimitStatusCode sets the [Options.RateLimit.StatusCode] of the [Options] to the given value.
+// WithRateLimitStatusCode sets the HTTP status code returned when rate limit is exceeded.
+// Default is 429 (Too Many Requests) if not set.
+//
+// Example:
+//
+//	// Use standard 429 status
+//	server := servex.New(
+//		servex.WithRPS(10),
+//		servex.WithRateLimitStatusCode(429),
+//	)
+//
+//	// Use 503 Service Unavailable
+//	server := servex.New(
+//		servex.WithRPS(10),
+//		servex.WithRateLimitStatusCode(503),
+//	)
+//
+// Common status codes:
+//   - 429 Too Many Requests (recommended)
+//   - 503 Service Unavailable
+//   - 502 Bad Gateway (for proxy scenarios)
+//
+// The 429 status code is specifically designed for rate limiting and is
+// understood by most HTTP clients and libraries.
 func WithRateLimitStatusCode(statusCode int) Option {
 	return func(op *Options) {
 		op.RateLimit.StatusCode = statusCode
 	}
 }
 
-// WithRateLimitMessage sets the [Options.RateLimit.Message] of the [Options] to the given value.
+// WithRateLimitMessage sets the response message when rate limit is exceeded.
+// Default is "rate limit exceeded, try again later." if not set.
+//
+// Example:
+//
+//	// Custom rate limit message
+//	server := servex.New(
+//		servex.WithRPS(10),
+//		servex.WithRateLimitMessage("Too many requests. Please slow down and try again in a few moments."),
+//	)
+//
+//	// Include retry information
+//	server := servex.New(
+//		servex.WithRPM(100),
+//		servex.WithRateLimitMessage("Rate limit exceeded. Maximum 100 requests per minute allowed."),
+//	)
+//
+// Best practices:
+//   - Be clear about the limit
+//   - Suggest when to retry
+//   - Keep messages user-friendly
+//   - Include contact information for questions
+//
+// The message is returned as plain text in the response body.
 func WithRateLimitMessage(message string) Option {
 	return func(op *Options) {
 		op.RateLimit.Message = message
 	}
 }
 
-// WithRateLimitKeyFunc sets the [Options.RateLimit.KeyFunc] of the [Options] to the given function.
+// WithRateLimitKeyFunc sets a custom function to extract the rate limit key from requests.
+// This determines how clients are identified for rate limiting purposes.
+//
+// Example:
+//
+//	// Rate limit by IP address
+//	server := servex.New(
+//		servex.WithRPS(10),
+//		servex.WithRateLimitKeyFunc(func(r *http.Request) string {
+//			return r.RemoteAddr
+//		}),
+//	)
+//
+//	// Rate limit by API key
+//	server := servex.New(
+//		servex.WithRPS(100),
+//		servex.WithRateLimitKeyFunc(func(r *http.Request) string {
+//			apiKey := r.Header.Get("X-API-Key")
+//			if apiKey == "" {
+//				return r.RemoteAddr // Fallback to IP
+//			}
+//			return "api:" + apiKey
+//		}),
+//	)
+//
+//	// Rate limit by user ID (requires auth)
+//	server := servex.New(
+//		servex.WithRPS(50),
+//		servex.WithRateLimitKeyFunc(func(r *http.Request) string {
+//			userID := r.Context().Value("userID")
+//			if userID != nil {
+//				return "user:" + userID.(string)
+//			}
+//			return r.RemoteAddr
+//		}),
+//	)
+//
+// Default behavior uses client IP address. Custom key functions enable:
+//   - User-based rate limiting
+//   - API key-based limits
+//   - Different limits for different client types
+//   - Combined identification strategies
 func WithRateLimitKeyFunc(keyFunc func(r *http.Request) string) Option {
 	return func(op *Options) {
 		op.RateLimit.KeyFunc = keyFunc
 	}
 }
 
-// WithRateLimitExcludePaths sets the [Options.RateLimit.ExcludePaths] of the [Options] to the given paths.
+// WithRateLimitExcludePaths excludes specific paths from rate limiting.
+// Requests to these paths will not be counted against rate limits.
+//
+// Example:
+//
+//	// Exclude monitoring endpoints
+//	server := servex.New(
+//		servex.WithRPS(10),
+//		servex.WithRateLimitExcludePaths("/health", "/metrics", "/status"),
+//	)
+//
+//	// Exclude static assets
+//	server := servex.New(
+//		servex.WithRPS(100),
+//		servex.WithRateLimitExcludePaths("/static/*", "/assets/*", "/favicon.ico"),
+//	)
+//
+// Common exclusions:
+//   - Health checks: "/health", "/ping"
+//   - Metrics: "/metrics", "/stats"
+//   - Static files: "/static/*", "/assets/*"
+//   - Documentation: "/docs/*", "/swagger/*"
+//   - Infrastructure: "/robots.txt", "/favicon.ico"
+//
+// Path matching supports wildcards (*) for pattern matching.
 func WithRateLimitExcludePaths(paths ...string) Option {
 	return func(op *Options) {
-		op.RateLimit.ExcludePaths = paths
+		op.RateLimit.ExcludePaths = append(op.RateLimit.ExcludePaths, paths...)
 	}
 }
 
-// WithRateLimitIncludePaths sets the [Options.RateLimit.IncludePaths] of the [Options] to the given paths.
-// If empty, all paths are included except those in ExcludePaths if rate limiting is enabled.
+// WithRateLimitIncludePaths specifies which paths should be rate limited.
+// If set, only requests to these paths will be rate limited. All other paths are excluded.
+//
+// Example:
+//
+//	// Only rate limit API endpoints
+//	server := servex.New(
+//		servex.WithRPS(100),
+//		servex.WithRateLimitIncludePaths("/api/*"),
+//	)
+//
+//	// Rate limit specific sensitive endpoints
+//	server := servex.New(
+//		servex.WithRPS(5),
+//		servex.WithRateLimitIncludePaths("/api/auth/*", "/api/admin/*"),
+//	)
+//
+// If both IncludePaths and ExcludePaths are set:
+//  1. Paths must match IncludePaths to be rate limited
+//  2. Paths in ExcludePaths are then excluded from rate limiting
+//
+// Use cases:
+//   - Protect only sensitive endpoints
+//   - Apply different limits to different API versions
+//   - Rate limit only external-facing endpoints
+//   - Granular control over protection
 func WithRateLimitIncludePaths(paths ...string) Option {
 	return func(op *Options) {
-		op.RateLimit.IncludePaths = paths
+		op.RateLimit.IncludePaths = append(op.RateLimit.IncludePaths, paths...)
 	}
 }
 
-// WithNoRateInAuthRoutes sets the [Options.RateLimit.NoRateInAuthRoutes] of the [Options] to true.
-// If true, will not set rate limit for requests to auth routes automatically.
+// WithNoRateInAuthRoutes disables rate limiting for authentication endpoints.
+// This prevents auth routes from being double-limited when they have their own protection.
+//
+// Example:
+//
+//	// Rate limit everything except auth routes
+//	server := servex.New(
+//		servex.WithRPS(100),
+//		servex.WithAuthMemoryDatabase(),
+//		servex.WithNoRateInAuthRoutes(),
+//	)
+//
+// Why use this:
+//   - Auth endpoints often have built-in protection (login attempts, etc.)
+//   - Prevents blocking legitimate auth operations
+//   - Allows different limits for auth vs regular endpoints
+//   - Avoids double-protection overhead
+//
+// Affected routes (when auth is enabled):
+//   - POST /api/v1/auth/login
+//   - POST /api/v1/auth/register
+//   - POST /api/v1/auth/refresh
+//   - POST /api/v1/auth/logout
+//   - GET /api/v1/auth/me
+//
+// You can still apply separate rate limits to auth endpoints using
+// include/exclude path configurations if needed.
 func WithNoRateInAuthRoutes() Option {
 	return func(op *Options) {
 		op.RateLimit.NoRateInAuthRoutes = true
 	}
 }
 
-// WithRateLimitTrustedProxies sets the [Options.RateLimit.TrustedProxies] to the given proxies.
-// Only requests from these trusted proxy IP addresses or CIDR ranges will have their
-// X-Forwarded-For and X-Real-IP headers trusted for rate limiting.
-// If not set, proxy headers are ignored and RemoteAddr is always used for security.
+// WithRateLimitTrustedProxies sets trusted proxy IP addresses or CIDR ranges
+// for accurate client IP detection in rate limiting.
+//
+// Example:
+//
+//	// Trust load balancer IPs
+//	server := servex.New(
+//		servex.WithRPS(10),
+//		servex.WithRateLimitTrustedProxies("10.0.0.0/8", "172.16.0.0/12"),
+//	)
+//
+//	// Trust specific proxy servers
+//	server := servex.New(
+//		servex.WithRPS(100),
+//		servex.WithRateLimitTrustedProxies("192.168.1.100", "192.168.1.101"),
+//	)
+//
+// How it works:
+//   - Without trusted proxies: Uses r.RemoteAddr (proxy IP)
+//   - With trusted proxies: Uses X-Forwarded-For or X-Real-IP headers
+//
+// Common proxy ranges:
+//   - AWS ALB: Check AWS documentation for current ranges
+//   - Cloudflare: Use Cloudflare's published IP ranges
+//   - Internal load balancers: Your internal network ranges
+//   - Docker networks: 172.16.0.0/12, 10.0.0.0/8
+//
+// Security note: Only list IPs you actually trust. Malicious clients
+// can spoof X-Forwarded-For headers if the proxy IP is trusted.
 func WithRateLimitTrustedProxies(proxies ...string) Option {
 	return func(op *Options) {
-		op.RateLimit.TrustedProxies = proxies
+		op.RateLimit.TrustedProxies = append(op.RateLimit.TrustedProxies, proxies...)
 	}
 }
 
-// WithFilterConfig sets the [Options.Filter] to the given filter configuration.
-// This allows full configuration of the request filtering middleware.
+// WithFilterConfig sets the complete request filtering configuration at once.
+// This allows fine-grained control over all filtering settings for IP addresses,
+// User-Agents, headers, and query parameters.
+//
+// Example:
+//
+//	filterConfig := servex.FilterConfig{
+//		AllowedIPs: []string{"10.0.0.0/8", "192.168.1.100"},
+//		BlockedUserAgents: []string{"BadBot", "Scraper"},
+//		AllowedHeaders: map[string][]string{
+//			"X-API-Version": {"v1", "v2"},
+//		},
+//		StatusCode: 403,
+//		Message: "Access denied by security filter",
+//		ExcludePaths: []string{"/health", "/public/*"},
+//	}
+//
+//	server := servex.New(servex.WithFilterConfig(filterConfig))
+//
+// Use this when you need to configure multiple filtering settings at once
+// or when loading configuration from files or environment variables.
 func WithFilterConfig(filter FilterConfig) Option {
 	return func(op *Options) {
 		op.Filter = filter
 	}
 }
 
-// WithAllowedIPs sets the [Options.Filter.AllowedIPs] to the given IP addresses or CIDR ranges.
-// If specified, only requests from these IPs will be allowed.
-// Individual IP addresses and CIDR ranges are both supported.
+// WithAllowedIPs restricts access to specific IP addresses or CIDR ranges.
+// Only requests from these IPs will be allowed. All other IPs are blocked.
+//
+// Example:
+//
+//	// Allow specific office IPs
+//	server := servex.New(servex.WithAllowedIPs(
+//		"192.168.1.0/24",    // Office network
+//		"203.0.113.100",     // VPN gateway
+//		"10.0.0.0/8",        // Internal network
+//	))
+//
+//	// Allow only localhost
+//	server := servex.New(servex.WithAllowedIPs("127.0.0.1", "::1"))
+//
+// IP formats supported:
+//   - Single IP: "192.168.1.100"
+//   - CIDR range: "10.0.0.0/8", "192.168.1.0/24"
+//   - IPv6: "2001:db8::1", "2001:db8::/32"
+//
+// Use cases:
+//   - Restrict admin interfaces to office IPs
+//   - Allow only partner/client IPs
+//   - Internal-only APIs
+//   - Development/staging environment protection
+//
+// If empty, all IPs are allowed unless blocked by WithBlockedIPs().
 func WithAllowedIPs(ips ...string) Option {
 	return func(op *Options) {
-		op.Filter.AllowedIPs = ips
+		op.Filter.AllowedIPs = append(op.Filter.AllowedIPs, ips...)
 	}
 }
 
-// WithBlockedIPs sets the [Options.Filter.BlockedIPs] to the given IP addresses or CIDR ranges.
-// Requests from these IPs will be blocked. Takes precedence over AllowedIPs.
-// Individual IP addresses and CIDR ranges are both supported.
+// WithBlockedIPs blocks access from specific IP addresses or CIDR ranges.
+// Requests from these IPs will be denied with a 403 Forbidden response.
+//
+// Example:
+//
+//	// Block known malicious IPs
+//	server := servex.New(servex.WithBlockedIPs(
+//		"203.0.113.0/24",    // Known spam network
+//		"198.51.100.50",     // Specific malicious IP
+//		"192.0.2.0/24",      // Blocked range
+//	))
+//
+//	// Block competitors from scraping
+//	server := servex.New(servex.WithBlockedIPs("competitor-ip-range"))
+//
+// IP formats supported:
+//   - Single IP: "192.168.1.100"
+//   - CIDR range: "10.0.0.0/8", "192.168.1.0/24"
+//   - IPv6: "2001:db8::1", "2001:db8::/32"
+//
+// Use cases:
+//   - Block known malicious IPs
+//   - Prevent competitor scraping
+//   - Geographic restrictions
+//   - Temporary IP bans
+//
+// Note: BlockedIPs takes precedence over AllowedIPs.
+// If an IP is in both lists, it will be blocked.
 func WithBlockedIPs(ips ...string) Option {
 	return func(op *Options) {
-		op.Filter.BlockedIPs = ips
+		op.Filter.BlockedIPs = append(op.Filter.BlockedIPs, ips...)
 	}
 }
 
-// WithAllowedUserAgents sets the [Options.Filter.AllowedUserAgents] to the given exact User-Agent strings.
-// If specified, only requests with matching User-Agent will be allowed.
+// WithAllowedUserAgents restricts access to specific User-Agent strings.
+// Only requests with these exact User-Agent headers will be allowed.
+//
+// Example:
+//
+//	// Allow only your mobile app
+//	server := servex.New(servex.WithAllowedUserAgents(
+//		"MyApp/1.0 (iOS)",
+//		"MyApp/1.0 (Android)",
+//	))
+//
+//	// Allow specific browsers
+//	server := servex.New(servex.WithAllowedUserAgents(
+//		"Mozilla/5.0 Chrome/120.0.0.0",
+//		"Mozilla/5.0 Safari/537.36",
+//	))
+//
+// For pattern matching instead of exact strings, use WithAllowedUserAgentsRegex().
+//
+// Use cases:
+//   - Restrict API to your apps only
+//   - Block automated scrapers
+//   - Allow only supported browsers
+//   - Partner API access control
+//
+// If empty, all User-Agents are allowed unless blocked by WithBlockedUserAgents().
 func WithAllowedUserAgents(userAgents ...string) Option {
 	return func(op *Options) {
-		op.Filter.AllowedUserAgents = userAgents
+		op.Filter.AllowedUserAgents = append(op.Filter.AllowedUserAgents, userAgents...)
 	}
 }
 
-// WithAllowedUserAgentsRegex sets the [Options.Filter.AllowedUserAgentsRegex] to the given regex patterns.
-// If specified, only requests with User-Agent matching these patterns will be allowed.
+// WithAllowedUserAgentsRegex restricts access using User-Agent regex patterns.
+// Only requests with User-Agent headers matching these patterns will be allowed.
+//
+// Example:
+//
+//	// Allow any Chrome browser
+//	server := servex.New(servex.WithAllowedUserAgentsRegex(
+//		`Chrome/\d+\.\d+`,
+//	))
+//
+//	// Allow your app with any version
+//	server := servex.New(servex.WithAllowedUserAgentsRegex(
+//		`^MyApp/\d+\.\d+ \((iOS|Android)\)$`,
+//	))
+//
+//	// Allow major browsers
+//	server := servex.New(servex.WithAllowedUserAgentsRegex(
+//		`(Chrome|Firefox|Safari|Edge)/\d+`,
+//	))
+//
+// Regex features:
+//   - Use standard Go regex syntax
+//   - Case-sensitive matching
+//   - ^ and $ for exact matching
+//   - \d+ for version numbers
+//   - | for alternatives
+//
+// This is more flexible than WithAllowedUserAgents() for version-aware filtering.
 func WithAllowedUserAgentsRegex(patterns ...string) Option {
 	return func(op *Options) {
-		op.Filter.AllowedUserAgentsRegex = patterns
+		op.Filter.AllowedUserAgentsRegex = append(op.Filter.AllowedUserAgentsRegex, patterns...)
 	}
 }
 
-// WithBlockedUserAgents sets the [Options.Filter.BlockedUserAgents] to the given exact User-Agent strings.
-// Requests with matching User-Agent will be blocked. Takes precedence over AllowedUserAgents.
+// WithBlockedUserAgents blocks access from specific User-Agent strings.
+// Requests with these exact User-Agent headers will be denied.
+//
+// Example:
+//
+//	// Block common bots
+//	server := servex.New(servex.WithBlockedUserAgents(
+//		"Googlebot",
+//		"Bingbot",
+//		"facebookexternalhit",
+//		"Twitterbot",
+//	))
+//
+//	// Block scrapers
+//	server := servex.New(servex.WithBlockedUserAgents(
+//		"curl/7.68.0",
+//		"wget",
+//		"python-requests",
+//		"scrapy",
+//	))
+//
+// For pattern matching instead of exact strings, use WithBlockedUserAgentsRegex().
+//
+// Use cases:
+//   - Block automated scrapers
+//   - Prevent bot traffic
+//   - Block specific tools
+//   - Temporary user-agent bans
+//
+// Note: BlockedUserAgents takes precedence over AllowedUserAgents.
 func WithBlockedUserAgents(userAgents ...string) Option {
 	return func(op *Options) {
-		op.Filter.BlockedUserAgents = userAgents
+		op.Filter.BlockedUserAgents = append(op.Filter.BlockedUserAgents, userAgents...)
 	}
 }
 
-// WithBlockedUserAgentsRegex sets the [Options.Filter.BlockedUserAgentsRegex] to the given regex patterns.
-// Requests with User-Agent matching these patterns will be blocked. Takes precedence over allowed patterns.
+// WithBlockedUserAgentsRegex blocks access using User-Agent regex patterns.
+// Requests with User-Agent headers matching these patterns will be denied.
+//
+// Example:
+//
+//	// Block all bots and crawlers
+//	server := servex.New(servex.WithBlockedUserAgentsRegex(
+//		`(?i)(bot|crawler|spider|scraper)`,
+//	))
+//
+//	// Block command line tools
+//	server := servex.New(servex.WithBlockedUserAgentsRegex(
+//		`^(curl|wget|python-requests)`,
+//	))
+//
+//	// Block old browser versions
+//	server := servex.New(servex.WithBlockedUserAgentsRegex(
+//		`MSIE [1-9]\.`,  // IE 9 and below
+//	))
+//
+// Regex features:
+//   - (?i) for case-insensitive matching
+//   - Use standard Go regex syntax
+//   - ^ and $ for exact matching
+//   - | for alternatives
+//
+// Note: BlockedUserAgentsRegex takes precedence over AllowedUserAgentsRegex.
 func WithBlockedUserAgentsRegex(patterns ...string) Option {
 	return func(op *Options) {
-		op.Filter.BlockedUserAgentsRegex = patterns
+		op.Filter.BlockedUserAgentsRegex = append(op.Filter.BlockedUserAgentsRegex, patterns...)
 	}
 }
 
-// WithAllowedHeaders sets the [Options.Filter.AllowedHeaders] to the given exact header values.
-// Header names are case-insensitive.
-// If specified, requests must have headers with exact matching values.
+// WithAllowedHeaders restricts requests based on header values.
+// Only requests with headers matching the specified exact values will be allowed.
+//
+// Example:
+//
+//	// Require specific API version
+//	server := servex.New(servex.WithAllowedHeaders(map[string][]string{
+//		"X-API-Version": {"v1", "v2"},
+//		"Content-Type":  {"application/json"},
+//	}))
+//
+//	// Require authentication header
+//	server := servex.New(servex.WithAllowedHeaders(map[string][]string{
+//		"Authorization": {"Bearer token1", "Bearer token2"},
+//	}))
+//
+// Header matching:
+//   - Header names are case-insensitive
+//   - Values must match exactly (case-sensitive)
+//   - Multiple allowed values per header
+//   - All specified headers must be present
+//
+// Use cases:
+//   - API version enforcement
+//   - Content-Type validation
+//   - Custom authentication schemes
+//   - Partner-specific headers
+//
+// For pattern matching instead of exact values, use WithAllowedHeadersRegex().
 func WithAllowedHeaders(headers map[string][]string) Option {
 	return func(op *Options) {
-		op.Filter.AllowedHeaders = headers
+		if op.Filter.AllowedHeaders == nil {
+			op.Filter.AllowedHeaders = make(map[string][]string)
+		}
+		for k, v := range headers {
+			op.Filter.AllowedHeaders[k] = append(op.Filter.AllowedHeaders[k], v...)
+		}
 	}
 }
 
-// WithAllowedHeadersRegex sets the [Options.Filter.AllowedHeadersRegex] to the given regex patterns.
-// Header names are case-insensitive.
-// If specified, requests must have headers matching these regex patterns.
+// WithAllowedHeadersRegex restricts requests based on header regex patterns.
+// Only requests with headers matching the specified patterns will be allowed.
+//
+// Example:
+//
+//	// Allow any Bearer token
+//	server := servex.New(servex.WithAllowedHeadersRegex(map[string][]string{
+//		"Authorization": {`^Bearer [A-Za-z0-9+/=]+$`},
+//	}))
+//
+//	// Allow semantic versioning
+//	server := servex.New(servex.WithAllowedHeadersRegex(map[string][]string{
+//		"X-API-Version": {`^v\d+\.\d+$`},  // v1.0, v2.1, etc.
+//	}))
+//
+//	// Validate custom headers
+//	server := servex.New(servex.WithAllowedHeadersRegex(map[string][]string{
+//		"X-Request-ID": {`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`},
+//	}))
+//
+// Regex features:
+//   - Header names are case-insensitive
+//   - Use standard Go regex syntax
+//   - ^ and $ for exact matching
+//   - Multiple patterns per header (OR logic)
+//
+// This is more flexible than WithAllowedHeaders() for pattern-based validation.
 func WithAllowedHeadersRegex(headers map[string][]string) Option {
 	return func(op *Options) {
-		op.Filter.AllowedHeadersRegex = headers
+		if op.Filter.AllowedHeadersRegex == nil {
+			op.Filter.AllowedHeadersRegex = make(map[string][]string)
+		}
+		for k, v := range headers {
+			op.Filter.AllowedHeadersRegex[k] = append(op.Filter.AllowedHeadersRegex[k], v...)
+		}
 	}
 }
 
-// WithBlockedHeaders sets the [Options.Filter.BlockedHeaders] to the given exact header values.
-// Header names are case-insensitive. Takes precedence over AllowedHeaders.
-// Requests with matching headers will be blocked.
+// WithBlockedHeaders blocks requests based on header values.
+// Requests with headers matching the specified exact values will be denied.
+//
+// Example:
+//
+//	// Block suspicious headers
+//	server := servex.New(servex.WithBlockedHeaders(map[string][]string{
+//		"X-Forwarded-For": {"malicious-proxy-ip"},
+//		"User-Agent":      {"BadBot/1.0"},
+//	}))
+//
+//	// Block old API versions
+//	server := servex.New(servex.WithBlockedHeaders(map[string][]string{
+//		"X-API-Version": {"v0.1", "v0.2"},
+//	}))
+//
+// Header matching:
+//   - Header names are case-insensitive
+//   - Values must match exactly (case-sensitive)
+//   - Multiple blocked values per header
+//   - Any matching header causes blocking
+//
+// Use cases:
+//   - Block deprecated API versions
+//   - Security header filtering
+//   - Malicious request detection
+//   - Legacy client blocking
+//
+// Note: BlockedHeaders takes precedence over AllowedHeaders.
 func WithBlockedHeaders(headers map[string][]string) Option {
 	return func(op *Options) {
-		op.Filter.BlockedHeaders = headers
+		if op.Filter.BlockedHeaders == nil {
+			op.Filter.BlockedHeaders = make(map[string][]string)
+		}
+		for k, v := range headers {
+			op.Filter.BlockedHeaders[k] = append(op.Filter.BlockedHeaders[k], v...)
+		}
 	}
 }
 
-// WithBlockedHeadersRegex sets the [Options.Filter.BlockedHeadersRegex] to the given regex patterns.
-// Header names are case-insensitive. Takes precedence over allowed patterns.
-// Requests with headers matching these patterns will be blocked.
+// WithBlockedHeadersRegex blocks requests based on header regex patterns.
+// Requests with headers matching the specified patterns will be denied.
+//
+// Example:
+//
+//	// Block requests with suspicious X-Forwarded-For
+//	server := servex.New(servex.WithBlockedHeadersRegex(map[string][]string{
+//		"X-Forwarded-For": {`(10\.0\.0\.|192\.168\.)`},  // Block internal IPs
+//	}))
+//
+//	// Block old user agents
+//	server := servex.New(servex.WithBlockedHeadersRegex(map[string][]string{
+//		"User-Agent": {`(?i)(bot|crawler|spider)`},
+//	}))
+//
+// Regex features:
+//   - Header names are case-insensitive
+//   - (?i) for case-insensitive pattern matching
+//   - Use standard Go regex syntax
+//   - Multiple patterns per header (OR logic)
+//
+// Note: BlockedHeadersRegex takes precedence over AllowedHeadersRegex.
 func WithBlockedHeadersRegex(headers map[string][]string) Option {
 	return func(op *Options) {
-		op.Filter.BlockedHeadersRegex = headers
+		if op.Filter.BlockedHeadersRegex == nil {
+			op.Filter.BlockedHeadersRegex = make(map[string][]string)
+		}
+		for k, v := range headers {
+			op.Filter.BlockedHeadersRegex[k] = append(op.Filter.BlockedHeadersRegex[k], v...)
+		}
 	}
 }
 
-// WithAllowedQueryParams sets the [Options.Filter.AllowedQueryParams] to the given exact query parameter values.
-// If specified, requests must have query parameters with exact matching values.
+// WithAllowedQueryParams restricts requests based on query parameter values.
+// Only requests with query parameters matching the specified exact values will be allowed.
+//
+// Example:
+//
+//	// Require specific API version
+//	server := servex.New(servex.WithAllowedQueryParams(map[string][]string{
+//		"version": {"v1", "v2"},
+//		"format":  {"json", "xml"},
+//	}))
+//
+//	// Require valid sort parameters
+//	server := servex.New(servex.WithAllowedQueryParams(map[string][]string{
+//		"sort": {"name", "date", "price"},
+//		"order": {"asc", "desc"},
+//	}))
+//
+// Parameter matching:
+//   - Parameter names are case-sensitive
+//   - Values must match exactly (case-sensitive)
+//   - Multiple allowed values per parameter
+//   - All specified parameters must be present
+//
+// Use cases:
+//   - API parameter validation
+//   - Prevent SQL injection via query params
+//   - Business logic validation
+//   - Feature flag enforcement
+//
+// For pattern matching instead of exact values, use WithAllowedQueryParamsRegex().
 func WithAllowedQueryParams(params map[string][]string) Option {
 	return func(op *Options) {
-		op.Filter.AllowedQueryParams = params
+		if op.Filter.AllowedQueryParams == nil {
+			op.Filter.AllowedQueryParams = make(map[string][]string)
+		}
+		for k, v := range params {
+			op.Filter.AllowedQueryParams[k] = append(op.Filter.AllowedQueryParams[k], v...)
+		}
 	}
 }
 
-// WithAllowedQueryParamsRegex sets the [Options.Filter.AllowedQueryParamsRegex] to the given regex patterns.
-// If specified, requests must have query parameters matching these regex patterns.
+// WithAllowedQueryParamsRegex restricts requests based on query parameter regex patterns.
+// Only requests with query parameters matching the specified patterns will be allowed.
+//
+// Example:
+//
+//	// Allow numeric IDs only
+//	server := servex.New(servex.WithAllowedQueryParamsRegex(map[string][]string{
+//		"id": {`^\d+$`},
+//		"page": {`^[1-9]\d*$`},  // Positive integers only
+//	}))
+//
+//	// Validate email format
+//	server := servex.New(servex.WithAllowedQueryParamsRegex(map[string][]string{
+//		"email": {`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`},
+//	}))
+//
+//	// Allow UUID format
+//	server := servex.New(servex.WithAllowedQueryParamsRegex(map[string][]string{
+//		"uuid": {`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`},
+//	}))
+//
+// Regex features:
+//   - Parameter names are case-sensitive
+//   - Use standard Go regex syntax
+//   - ^ and $ for exact matching
+//   - Multiple patterns per parameter (OR logic)
+//
+// This is more flexible than WithAllowedQueryParams() for format validation.
 func WithAllowedQueryParamsRegex(params map[string][]string) Option {
 	return func(op *Options) {
-		op.Filter.AllowedQueryParamsRegex = params
+		if op.Filter.AllowedQueryParamsRegex == nil {
+			op.Filter.AllowedQueryParamsRegex = make(map[string][]string)
+		}
+		for k, v := range params {
+			op.Filter.AllowedQueryParamsRegex[k] = append(op.Filter.AllowedQueryParamsRegex[k], v...)
+		}
 	}
 }
 
-// WithBlockedQueryParams sets the [Options.Filter.BlockedQueryParams] to the given exact query parameter values.
-// Takes precedence over AllowedQueryParams.
-// Requests with matching query parameters will be blocked.
+// WithBlockedQueryParams blocks requests based on query parameter values.
+// Requests with query parameters matching the specified exact values will be denied.
+//
+// Example:
+//
+//	// Block dangerous parameters
+//	server := servex.New(servex.WithBlockedQueryParams(map[string][]string{
+//		"debug": {"true", "1"},
+//		"admin": {"true", "1"},
+//	}))
+//
+//	// Block SQL injection attempts
+//	server := servex.New(servex.WithBlockedQueryParams(map[string][]string{
+//		"id": {"'; DROP TABLE users; --"},
+//	}))
+//
+// Parameter matching:
+//   - Parameter names are case-sensitive
+//   - Values must match exactly (case-sensitive)
+//   - Multiple blocked values per parameter
+//   - Any matching parameter causes blocking
+//
+// Use cases:
+//   - Security parameter filtering
+//   - Debug mode blocking in production
+//   - Malicious query detection
+//   - Legacy parameter deprecation
+//
+// Note: BlockedQueryParams takes precedence over AllowedQueryParams.
 func WithBlockedQueryParams(params map[string][]string) Option {
 	return func(op *Options) {
-		op.Filter.BlockedQueryParams = params
+		if op.Filter.BlockedQueryParams == nil {
+			op.Filter.BlockedQueryParams = make(map[string][]string)
+		}
+		for k, v := range params {
+			op.Filter.BlockedQueryParams[k] = append(op.Filter.BlockedQueryParams[k], v...)
+		}
 	}
 }
 
-// WithBlockedQueryParamsRegex sets the [Options.Filter.BlockedQueryParamsRegex] to the given regex patterns.
-// Takes precedence over allowed patterns.
-// Requests with query parameters matching these patterns will be blocked.
+// WithBlockedQueryParamsRegex blocks requests based on query parameter regex patterns.
+// Requests with query parameters matching the specified patterns will be denied.
+//
+// Example:
+//
+//	// Block SQL injection patterns
+//	server := servex.New(servex.WithBlockedQueryParamsRegex(map[string][]string{
+//		"search": {`(?i)(union|select|drop|delete|insert|update)`},
+//	}))
+//
+//	// Block script injection
+//	server := servex.New(servex.WithBlockedQueryParamsRegex(map[string][]string{
+//		"callback": {`(?i)(<script|javascript:|vbscript:)`},
+//	}))
+//
+//	// Block excessive length
+//	server := servex.New(servex.WithBlockedQueryParamsRegex(map[string][]string{
+//		"query": {`.{1000,}`},  // Block queries longer than 1000 chars
+//	}))
+//
+// Regex features:
+//   - Parameter names are case-sensitive
+//   - (?i) for case-insensitive pattern matching
+//   - Use standard Go regex syntax
+//   - Multiple patterns per parameter (OR logic)
+//
+// Note: BlockedQueryParamsRegex takes precedence over AllowedQueryParamsRegex.
 func WithBlockedQueryParamsRegex(params map[string][]string) Option {
 	return func(op *Options) {
-		op.Filter.BlockedQueryParamsRegex = params
+		if op.Filter.BlockedQueryParamsRegex == nil {
+			op.Filter.BlockedQueryParamsRegex = make(map[string][]string)
+		}
+		for k, v := range params {
+			op.Filter.BlockedQueryParamsRegex[k] = append(op.Filter.BlockedQueryParamsRegex[k], v...)
+		}
 	}
 }
 
-// WithFilterExcludePaths sets the [Options.Filter.ExcludePaths] to the given paths.
-// These paths will be excluded from request filtering.
+// WithFilterExcludePaths excludes specific paths from request filtering.
+// Requests to these paths will bypass all filtering rules.
+//
+// Example:
+//
+//	// Exclude public endpoints from filtering
+//	server := servex.New(
+//		servex.WithAllowedIPs("192.168.1.0/24"),
+//		servex.WithFilterExcludePaths("/health", "/public/*", "/docs/*"),
+//	)
+//
+//	// Exclude monitoring from strict filtering
+//	server := servex.New(
+//		servex.WithBlockedUserAgents("curl"),
+//		servex.WithFilterExcludePaths("/metrics", "/status", "/ping"),
+//	)
+//
+// Common exclusions:
+//   - Health checks: "/health", "/ping"
+//   - Public APIs: "/public/*", "/api/public/*"
+//   - Documentation: "/docs/*", "/swagger/*"
+//   - Static assets: "/static/*", "/assets/*"
+//   - Monitoring: "/metrics", "/status"
+//
+// Path matching supports wildcards (*) for pattern matching.
+// Excluded paths bypass ALL filtering rules (IP, User-Agent, headers, query params).
 func WithFilterExcludePaths(paths ...string) Option {
 	return func(op *Options) {
-		op.Filter.ExcludePaths = paths
+		op.Filter.ExcludePaths = append(op.Filter.ExcludePaths, paths...)
 	}
 }
 
-// WithFilterIncludePaths sets the [Options.Filter.IncludePaths] to the given paths.
-// If specified, only these paths will be subject to request filtering.
-// If empty, all paths are included except those in ExcludePaths.
+// WithFilterIncludePaths specifies which paths should be filtered.
+// If set, only requests to these paths will be subject to filtering rules.
+//
+// Example:
+//
+//	// Only filter admin endpoints
+//	server := servex.New(
+//		servex.WithAllowedIPs("192.168.1.0/24"),
+//		servex.WithFilterIncludePaths("/admin/*", "/api/admin/*"),
+//	)
+//
+//	// Filter only sensitive API endpoints
+//	server := servex.New(
+//		servex.WithBlockedUserAgents("curl", "wget"),
+//		servex.WithFilterIncludePaths("/api/sensitive/*", "/api/payment/*"),
+//	)
+//
+// If both IncludePaths and ExcludePaths are set:
+//  1. Paths must match IncludePaths to be filtered
+//  2. Paths in ExcludePaths are then excluded from filtering
+//
+// Use cases:
+//   - Protect only sensitive endpoints
+//   - Apply filtering to specific API versions
+//   - Filter only external-facing endpoints
+//   - Granular security control
+//
+// Path matching supports wildcards (*) for pattern matching.
 func WithFilterIncludePaths(paths ...string) Option {
 	return func(op *Options) {
-		op.Filter.IncludePaths = paths
+		op.Filter.IncludePaths = append(op.Filter.IncludePaths, paths...)
 	}
 }
 
-// WithFilterStatusCode sets the [Options.Filter.StatusCode] for blocked requests.
-// Defaults to 403 (Forbidden) if not set.
+// WithFilterStatusCode sets the HTTP status code returned when requests are blocked by filters.
+// Default is 403 (Forbidden) if not set.
+//
+// Example:
+//
+//	// Use standard 403 Forbidden
+//	server := servex.New(
+//		servex.WithAllowedIPs("192.168.1.0/24"),
+//		servex.WithFilterStatusCode(403),
+//	)
+//
+//	// Use 404 to hide the existence of endpoints
+//	server := servex.New(
+//		servex.WithBlockedUserAgents("BadBot"),
+//		servex.WithFilterStatusCode(404),
+//	)
+//
+//	// Use 429 to indicate rate limiting (misleading but sometimes useful)
+//	server := servex.New(
+//		servex.WithBlockedIPs("malicious-range"),
+//		servex.WithFilterStatusCode(429),
+//	)
+//
+// Common status codes:
+//   - 403 Forbidden (recommended) - Clear about blocking
+//   - 404 Not Found - Hides endpoint existence
+//   - 401 Unauthorized - Suggests authentication needed
+//   - 429 Too Many Requests - Can mislead attackers
+//
+// Choose based on your security strategy and user experience needs.
 func WithFilterStatusCode(statusCode int) Option {
 	return func(op *Options) {
 		op.Filter.StatusCode = statusCode
 	}
 }
 
-// WithFilterMessage sets the [Options.Filter.Message] for blocked requests.
-// Defaults to "Request blocked by security filter" if not set.
+// WithFilterMessage sets the response message when requests are blocked by filters.
+// Default is "Request blocked by security filter" if not set.
+//
+// Example:
+//
+//	// Generic security message
+//	server := servex.New(
+//		servex.WithAllowedIPs("192.168.1.0/24"),
+//		servex.WithFilterMessage("Access denied for security reasons"),
+//	)
+//
+//	// Specific filter message
+//	server := servex.New(
+//		servex.WithBlockedUserAgents("BadBot"),
+//		servex.WithFilterMessage("Your user agent is not allowed"),
+//	)
+//
+//	// Helpful message with contact info
+//	server := servex.New(
+//		servex.WithAllowedHeaders(map[string][]string{"X-API-Key": {"validkey"}}),
+//		servex.WithFilterMessage("Missing or invalid API key. Contact support@example.com for access."),
+//	)
+//
+// Best practices:
+//   - Be clear but not too specific about the filter
+//   - Include contact information for legitimate users
+//   - Avoid revealing security implementation details
+//   - Keep messages user-friendly
+//
+// The message is returned as plain text in the response body.
 func WithFilterMessage(message string) Option {
 	return func(op *Options) {
 		op.Filter.Message = message
 	}
 }
 
-// WithFilterTrustedProxies sets the [Options.Filter.TrustedProxies] to the given trusted proxy IP addresses.
-// Only requests from these IPs will have their proxy headers trusted for IP filtering.
+// WithFilterTrustedProxies sets trusted proxy IP addresses or CIDR ranges
+// for accurate client IP detection in filtering.
+//
+// Example:
+//
+//	// Trust load balancer IPs for filtering
+//	server := servex.New(
+//		servex.WithAllowedIPs("192.168.1.0/24"),
+//		servex.WithFilterTrustedProxies("10.0.0.0/8", "172.16.0.0/12"),
+//	)
+//
+//	// Trust specific proxy servers
+//	server := servex.New(
+//		servex.WithBlockedIPs("malicious-range"),
+//		servex.WithFilterTrustedProxies("192.168.1.100", "192.168.1.101"),
+//	)
+//
+// How it works:
+//   - Without trusted proxies: Uses r.RemoteAddr (proxy IP) for IP filtering
+//   - With trusted proxies: Uses X-Forwarded-For or X-Real-IP headers
+//
+// Common proxy ranges:
+//   - AWS ALB: Check AWS documentation for current ranges
+//   - Cloudflare: Use Cloudflare's published IP ranges
+//   - Internal load balancers: Your internal network ranges
+//   - Docker networks: 172.16.0.0/12, 10.0.0.0/8
+//
+// Security considerations:
+//   - Only list IPs you actually trust
+//   - Malicious clients can spoof X-Forwarded-For headers
+//   - Ensure proxy properly validates and forwards real client IPs
+//   - Consider using separate trusted proxy lists for different purposes
 func WithFilterTrustedProxies(proxies ...string) Option {
 	return func(op *Options) {
-		op.Filter.TrustedProxies = proxies
+		op.Filter.TrustedProxies = append(op.Filter.TrustedProxies, proxies...)
 	}
 }
 
-// WithHealthEndpoint enables the automatic registration of a health check endpoint.
-// The endpoint will be registered at "/health" by default, or at the path specified by WithHealthPath.
+// WithHealthEndpoint enables an automatic health check endpoint that returns server status.
+// This creates a simple endpoint that responds with "OK" and HTTP 200 status.
+//
+// Example:
+//
+//	// Enable health endpoint at default path
+//	server := servex.New(servex.WithHealthEndpoint())
+//	// Available at: GET /health
+//
+//	// Custom health path
+//	server := servex.New(
+//		servex.WithHealthEndpoint(),
+//		servex.WithHealthPath("/status"),
+//	)
+//	// Available at: GET /status
+//
+// The health endpoint:
+//   - Returns 200 OK with "OK" body when server is running
+//   - Bypasses authentication and filtering
+//   - Suitable for load balancer health checks
+//   - Kubernetes liveness/readiness probes
+//   - Monitoring systems
+//
+// Use cases:
+//   - Load balancer health checks
+//   - Kubernetes probes
+//   - Monitoring and alerting
+//   - Service discovery
+//   - Uptime monitoring
+//
+// For custom health logic, implement your own endpoint instead of using this option.
 func WithHealthEndpoint() Option {
 	return func(op *Options) {
 		op.EnableHealthEndpoint = true
@@ -830,36 +3125,605 @@ func WithHealthEndpoint() Option {
 	}
 }
 
-// WithHealthPath sets the [Options.HealthPath] to the given path.
-// Automatically enables the health endpoint if not already enabled.
+// WithHealthPath sets a custom path for the health check endpoint.
+// This only works when WithHealthEndpoint() is also used.
+//
+// Example:
+//
+//	// Custom health check path
+//	server := servex.New(
+//		servex.WithHealthEndpoint(),
+//		servex.WithHealthPath("/ping"),
+//	)
+//	// Available at: GET /ping
+//
+//	// Health check for specific service
+//	server := servex.New(
+//		servex.WithHealthEndpoint(),
+//		servex.WithHealthPath("/api/v1/health"),
+//	)
+//	// Available at: GET /api/v1/health
+//
+// Common health check paths:
+//   - "/health" (default)
+//   - "/ping"
+//   - "/status"
+//   - "/healthz" (Kubernetes style)
+//   - "/alive"
+//   - "/ready"
+//
+// Default is "/health" if not specified.
+// The path should start with "/" and be unique to avoid conflicts.
 func WithHealthPath(path string) Option {
 	return func(op *Options) {
 		op.HealthPath = path
-		op.EnableHealthEndpoint = true
+		// Enable health endpoint if path is set
+		if path != "" {
+			op.EnableHealthEndpoint = true
+		}
 	}
 }
 
-// BaseConfig represents the base configuration for a server without additional options.
-// You can use it as a base for your own configuration.
+// WithSecurityConfig sets the complete security headers configuration at once.
+// This allows fine-grained control over all security headers applied to responses.
+//
+// Example:
+//
+//	securityConfig := servex.SecurityConfig{
+//		Enabled: true,
+//		ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'",
+//		XContentTypeOptions: "nosniff",
+//		XFrameOptions: "DENY",
+//		XXSSProtection: "1; mode=block",
+//		StrictTransportSecurity: "max-age=31536000; includeSubDomains",
+//		ReferrerPolicy: "strict-origin-when-cross-origin",
+//		ExcludePaths: []string{"/api/*"},
+//	}
+//
+//	server := servex.New(servex.WithSecurityConfig(securityConfig))
+//
+// Use this when you need to configure multiple security headers at once
+// or when loading configuration from files or environment variables.
+func WithSecurityConfig(security SecurityConfig) Option {
+	return func(op *Options) {
+		op.Security = security
+	}
+}
+
+// WithSecurityHeaders enables basic security headers with safe default values.
+// This is a convenience function that applies commonly recommended security headers.
+//
+// Example:
+//
+//	// Apply basic security headers
+//	server := servex.New(servex.WithSecurityHeaders())
+//
+// Headers applied:
+//   - X-Content-Type-Options: nosniff
+//   - X-Frame-Options: DENY
+//   - X-XSS-Protection: 1; mode=block
+//   - Referrer-Policy: strict-origin-when-cross-origin
+//
+// Use cases:
+//   - Quick security improvement
+//   - Development and testing
+//   - Basic web application protection
+//   - Starting point for custom security headers
+//
+// For custom security headers or stricter settings, use WithStrictSecurityHeaders()
+// or configure individual headers with specific options.
+func WithSecurityHeaders() Option {
+	return func(op *Options) {
+		op.Security.Enabled = true
+		op.Security.XContentTypeOptions = "nosniff"
+		op.Security.XFrameOptions = "DENY"
+		op.Security.XXSSProtection = "1; mode=block"
+		op.Security.ReferrerPolicy = "strict-origin-when-cross-origin"
+	}
+}
+
+// WithStrictSecurityHeaders enables comprehensive security headers with strict settings.
+// This applies a full set of security headers suitable for high-security environments.
+//
+// Example:
+//
+//	// Apply strict security headers
+//	server := servex.New(servex.WithStrictSecurityHeaders())
+//
+// Headers applied:
+//   - Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'
+//   - X-Content-Type-Options: nosniff
+//   - X-Frame-Options: DENY
+//   - X-XSS-Protection: 1; mode=block
+//   - Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+//   - Referrer-Policy: strict-origin-when-cross-origin
+//   - Permissions-Policy: camera=(), microphone=(), geolocation=()
+//   - X-Permitted-Cross-Domain-Policies: none
+//   - Cross-Origin-Embedder-Policy: require-corp
+//   - Cross-Origin-Opener-Policy: same-origin
+//   - Cross-Origin-Resource-Policy: same-site
+//
+// Use cases:
+//   - High-security applications
+//   - Financial services
+//   - Healthcare applications
+//   - Government systems
+//   - Production web applications
+//
+// Warning: These strict headers may break functionality that requires:
+//   - External scripts or stylesheets
+//   - Iframe embedding
+//   - Cross-origin requests
+//   - Third-party integrations
+//
+// Test thoroughly and adjust headers as needed for your application.
+func WithStrictSecurityHeaders() Option {
+	return func(op *Options) {
+		op.Security.Enabled = true
+		op.Security.ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+		op.Security.XContentTypeOptions = "nosniff"
+		op.Security.XFrameOptions = "DENY"
+		op.Security.XXSSProtection = "1; mode=block"
+		op.Security.StrictTransportSecurity = "max-age=31536000; includeSubDomains; preload"
+		op.Security.ReferrerPolicy = "strict-origin-when-cross-origin"
+		op.Security.PermissionsPolicy = "camera=(), microphone=(), geolocation=()"
+		op.Security.XPermittedCrossDomainPolicies = "none"
+		op.Security.CrossOriginEmbedderPolicy = "require-corp"
+		op.Security.CrossOriginOpenerPolicy = "same-origin"
+		op.Security.CrossOriginResourcePolicy = "same-site"
+	}
+}
+
+// WithContentSecurityPolicy sets the Content-Security-Policy header to prevent XSS attacks.
+// CSP controls which resources (scripts, styles, images, etc.) can be loaded by the browser.
+//
+// Example:
+//
+//	// Basic CSP allowing only same-origin resources
+//	server := servex.New(servex.WithContentSecurityPolicy("default-src 'self'"))
+//
+//	// CSP allowing external CDNs
+//	server := servex.New(servex.WithContentSecurityPolicy(
+//		"default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'",
+//	))
+//
+//	// CSP for API-only server (no resources)
+//	server := servex.New(servex.WithContentSecurityPolicy("default-src 'none'"))
+//
+// Common CSP directives:
+//   - default-src: Default policy for all resource types
+//   - script-src: JavaScript sources
+//   - style-src: CSS sources
+//   - img-src: Image sources
+//   - connect-src: AJAX, WebSocket, EventSource sources
+//   - font-src: Font sources
+//   - object-src: Plugin sources (usually set to 'none')
+//   - media-src: Video/audio sources
+//   - frame-src: Iframe sources
+//
+// Common values:
+//   - 'self': Same origin as the document
+//   - 'none': No resources allowed
+//   - 'unsafe-inline': Allow inline scripts/styles (not recommended)
+//   - 'unsafe-eval': Allow eval() (not recommended)
+//   - https://example.com: Specific domains
+//
+// Security note: CSP is one of the most effective defenses against XSS attacks.
+// Start with a restrictive policy and gradually allow necessary resources.
+func WithContentSecurityPolicy(policy string) Option {
+	return func(op *Options) {
+		op.Security.Enabled = true
+		op.Security.ContentSecurityPolicy = policy
+	}
+}
+
+// WithHSTSHeader sets the Strict-Transport-Security header to enforce HTTPS connections.
+// HSTS prevents protocol downgrade attacks and cookie hijacking.
+//
+// Parameters:
+//   - maxAge: Maximum age in seconds (typically 31536000 for 1 year)
+//   - includeSubdomains: Whether to apply to all subdomains
+//   - preload: Whether to include in browser HSTS preload lists
+//
+// Example:
+//
+//	// Basic HSTS for 1 year
+//	server := servex.New(servex.WithHSTSHeader(31536000, false, false))
+//	// Header: Strict-Transport-Security: max-age=31536000
+//
+//	// HSTS with subdomains for 1 year
+//	server := servex.New(servex.WithHSTSHeader(31536000, true, false))
+//	// Header: Strict-Transport-Security: max-age=31536000; includeSubDomains
+//
+//	// Full HSTS with preload
+//	server := servex.New(servex.WithHSTSHeader(63072000, true, true))
+//	// Header: Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+//
+// Recommended values:
+//   - Development: 300 (5 minutes) or 0 to disable
+//   - Staging: 86400 (1 day)
+//   - Production: 31536000 (1 year) or more
+//
+// Important considerations:
+//   - Only enable HSTS when you're confident HTTPS works correctly
+//   - Once enabled, browsers will refuse HTTP connections for the duration
+//   - Preload requires HTTPS to be working perfectly
+//   - Use short max-age initially, increase gradually
+//
+// Warning: Incorrect HSTS configuration can make your site inaccessible.
+// Test thoroughly before using long max-age values or preload.
+func WithHSTSHeader(maxAge int, includeSubdomains, preload bool) Option {
+	return func(op *Options) {
+		op.Security.Enabled = true
+		hstsValue := fmt.Sprintf("max-age=%d", maxAge)
+		if includeSubdomains {
+			hstsValue += "; includeSubDomains"
+		}
+		if preload {
+			hstsValue += "; preload"
+		}
+		op.Security.StrictTransportSecurity = hstsValue
+	}
+}
+
+// WithSecurityExcludePaths excludes specific paths from security headers.
+// Requests to these paths will not receive security headers.
+//
+// Example:
+//
+//	// Exclude API endpoints from security headers
+//	server := servex.New(
+//		servex.WithSecurityHeaders(),
+//		servex.WithSecurityExcludePaths("/api/*", "/webhooks/*"),
+//	)
+//
+//	// Exclude development tools
+//	server := servex.New(
+//		servex.WithStrictSecurityHeaders(),
+//		servex.WithSecurityExcludePaths("/debug/*", "/metrics", "/health"),
+//	)
+//
+// Common exclusions:
+//   - API endpoints: "/api/*" (may not need web security headers)
+//   - Webhooks: "/webhooks/*" (external services)
+//   - Health checks: "/health", "/ping"
+//   - Metrics: "/metrics", "/prometheus"
+//   - Development: "/debug/*", "/dev/*"
+//   - Static assets: "/static/*" (may need different CSP)
+//
+// Use cases:
+//   - API endpoints that don't serve HTML
+//   - Third-party integrations
+//   - Resources with specific security requirements
+//   - Legacy endpoints with compatibility issues
+//
+// Path matching supports wildcards (*) for pattern matching.
+func WithSecurityExcludePaths(paths ...string) Option {
+	return func(op *Options) {
+		op.Security.ExcludePaths = append(op.Security.ExcludePaths, paths...)
+	}
+}
+
+// WithSecurityIncludePaths specifies which paths should receive security headers.
+// If set, only requests to these paths will get security headers applied.
+//
+// Example:
+//
+//	// Only apply security headers to web pages
+//	server := servex.New(
+//		servex.WithSecurityHeaders(),
+//		servex.WithSecurityIncludePaths("/", "/login", "/dashboard/*"),
+//	)
+//
+//	// Apply to specific web applications
+//	server := servex.New(
+//		servex.WithStrictSecurityHeaders(),
+//		servex.WithSecurityIncludePaths("/webapp/*", "/admin/*"),
+//	)
+//
+// If both IncludePaths and ExcludePaths are set:
+//  1. Paths must match IncludePaths to receive headers
+//  2. Paths in ExcludePaths are then excluded from headers
+//
+// Use cases:
+//   - Mixed API and web application
+//   - Multiple applications on same server
+//   - Granular security control
+//   - Progressive security header rollout
+//
+// Path matching supports wildcards (*) for pattern matching.
+func WithSecurityIncludePaths(paths ...string) Option {
+	return func(op *Options) {
+		op.Security.IncludePaths = append(op.Security.IncludePaths, paths...)
+	}
+}
+
+// WithCustomHeaders sets custom HTTP headers that will be added to all responses.
+// These headers are applied after security headers and can override them.
+//
+// Example:
+//
+//	// Add custom API headers
+//	server := servex.New(servex.WithCustomHeaders(map[string]string{
+//		"X-API-Version": "v1.0",
+//		"X-Service-Name": "user-service",
+//		"X-Environment": "production",
+//	}))
+//
+//	// Add caching headers
+//	server := servex.New(servex.WithCustomHeaders(map[string]string{
+//		"Cache-Control": "no-cache, no-store, must-revalidate",
+//		"Pragma": "no-cache",
+//		"Expires": "0",
+//	}))
+//
+//	// Add CORS headers (basic example)
+//	server := servex.New(servex.WithCustomHeaders(map[string]string{
+//		"Access-Control-Allow-Origin": "*",
+//		"Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
+//		"Access-Control-Allow-Headers": "Content-Type, Authorization",
+//	}))
+//
+// Use cases:
+//   - API versioning headers
+//   - Service identification
+//   - Custom caching policies
+//   - CORS configuration
+//   - Application-specific headers
+//   - Debugging and monitoring headers
+//
+// Note: Custom headers can override security headers if they have the same name.
+// For security headers, prefer using the dedicated security options instead.
+func WithCustomHeaders(headers map[string]string) Option {
+	return func(op *Options) {
+		if op.CustomHeaders == nil {
+			op.CustomHeaders = make(map[string]string)
+		}
+		for k, v := range headers {
+			op.CustomHeaders[k] = v
+		}
+	}
+}
+
+// WithRemoveHeaders removes specific headers from responses.
+// This is useful for removing server identification headers or other unwanted headers.
+//
+// Example:
+//
+//	// Remove server identification headers
+//	server := servex.New(servex.WithRemoveHeaders("Server", "X-Powered-By"))
+//
+//	// Remove additional headers for security
+//	server := servex.New(servex.WithRemoveHeaders(
+//		"Server",
+//		"X-Powered-By",
+//		"X-AspNet-Version",
+//		"X-AspNetMvc-Version",
+//	))
+//
+//	// Remove caching headers
+//	server := servex.New(servex.WithRemoveHeaders("ETag", "Last-Modified"))
+//
+// Common headers to remove:
+//   - "Server": Web server software identification
+//   - "X-Powered-By": Technology stack identification
+//   - "X-AspNet-Version": ASP.NET version (if proxying)
+//   - "X-AspNetMvc-Version": ASP.NET MVC version
+//   - "X-Generator": Content generator identification
+//
+// Use cases:
+//   - Security through obscurity
+//   - Reduce information disclosure
+//   - Clean up response headers
+//   - Remove redundant headers
+//   - Compliance requirements
+//
+// Note: This removes headers that might be added by the Go HTTP server,
+// middleware, or upstream proxies. Some headers like "Server" are added
+// by the Go standard library and will be removed by this option.
+func WithRemoveHeaders(headers ...string) Option {
+	return func(op *Options) {
+		op.HeadersToRemove = append(op.HeadersToRemove, headers...)
+	}
+}
+
+// BaseConfig represents the base configuration for a server that can be loaded from
+// configuration files (YAML/JSON) or environment variables. This provides a simple
+// way to configure servers without using the functional options pattern.
+//
+// The struct tags enable automatic loading from:
+//   - YAML files (yaml tag)
+//   - JSON files (json tag)
+//   - Environment variables (env tag)
+//
+// Example YAML configuration:
+//
+//	# server.yaml
+//	http: ":8080"
+//	https: ":8443"
+//	cert_file: "/path/to/cert.pem"
+//	key_file: "/path/to/key.pem"
+//	auth_token: "secret-api-key"
+//
+// Example JSON configuration:
+//
+//	{
+//	  "http": ":8080",
+//	  "https": ":8443",
+//	  "cert_file": "/path/to/cert.pem",
+//	  "key_file": "/path/to/key.pem",
+//	  "auth_token": "secret-api-key"
+//	}
+//
+// Example environment variables:
+//
+//	export SERVER_HTTP=":8080"
+//	export SERVER_HTTPS=":8443"
+//	export SERVER_CERT_FILE="/path/to/cert.pem"
+//	export SERVER_KEY_FILE="/path/to/key.pem"
+//	export SERVER_AUTH_TOKEN="secret-api-key"
+//
+// Example usage:
+//
+//	// Load from file
+//	var config BaseConfig
+//	data, _ := os.ReadFile("server.yaml")
+//	yaml.Unmarshal(data, &config)
+//
+//	// Validate configuration
+//	if err := config.Validate(); err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Convert to servex options
+//	var opts []servex.Option
+//	if config.AuthToken != "" {
+//		opts = append(opts, servex.WithAuthToken(config.AuthToken))
+//	}
+//	if config.CertFile != "" && config.KeyFile != "" {
+//		opts = append(opts, servex.WithCertificateFromFile(config.CertFile, config.KeyFile))
+//	}
+//
+//	server := servex.New(opts...)
+//	server.Start(config.HTTP, config.HTTPS)
+//
+// Use this when:
+//   - Loading configuration from external files
+//   - Using environment-based configuration
+//   - Deploying with container orchestration
+//   - Following 12-factor app principles
+//   - Need simple, declarative configuration
 type BaseConfig struct {
-	// HTTP is an address to start HTTP listener on.
+	// HTTP is the address to start the HTTP listener on.
+	//
+	// Format: "host:port" where host is optional
+	// Examples:
+	//   - ":8080" - Listen on all interfaces, port 8080
+	//   - "localhost:8080" - Listen on localhost only
+	//   - "0.0.0.0:8080" - Explicitly listen on all interfaces
+	//   - "192.168.1.100:8080" - Listen on specific IP
+	//
+	// Leave empty to disable HTTP listener.
 	HTTP string `yaml:"http" json:"http" env:"SERVER_HTTP"`
 
-	// HTTPS is an address to start HTTPS listener on.
+	// HTTPS is the address to start the HTTPS listener on.
+	//
+	// Format: "host:port" where host is optional
+	// Examples:
+	//   - ":8443" - Listen on all interfaces, port 8443
+	//   - "localhost:8443" - Listen on localhost only
+	//   - "0.0.0.0:8443" - Explicitly listen on all interfaces
+	//   - "192.168.1.100:8443" - Listen on specific IP
+	//
+	// Requires CertFile and KeyFile to be set for TLS.
+	// Leave empty to disable HTTPS listener.
 	HTTPS string `yaml:"https" json:"https" env:"SERVER_HTTPS"`
 
-	// CertFile is a path to the TLS certificate file in case of HTTPS.
+	// CertFile is the path to the TLS certificate file for HTTPS.
+	//
+	// The file should contain the PEM-encoded certificate chain.
+	// Examples:
+	//   - "/etc/ssl/certs/server.crt"
+	//   - "./certs/certificate.pem"
+	//   - "/path/to/fullchain.pem" (Let's Encrypt style)
+	//
+	// Required when HTTPS is enabled.
+	// Must be readable by the application.
 	CertFile string `yaml:"cert_file" json:"cert_file" env:"SERVER_CERT_FILE"`
 
-	// KeyFile is a path to the TLS key file in case of HTTPS.
+	// KeyFile is the path to the TLS private key file for HTTPS.
+	//
+	// The file should contain the PEM-encoded private key.
+	// Examples:
+	//   - "/etc/ssl/private/server.key"
+	//   - "./certs/private.pem"
+	//   - "/path/to/privkey.pem" (Let's Encrypt style)
+	//
+	// Required when HTTPS is enabled.
+	// Must be readable by the application and kept secure.
+	// Should have restricted file permissions (e.g., 600).
 	KeyFile string `yaml:"key_file" json:"key_file" env:"SERVER_KEY_FILE"`
 
-	// AuthToken is a token for authorization in Authorization header.
+	// AuthToken is a simple bearer token for API authentication.
+	//
+	// When set, the server will check for "Authorization: Bearer <token>"
+	// headers on protected routes.
+	//
+	// Examples:
+	//   - "sk-1234567890abcdef" - API key style
+	//   - "secret-development-token" - Development token
+	//   - Load from environment: os.Getenv("API_SECRET")
+	//
+	// Security considerations:
+	//   - Use strong, randomly generated tokens
+	//   - Rotate tokens periodically
+	//   - Never commit tokens to source control
+	//   - Use environment variables in production
+	//
+	// For more advanced authentication, use the JWT authentication system instead.
 	AuthToken string `yaml:"auth_token" json:"auth_token" env:"SERVER_AUTH_TOKEN"`
 }
 
-// Validate checks if the BaseConfig is valid.
-// It ensures that at least one of HTTP or HTTPS address is provided and that addresses match the required format.
+// Validate checks if the BaseConfig contains valid configuration values.
+// It ensures that addresses are properly formatted and at least one listener is configured.
+//
+// Validation rules:
+//   - At least one of HTTP or HTTPS must be set (not both empty)
+//   - HTTP address must match the format "host:port" if set
+//   - HTTPS address must match the format "host:port" if set
+//   - Host can be empty (defaults to all interfaces)
+//   - Port must be valid (1-65535)
+//
+// Example valid configurations:
+//
+//	// HTTP only
+//	config := BaseConfig{HTTP: ":8080"}
+//	err := config.Validate() // nil
+//
+//	// HTTPS only
+//	config := BaseConfig{
+//		HTTPS: ":8443",
+//		CertFile: "cert.pem",
+//		KeyFile: "key.pem",
+//	}
+//	err := config.Validate() // nil
+//
+//	// Both HTTP and HTTPS
+//	config := BaseConfig{
+//		HTTP: ":8080",
+//		HTTPS: ":8443",
+//		CertFile: "cert.pem",
+//		KeyFile: "key.pem",
+//	}
+//	err := config.Validate() // nil
+//
+// Example invalid configurations:
+//
+//	// No listeners configured
+//	config := BaseConfig{}
+//	err := config.Validate() // "at least one of http or https should be set"
+//
+//	// Invalid HTTP address format
+//	config := BaseConfig{HTTP: "invalid-address"}
+//	err := config.Validate() // "invalid http address"
+//
+//	// Invalid HTTPS address format
+//	config := BaseConfig{
+//		HTTP: ":8080",
+//		HTTPS: "not-a-valid:address:format",
+//	}
+//	err := config.Validate() // "invalid https address"
+//
+// Note: This method only validates address formats. It does not check:
+//   - Whether the ports are available
+//   - Whether certificate files exist or are valid
+//   - Whether the application has permission to bind to the ports
+//   - Whether the certificate and key files match
+//
+// These runtime checks happen when the server actually starts.
+//
+// Returns nil if the configuration is valid, or an error describing
+// what is invalid about the configuration.
 func (c *BaseConfig) Validate() error {
 	if c.HTTP == "" && c.HTTPS == "" {
 		return errors.New("at least one of http or https should be set")
@@ -880,10 +3744,67 @@ func (c *BaseConfig) Validate() error {
 	return nil
 }
 
-// GetTLSConfig creates a *tls.Config suitable for an HTTPS server using the provided certificate.
-// It returns nil if the certificate is nil.
-// The config enables HTTP/2, prefers server cipher suites, sets minimum TLS version to 1.2,
-// and includes a list of secure cipher suites and curve preferences.
+// GetTLSConfig creates a secure TLS configuration for HTTPS servers using the provided certificate.
+// The configuration follows security best practices and enables modern TLS features.
+//
+// Security features enabled:
+//   - TLS 1.2 minimum version (blocks older, insecure versions)
+//   - HTTP/2 support with ALPN negotiation
+//   - Server cipher suite preferences (server chooses best cipher)
+//   - Only secure ECDHE cipher suites (perfect forward secrecy)
+//   - P-256 elliptic curve preference (widely supported and secure)
+//
+// Example usage:
+//
+//	// Load certificate
+//	cert, err := tls.LoadX509KeyPair("server.crt", "server.key")
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Create secure TLS config
+//	tlsConfig := servex.GetTLSConfig(&cert)
+//
+//	// Use with HTTP server
+//	server := &http.Server{
+//			Addr:      ":8443",
+//			TLSConfig: tlsConfig,
+//			Handler:   myHandler,
+//		}
+//	server.ListenAndServeTLS("", "") // Cert already in TLS config
+//
+// Example with servex:
+//
+//	cert, _ := tls.LoadX509KeyPair("server.crt", "server.key")
+//	server := servex.New(servex.WithCertificate(cert))
+//	// GetTLSConfig is used internally by servex
+//
+// Security considerations:
+//   - Only allows TLS 1.2+ (blocks TLS 1.0, 1.1 which have vulnerabilities)
+//   - Uses only ECDHE cipher suites for perfect forward secrecy
+//   - Prefers server cipher suite selection for optimal security
+//   - Enables HTTP/2 for better performance
+//
+// Cipher suites included (in order of preference):
+//   - TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256
+//   - TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
+//   - TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384
+//   - TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+//
+// These cipher suites provide:
+//   - ECDHE: Elliptic Curve Diffie-Hellman (perfect forward secrecy)
+//   - AES-GCM: Authenticated encryption (confidentiality + integrity)
+//   - SHA256/384: Secure hash algorithms
+//
+// Parameters:
+//   - cert: TLS certificate to use. If nil, returns nil (no TLS)
+//
+// Returns:
+//   - *tls.Config: Secure TLS configuration, or nil if cert is nil
+//
+// Note: This configuration is suitable for production use and follows
+// current security recommendations. It may reject very old clients
+// that don't support TLS 1.2 or modern cipher suites.
 func GetTLSConfig(cert *tls.Certificate) *tls.Config {
 	if cert == nil {
 		return nil
@@ -909,104 +3830,6 @@ func parseOptions(opts []Option) Options {
 		opt(&out)
 	}
 	return out
-}
-
-// WithSecurityConfig sets the Security configuration for the server.
-func WithSecurityConfig(security SecurityConfig) Option {
-	return func(op *Options) {
-		op.Security = security
-	}
-}
-
-// WithSecurityHeaders enables security headers with secure default configuration.
-// This sets common security headers with recommended values.
-func WithSecurityHeaders() Option {
-	return func(op *Options) {
-		op.Security = SecurityConfig{
-			Enabled:                       true,
-			XContentTypeOptions:           "nosniff",
-			XFrameOptions:                 "DENY",
-			XXSSProtection:                "1; mode=block",
-			ReferrerPolicy:                "strict-origin-when-cross-origin",
-			XPermittedCrossDomainPolicies: "none",
-			CrossOriginOpenerPolicy:       "same-origin",
-			CrossOriginResourcePolicy:     "same-origin",
-		}
-	}
-}
-
-// WithStrictSecurityHeaders enables security headers with very strict configuration.
-// This is recommended for high-security applications.
-func WithStrictSecurityHeaders() Option {
-	return func(op *Options) {
-		op.Security = SecurityConfig{
-			Enabled:                       true,
-			ContentSecurityPolicy:         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'none'; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests",
-			XContentTypeOptions:           "nosniff",
-			XFrameOptions:                 "DENY",
-			XXSSProtection:                "1; mode=block",
-			StrictTransportSecurity:       "max-age=31536000; includeSubDomains; preload",
-			ReferrerPolicy:                "no-referrer",
-			PermissionsPolicy:             "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), speaker=(), fullscreen=(), sync-xhr=()",
-			XPermittedCrossDomainPolicies: "none",
-			CrossOriginEmbedderPolicy:     "require-corp",
-			CrossOriginOpenerPolicy:       "same-origin",
-			CrossOriginResourcePolicy:     "same-origin",
-		}
-	}
-}
-
-// WithContentSecurityPolicy sets the Content-Security-Policy header.
-func WithContentSecurityPolicy(policy string) Option {
-	return func(op *Options) {
-		op.Security.Enabled = true
-		op.Security.ContentSecurityPolicy = policy
-	}
-}
-
-// WithHSTSHeader sets the Strict-Transport-Security header.
-// maxAge is in seconds. includeSubdomains and preload are optional flags.
-func WithHSTSHeader(maxAge int, includeSubdomains, preload bool) Option {
-	return func(op *Options) {
-		op.Security.Enabled = true
-		hsts := fmt.Sprintf("max-age=%d", maxAge)
-		if includeSubdomains {
-			hsts += "; includeSubDomains"
-		}
-		if preload {
-			hsts += "; preload"
-		}
-		op.Security.StrictTransportSecurity = hsts
-	}
-}
-
-// WithSecurityExcludePaths sets paths that should be excluded from security headers.
-func WithSecurityExcludePaths(paths ...string) Option {
-	return func(op *Options) {
-		op.Security.ExcludePaths = paths
-	}
-}
-
-// WithSecurityIncludePaths sets paths that should be included in security headers.
-// If empty, all paths are included except those in ExcludePaths.
-func WithSecurityIncludePaths(paths ...string) Option {
-	return func(op *Options) {
-		op.Security.IncludePaths = paths
-	}
-}
-
-// WithCustomHeaders adds custom headers to HTTP responses.
-func WithCustomHeaders(headers map[string]string) Option {
-	return func(op *Options) {
-		op.CustomHeaders = headers
-	}
-}
-
-// WithRemoveHeaders specifies headers to remove from HTTP responses.
-func WithRemoveHeaders(headers ...string) Option {
-	return func(op *Options) {
-		op.HeadersToRemove = append(op.HeadersToRemove, headers...)
-	}
 }
 
 const (

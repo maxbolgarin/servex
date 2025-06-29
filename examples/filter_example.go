@@ -1,8 +1,6 @@
 package main
 
 import (
-	"fmt"
-	"log"
 	"net/http"
 
 	"github.com/maxbolgarin/servex"
@@ -26,7 +24,7 @@ func main() {
 }
 
 func basicIPFiltering() {
-	fmt.Println("=== Basic IP Filtering Example ===")
+	// === Basic IP Filtering Example ===
 
 	server := servex.New(
 		// Only allow requests from specific IP ranges
@@ -44,14 +42,14 @@ func basicIPFiltering() {
 	)
 
 	server.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Access granted to IP: %s", r.RemoteAddr)
+		w.Write([]byte("Access granted to IP: " + r.RemoteAddr))
 	})
 
-	fmt.Println("Server with IP filtering configured")
+	// Server with IP filtering configured
 }
 
 func userAgentFiltering() {
-	fmt.Println("\n=== User-Agent Filtering Example ===")
+	// === User-Agent Filtering Example ===
 
 	server := servex.New(
 		// Block common bots and scrapers
@@ -76,18 +74,18 @@ func userAgentFiltering() {
 
 	server.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
 		userAgent := r.Header.Get("User-Agent")
-		fmt.Fprintf(w, "Access granted to User-Agent: %s", userAgent)
+		w.Write([]byte("Access granted to User-Agent: " + userAgent))
 	})
 
 	server.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "OK") // This endpoint bypasses User-Agent filtering
+		w.Write([]byte("OK")) // This endpoint bypasses User-Agent filtering
 	})
 
-	fmt.Println("Server with User-Agent filtering configured")
+	// Server with User-Agent filtering configured
 }
 
 func headerBasedAuth() {
-	fmt.Println("\n=== Header-Based Authentication Example ===")
+	// === Header-Based Authentication Example ===
 
 	server := servex.New(
 		// Require specific API key in header
@@ -111,18 +109,18 @@ func headerBasedAuth() {
 	server.HandleFunc("/api/v1/secure", func(w http.ResponseWriter, r *http.Request) {
 		apiKey := r.Header.Get("X-API-Key")
 		version := r.Header.Get("X-Client-Version")
-		fmt.Fprintf(w, "Secure access granted with API key: %s, version: %s", apiKey, version)
+		w.Write([]byte("Secure access granted with API key: " + apiKey + ", version: " + version))
 	})
 
 	server.HandleFunc("/api/v1/public", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Public endpoint - no header filtering")
+		w.Write([]byte("Public endpoint - no header filtering"))
 	})
 
-	fmt.Println("Server with header-based authentication configured")
+	// Server with header-based authentication configured
 }
 
 func comprehensiveSecurity() {
-	fmt.Println("\n=== Comprehensive Security Example ===")
+	// === Comprehensive Security Example ===
 
 	// Create server with multiple security layers
 	server := servex.New(
@@ -174,10 +172,10 @@ func comprehensiveSecurity() {
 	server.HandleFunc("/api/admin", handleAdmin)
 	server.HandleFunc("/health", handleHealth)
 
-	fmt.Println("Server with comprehensive security filtering configured")
+	// Server with comprehensive security filtering configured
 
 	// Example of starting the server
-	fmt.Println("Starting server on :8080...")
+	// Starting server on :8080...
 
 	// In a real application, you would use StartWithShutdown
 	// ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -189,18 +187,18 @@ func comprehensiveSecurity() {
 }
 
 func handleUsers(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Users API - secure endpoint")
+	w.Write([]byte("Users API - secure endpoint"))
 }
 
 func handleAdmin(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Admin API - highly secure endpoint")
+	w.Write([]byte("Admin API - highly secure endpoint"))
 }
 
 func handleHealth(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Service is healthy") // This bypasses all filtering
+	w.Write([]byte("Service is healthy")) // This bypasses all filtering
 }
 
-// Example configuration struct for production use
+// Configuration structure for complex setups
 type SecurityConfig struct {
 	AllowedIPs           []string
 	BlockedIPs           []string
@@ -212,67 +210,76 @@ type SecurityConfig struct {
 }
 
 func productionExample() {
+	// === Production Security Filtering Example ===
+
+	// Configuration-driven approach for production environments
 	config := SecurityConfig{
-		AllowedIPs: []string{
-			"192.168.0.0/16", // Internal network
-			"10.0.0.0/8",     // Private network
-		},
-		BlockedIPs: []string{
-			"203.0.113.0/24", // Known malicious range
-		},
-		TrustedProxies: []string{
-			"172.16.0.0/12", // Load balancer range
-		},
-		BlockedBots: []string{
-			"SomeSpecificBot/1.0",
-		},
+		AllowedIPs:     []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
+		BlockedIPs:     []string{"203.0.113.0/24", "198.51.100.0/24"},
+		TrustedProxies: []string{"10.0.0.0/8"},
+		BlockedBots:    []string{"BadBot/1.0", "MaliciousBot/2.0"},
 		BlockedBotsRegex: []string{
 			".*[Bb]ot.*",
 			".*[Ss]craper.*",
 			".*[Cc]rawler.*",
+			"curl.*",
+			"wget.*",
 		},
 		RequiredHeaders: map[string][]string{
-			"X-API-Key": {"some-exact-key"},
+			"X-API-Key": {"api-key-prod-12345"},
 		},
 		RequiredHeadersRegex: map[string][]string{
-			"X-API-Key": {"^[a-zA-Z0-9]{32}$"},
+			"Authorization": {"Bearer [A-Za-z0-9-_]+\\.[A-Za-z0-9-_]+\\.[A-Za-z0-9-_]+"},
 		},
 	}
 
 	server := createSecureServer(config)
 
-	// Add your application routes
-	server.HandleFunc("/api/v1/data", func(w http.ResponseWriter, r *http.Request) {
-		// Your application logic here
-		fmt.Fprintf(w, "Secure data access")
+	// Production routes
+	server.HandleFunc("/api/v1/secure", func(w http.ResponseWriter, r *http.Request) {
+		ctx := servex.C(w, r)
+		ctx.Response(200, map[string]string{
+			"message": "Production secure endpoint",
+			"access":  "authorized",
+		})
 	})
 
-	// Start server
-	log.Fatal(server.Start(":8080", ""))
+	// Production-grade security filtering configured
+	// Features:
+	// - IP allowlist with private network ranges
+	// - Comprehensive bot and scraper blocking
+	// - API key and JWT token validation
+	// - Trusted proxy configuration
+	// - Custom error responses
+
+	// To deploy:
+	// server.Start(":8080", ":8443")
 }
 
 func createSecureServer(config SecurityConfig) *servex.Server {
 	options := []servex.Option{
-		// Apply IP filtering if configured
+		// Apply IP filtering
 		servex.WithAllowedIPs(config.AllowedIPs...),
 		servex.WithBlockedIPs(config.BlockedIPs...),
 		servex.WithFilterTrustedProxies(config.TrustedProxies...),
 
-		// Apply bot filtering
+		// Apply User-Agent filtering
 		servex.WithBlockedUserAgents(config.BlockedBots...),
 		servex.WithBlockedUserAgentsRegex(config.BlockedBotsRegex...),
 
-		// Apply header requirements
+		// Apply header filtering
 		servex.WithAllowedHeaders(config.RequiredHeaders),
 		servex.WithAllowedHeadersRegex(config.RequiredHeadersRegex),
 
-		// Standard security settings
-		servex.WithFilterExcludePaths("/health", "/metrics"),
+		// Custom error response
 		servex.WithFilterStatusCode(403),
-		servex.WithFilterMessage("Request blocked by security policy"),
+		servex.WithFilterMessage("Access denied by security policy"),
 
-		// Rate limiting
-		servex.WithRPS(100),
+		// Exclude monitoring endpoints
+		servex.WithFilterExcludePaths("/health", "/metrics", "/status"),
+
+		// Basic rate limiting
+		servex.WithRPS(50),
 	}
 
 	return servex.New(options...)
