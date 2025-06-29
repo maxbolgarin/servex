@@ -1,12 +1,10 @@
-package servex_test
+package servex
 
 import (
 	"errors"
 	"net/http"
 	"testing"
 	"time"
-
-	"github.com/maxbolgarin/servex"
 )
 
 // MockLogger is a mock implementation of the Logger interface.
@@ -40,8 +38,8 @@ func TestLogFields(t *testing.T) {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 
-	ctx := servex.C(nil, req)
-	fields := ctx.LogFields(servex.UserAgentLogField, servex.URLLogField, servex.MethodLogField, servex.ProtoLogField)
+	ctx := C(nil, req)
+	fields := ctx.LogFields(UserAgentLogField, URLLogField, MethodLogField, ProtoLogField)
 
 	expectedFields := []any{
 		"user_agent", "",
@@ -92,14 +90,14 @@ func TestLogFields(t *testing.T) {
 
 func TestRequestLogger_Log(t *testing.T) {
 	mockLogger := &MockLogger{}
-	rLogger := servex.BaseRequestLogger{Logger: mockLogger}
+	rLogger := BaseRequestLogger{Logger: mockLogger}
 
 	req, err := http.NewRequest("GET", "http://example.com", nil)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
 	}
 
-	bundle := servex.RequestLogBundle{
+	bundle := RequestLogBundle{
 		Request:      req,
 		RequestID:    "12345",
 		Error:        errors.New("some error"),
