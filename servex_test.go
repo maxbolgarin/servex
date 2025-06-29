@@ -1,4 +1,4 @@
-package servex_test
+package servex
 
 import (
 	"context"
@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/maxbolgarin/servex"
 )
 
 func randAddress() string {
@@ -23,7 +22,7 @@ func randAddress() string {
 
 func TestNewServer(t *testing.T) {
 	// Basic test for server initialization with default options
-	server := servex.New()
+	server := New()
 
 	if server.Router() == nil {
 		t.Fatal("Server router should not be nil")
@@ -32,16 +31,16 @@ func TestNewServer(t *testing.T) {
 
 func TestStart(t *testing.T) {
 	log := &MockLogger{}
-	cfg := servex.BaseConfig{
+	cfg := BaseConfig{
 		HTTP:  randAddress(),
 		HTTPS: randAddress(),
 	}
 
-	s, err := servex.Start(cfg, func(r *mux.Router) {
+	s, err := Start(cfg, func(r *mux.Router) {
 		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("Hello, world!"))
 		})
-	}, servex.WithLogger(log), servex.WithCertificate(tls.Certificate{}))
+	}, WithLogger(log), WithCertificate(tls.Certificate{}))
 	if err != nil {
 		t.Fatalf("unexpected error starting server: %v", err)
 	}
@@ -79,7 +78,7 @@ func TestStart(t *testing.T) {
 
 func TestStartWithShutdown(t *testing.T) {
 	log := &MockLogger{}
-	cfg := servex.BaseConfig{
+	cfg := BaseConfig{
 		HTTP:  randAddress(),
 		HTTPS: randAddress(),
 	}
@@ -87,11 +86,11 @@ func TestStartWithShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	err := servex.StartWithShutdown(ctx, cfg, func(r *mux.Router) {
+	err := StartWithShutdown(ctx, cfg, func(r *mux.Router) {
 		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("Hello, world!"))
 		})
-	}, servex.WithLogger(log), servex.WithCertificate(tls.Certificate{}))
+	}, WithLogger(log), WithCertificate(tls.Certificate{}))
 	if err != nil {
 		t.Fatalf("unexpected error starting server: %v", err)
 	}
@@ -128,7 +127,7 @@ func TestStartWithShutdown(t *testing.T) {
 
 func TestServerStart(t *testing.T) {
 	log := &MockLogger{}
-	server := servex.New(servex.WithLogger(log), servex.WithCertificate(tls.Certificate{}))
+	server := New(WithLogger(log), WithCertificate(tls.Certificate{}))
 
 	err := server.Start("", "")
 	if err == nil {
@@ -168,7 +167,7 @@ func TestServerStart(t *testing.T) {
 
 func TestServerStartWithShutdown(t *testing.T) {
 	log := &MockLogger{}
-	server := servex.New(servex.WithLogger(log), servex.WithCertificate(tls.Certificate{}))
+	server := New(WithLogger(log), WithCertificate(tls.Certificate{}))
 
 	httpAddress := randAddress()
 	httpsAddress := randAddress()
@@ -192,7 +191,7 @@ func TestServerStartWithShutdown(t *testing.T) {
 
 func TestServerStartHTTP(t *testing.T) {
 	log := &MockLogger{}
-	server := servex.New(servex.WithLogger(log))
+	server := New(WithLogger(log))
 	address := randAddress()
 
 	err := server.StartHTTP(address)
@@ -213,7 +212,7 @@ func TestServerStartHTTP(t *testing.T) {
 
 func TestServerStartWithShutdownHTTP(t *testing.T) {
 	log := &MockLogger{}
-	server := servex.New(servex.WithLogger(log))
+	server := New(WithLogger(log))
 	address := randAddress()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -230,7 +229,7 @@ func TestServerStartWithShutdownHTTP(t *testing.T) {
 }
 
 func TestServerStartHTTPSNoCert(t *testing.T) {
-	server := servex.New()
+	server := New()
 	address := ":8443"
 	err := server.StartHTTPS(address)
 
@@ -241,7 +240,7 @@ func TestServerStartHTTPSNoCert(t *testing.T) {
 
 func TestServerStartHTTPS(t *testing.T) {
 	log := &MockLogger{}
-	server := servex.New(servex.WithCertificate(tls.Certificate{}), servex.WithLogger(log))
+	server := New(WithCertificate(tls.Certificate{}), WithLogger(log))
 	address := randAddress()
 
 	err := server.StartHTTPS(address)
@@ -262,7 +261,7 @@ func TestServerStartHTTPS(t *testing.T) {
 
 func TestServerStartWithShutdownHTTPS(t *testing.T) {
 	log := &MockLogger{}
-	server := servex.New(servex.WithCertificate(tls.Certificate{}), servex.WithLogger(log))
+	server := New(WithCertificate(tls.Certificate{}), WithLogger(log))
 	address := randAddress()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -281,7 +280,7 @@ func TestServerStartWithShutdownHTTPS(t *testing.T) {
 // TestServerStartHTTPSWithCertFilePaths tests HTTPS server startup with certificate file paths but non-existent files.
 func TestServerStartHTTPSWithCertFilePaths(t *testing.T) {
 	// Test with non-existent certificate files
-	server := servex.New(servex.WithCertificateFromFile("nonexistent-cert.pem", "nonexistent-key.pem"))
+	server := New(WithCertificateFromFile("nonexistent-cert.pem", "nonexistent-key.pem"))
 	address := randAddress()
 
 	err := server.StartHTTPS(address)
@@ -298,13 +297,13 @@ func TestServerStartHTTPSWithCertFilePaths(t *testing.T) {
 
 // TestPrepareServerWithCertFiles tests the prepareServer function with certificate files in BaseConfig.
 func TestPrepareServerWithCertFiles(t *testing.T) {
-	cfg := servex.BaseConfig{
+	cfg := BaseConfig{
 		HTTP:     ":8080",
 		CertFile: "nonexistent-cert.pem",
 		KeyFile:  "nonexistent-key.pem",
 	}
 
-	_, err := servex.Start(cfg, func(r *mux.Router) {
+	_, err := Start(cfg, func(r *mux.Router) {
 		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("Hello"))
 		})
@@ -323,12 +322,12 @@ func TestPrepareServerWithCertFiles(t *testing.T) {
 
 // TestPrepareServerWithValidConfig tests the prepareServer function with valid config but no certificate files.
 func TestPrepareServerWithValidConfig(t *testing.T) {
-	cfg := servex.BaseConfig{
+	cfg := BaseConfig{
 		HTTP: ":8080",
 		// No certificate files specified
 	}
 
-	shutdown, err := servex.Start(cfg, func(r *mux.Router) {
+	shutdown, err := Start(cfg, func(r *mux.Router) {
 		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("Hello"))
 		})
@@ -347,7 +346,7 @@ func TestPrepareServerWithValidConfig(t *testing.T) {
 }
 
 func TestAuthMiddleware(t *testing.T) {
-	server := servex.New(servex.WithAuthToken("valid-token"))
+	server := New(WithAuthToken("valid-token"))
 	router := server.Router()
 	request, err := http.NewRequest(http.MethodGet, "/", nil)
 	if err != nil {
@@ -382,4 +381,99 @@ func TestAuthMiddleware(t *testing.T) {
 	if responseRecorder.Code != http.StatusOK {
 		t.Errorf("expected StatusOK, got %d", responseRecorder.Code)
 	}
+}
+
+// TestServerStartupWaiting tests that the server startup waiting mechanism works correctly.
+func TestServerStartupWaiting(t *testing.T) {
+	t.Run("HTTP server startup waiting", func(t *testing.T) {
+		s := New()
+
+		// Start HTTP server
+		err := s.StartHTTP(":0") // Use port 0 to get any available port
+		if err != nil {
+			t.Fatalf("failed to start HTTP server: %v", err)
+		}
+		defer s.Shutdown(context.Background())
+
+		// Verify server is ready by making a request
+		if s.HTTPAddress() == "" {
+			t.Error("HTTP address should not be empty after successful start")
+		}
+
+	})
+
+	t.Run("HTTPS server startup waiting", func(t *testing.T) {
+		s := New(WithCertificate(tls.Certificate{}))
+
+		// Start HTTPS server
+		err := s.StartHTTPS(":0") // Use port 0 to get any available port
+		if err != nil {
+			t.Fatalf("failed to start HTTPS server: %v", err)
+		}
+		defer s.Shutdown(context.Background())
+
+		// Verify server is ready
+		if s.HTTPSAddress() == "" {
+			t.Error("HTTPS address should not be empty after successful start")
+		}
+	})
+
+	t.Run("Both HTTP and HTTPS startup waiting", func(t *testing.T) {
+		s := New(WithCertificate(tls.Certificate{}))
+
+		// Start both servers
+		err := s.Start(":0", ":0") // Use port 0 to get any available ports
+		if err != nil {
+			t.Fatalf("failed to start servers: %v", err)
+		}
+		defer s.Shutdown(context.Background())
+
+		// Verify both servers are ready
+		if s.HTTPAddress() == "" {
+			t.Error("HTTP address should not be empty after successful start")
+		}
+		if s.HTTPSAddress() == "" {
+			t.Error("HTTPS address should not be empty after successful start")
+		}
+	})
+
+}
+
+// TestStartupErrorHandling tests error handling during server startup.
+func TestStartupErrorHandling(t *testing.T) {
+	t.Run("Invalid address should return error immediately", func(t *testing.T) {
+		s := New()
+
+		err := s.StartHTTP("invalid-address")
+		if err == nil {
+			t.Error("StartHTTP should return error for invalid address")
+		}
+	})
+
+	t.Run("Port already in use", func(t *testing.T) {
+		// Use a specific port instead of :0 to ensure conflict
+		addr := randAddress()
+
+		// Start first server
+		s1 := New()
+		err := s1.StartHTTP(addr)
+		if err != nil {
+			t.Fatalf("failed to start first server: %v", err)
+		}
+		defer s1.Shutdown(context.Background())
+
+		// Verify first server is actually listening by making a request
+		resp, err := http.Get("http://" + addr)
+		if err == nil {
+			resp.Body.Close()
+		}
+
+		// Try to start second server on the same address
+		s2 := New()
+		err = s2.StartHTTP(addr)
+		if err == nil {
+			t.Error("StartHTTP should return error when port is already in use")
+			s2.Shutdown(context.Background())
+		}
+	})
 }

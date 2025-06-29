@@ -169,6 +169,9 @@ func (s *Server) Start(httpAddr, httpsAddr string) error {
 // StartHTTP starts an HTTP server on the provided address.
 // It returns an error if the server cannot be started or address is invalid.
 func (s *Server) StartHTTP(address string) error {
+	// Reset the ready channel for fresh startup
+	httpReady := make(chan error, 1)
+
 	s.http = &http.Server{
 		Addr:              address,
 		Handler:           s.router,
@@ -176,10 +179,17 @@ func (s *Server) StartHTTP(address string) error {
 		ReadTimeout:       lang.Check(s.opts.ReadTimeout, defaultReadTimeout),
 		IdleTimeout:       lang.Check(s.opts.IdleTimeout, defaultIdleTimeout),
 	}
-	if err := s.start(address, s.http.Serve, net.Listen); err != nil {
+	if err := s.start(address, s.http.Serve, net.Listen, httpReady); err != nil {
 		s.http = nil
 		return err
 	}
+
+	// Wait for server to be ready
+	if err := <-httpReady; err != nil {
+		s.http = nil
+		return fmt.Errorf("HTTP server failed to start: %w", err)
+	}
+
 	s.opts.Logger.Info("http server started", "address", address)
 
 	return nil
@@ -188,6 +198,9 @@ func (s *Server) StartHTTP(address string) error {
 // StartHTTPS starts an HTTPS server on the provided address.
 // It returns an error if the server cannot be started, address is invalid or no certificate is provided in config.
 func (s *Server) StartHTTPS(address string) error {
+	// Reset the ready channel for fresh startup
+	httpsReady := make(chan error, 1)
+
 	if s.opts.Certificate == nil {
 		if s.opts.CertFilePath == "" || s.opts.KeyFilePath == "" {
 			return errors.New("TLS certificate is required for HTTPS server")
@@ -210,9 +223,15 @@ func (s *Server) StartHTTPS(address string) error {
 
 	if err := s.start(address, s.https.Serve, func(netType, addr string) (net.Listener, error) {
 		return tls.Listen(netType, addr, s.https.TLSConfig)
-	}); err != nil {
+	}, httpsReady); err != nil {
 		s.https = nil
 		return err
+	}
+
+	// Wait for server to be ready
+	if err := <-httpsReady; err != nil {
+		s.https = nil
+		return fmt.Errorf("HTTPS server failed to start: %w", err)
 	}
 
 	s.opts.Logger.Info("https server started", "address", address)
@@ -407,7 +426,7 @@ func (s *Server) HFA(path string, f http.HandlerFunc, roles ...UserRole) *mux.Ro
 	return s.HandleFuncWithAuth(path, f, roles...)
 }
 
-func (s *Server) start(address string, serve func(net.Listener) error, getListener func(string, string) (net.Listener, error)) error {
+func (s *Server) start(address string, serve func(net.Listener) error, getListener func(string, string) (net.Listener, error), readyChan chan error) error {
 	if address == "" {
 		return errors.New("address is required")
 	}
@@ -433,6 +452,11 @@ func (s *Server) start(address string, serve func(net.Listener) error, getListen
 
 	l, err := getListener("tcp", address)
 	if err != nil {
+		// Signal startup failure
+		select {
+		case readyChan <- err:
+		default:
+		}
 		return err
 	}
 
@@ -440,8 +464,20 @@ func (s *Server) start(address string, serve func(net.Listener) error, getListen
 		defer func() {
 			if r := recover(); r != nil {
 				s.opts.Logger.Error(string(debug.Stack()), "error", fmt.Errorf("%s", r))
+				// Signal startup failure on panic
+				select {
+				case readyChan <- fmt.Errorf("server panic: %v", r):
+				default:
+				}
 			}
 		}()
+
+		// Signal that server is ready to accept connections
+		select {
+		case readyChan <- nil:
+		default:
+		}
+
 		if err := serve(l); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			s.opts.Logger.Error("cannot serve", "error", err, "address", address)
 		}
