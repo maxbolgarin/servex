@@ -453,6 +453,9 @@ func (s *Server) start(address string, serve func(net.Listener) error, getListen
 	}
 
 	if s.opts.Auth.enabled && !s.opts.Auth.isInitialized {
+		if s.opts.Auth.Database == nil {
+			return errors.New("auth database is required")
+		}
 		authManager, err := NewAuthManager(s.opts.Auth)
 		if err != nil {
 			return fmt.Errorf("cannot create auth manager: %w", err)

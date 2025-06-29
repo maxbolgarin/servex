@@ -480,11 +480,7 @@ func WithAuthMemoryDatabase() Option {
 }
 
 // WithAuthConfig sets the [Options.Auth] of the [Options] to the given [AuthConfig].
-// It panics if the provided AuthConfig.Database is nil.
 func WithAuthConfig(auth AuthConfig) Option {
-	if auth.Database == nil {
-		panic("auth database is required")
-	}
 	return func(op *Options) {
 		op.Auth = auth
 	}
@@ -550,9 +546,6 @@ func WithAuthInitialUsers(users ...InitialUser) Option {
 
 // WithRateLimitConfig sets the [Options.RateLimit] of the [Options] to the given [RateLimitConfig].
 func WithRateLimitConfig(rateLimit RateLimitConfig) Option {
-	if rateLimit.RequestsPerInterval <= 0 {
-		panic("requests per interval must be greater than 0")
-	}
 	return func(op *Options) {
 		op.RateLimit = rateLimit
 	}

@@ -15,7 +15,10 @@ import (
 	"golang.org/x/time/rate"
 )
 
-const cleanupInterval = 3 * time.Hour
+const (
+	cleanupInterval = 3 * time.Hour
+	defaultInterval = time.Minute
+)
 
 // visitor represents a client accessing the server.
 type visitor struct {
@@ -36,14 +39,13 @@ type rateLimiterMiddleware struct {
 // RegisterRateLimitMiddleware adds rate limiting middleware to the router.
 // If the config is not enabled, no middleware will be registered.
 // It returns a function that can be used to stop the cleanup routine.
-// RequestsPerInterval must be greater than 0.
 func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig) func() {
 	if cfg.RequestsPerInterval <= 0 {
 		return nil
 	}
 
 	cfg.BurstSize = lang.Check(cfg.BurstSize, cfg.RequestsPerInterval)
-	cfg.Interval = lang.Check(cfg.Interval, time.Minute)
+	cfg.Interval = lang.Check(cfg.Interval, defaultInterval)
 	cfg.StatusCode = lang.Check(cfg.StatusCode, http.StatusTooManyRequests)
 	cfg.Message = lang.Check(cfg.Message, "rate limit exceeded, try again later.")
 
