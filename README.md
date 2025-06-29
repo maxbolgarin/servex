@@ -166,6 +166,76 @@ if err := srv.StartWithShutdown(ctx, ":8080", ""); err != nil {
 // Server will shut down automatically when context is canceled
 ```
 
+### Security Headers
+
+Servex provides comprehensive security headers middleware to protect your application from common web vulnerabilities:
+
+#### Basic Security Headers
+
+```go
+// Enable basic security headers with recommended defaults
+srv := servex.New(
+    servex.WithSecurityHeaders(),
+)
+```
+
+This applies the following headers:
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `X-XSS-Protection: 1; mode=block`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `X-Permitted-Cross-Domain-Policies: none`
+- `Cross-Origin-Opener-Policy: same-origin`
+- `Cross-Origin-Resource-Policy: same-origin`
+
+#### Strict Security Headers
+
+```go
+// Enable strict security headers for high-security applications
+srv := servex.New(
+    servex.WithStrictSecurityHeaders(),
+)
+```
+
+This includes all basic headers plus:
+- Content Security Policy (CSP)
+- HTTP Strict Transport Security (HSTS)
+- Permissions Policy
+- Cross-Origin policies
+
+#### Custom Security Configuration
+
+```go
+// Create custom security configuration
+srv := servex.New(
+    servex.WithContentSecurityPolicy("default-src 'self'; script-src 'self' 'unsafe-inline'"),
+    servex.WithHSTSHeader(31536000, true, true), // 1 year, includeSubdomains, preload
+    
+    // Custom headers (separate from security headers)
+    servex.WithCustomHeaders(map[string]string{
+        "X-API-Version": "v1.0",
+        "X-Custom":      "my-value",
+    }),
+    
+    // Header removal (separate from security headers)
+    servex.WithRemoveHeaders("Server", "X-Powered-By"), // Remove server info
+    
+    servex.WithSecurityExcludePaths("/health", "/metrics"), // Exclude monitoring endpoints
+)
+```
+
+#### Path-Specific Security Headers
+
+```go
+srv := servex.New(
+    servex.WithStrictSecurityHeaders(),
+    // Only apply to specific paths
+    servex.WithSecurityIncludePaths("/api/v1/secure", "/admin"),
+    // Exclude health and public endpoints
+    servex.WithSecurityExcludePaths("/health", "/public"),
+)
+```
+
 ### Using Context in Handlers
 
 Servex can be integrated into existing `net/http` servers - you can create `servex.Context` based on the `http.Request` and `http.ResponseWriter` objects and use it in your handlers.

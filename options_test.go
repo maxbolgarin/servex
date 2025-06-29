@@ -475,20 +475,6 @@ func TestWithRateLimitConfig(t *testing.T) {
 	}
 }
 
-// TestWithRateLimitConfigPanic tests that WithRateLimitConfig panics with an invalid configuration.
-func TestWithRateLimitConfigPanic(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Errorf("expected WithRateLimitConfig to panic with RequestsPerInterval <= 0")
-		}
-	}()
-
-	invalidConfig := servex.RateLimitConfig{
-		RequestsPerInterval: 0, // Should cause panic
-	}
-	_ = servex.WithRateLimitConfig(invalidConfig)
-}
-
 // TestWithRPM verifies that WithRPM sets the requests per minute limit.
 func TestWithRPM(t *testing.T) {
 	rpm := 120

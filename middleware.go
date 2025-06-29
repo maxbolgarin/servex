@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"time"
 
@@ -218,6 +219,152 @@ func registerOptsMiddleware(router MiddlewareRouter, opts Options) {
 				r = r.WithContext(context.WithValue(r.Context(), sendErrorToClientKey{}, true))
 			}
 			next.ServeHTTP(w, r)
+		})
+	})
+}
+
+// RegisterSecurityHeadersMiddleware adds security headers to HTTP responses.
+// It implements common security headers to protect against various attacks.
+// If the config is empty or disabled, no middleware will be registered.
+func RegisterSecurityHeadersMiddleware(router MiddlewareRouter, cfg SecurityConfig) {
+	if !cfg.Enabled {
+		return // Don't register security headers middleware if disabled
+	}
+
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Check if the path should have security headers applied
+			if !shouldApplySecurityHeaders(r, cfg) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Apply security headers before handler
+			applySecurityHeaders(w, cfg)
+
+			// Execute the handler
+			next.ServeHTTP(w, r)
+		})
+	})
+}
+
+// shouldApplySecurityHeaders determines if security headers should be applied based on the path.
+func shouldApplySecurityHeaders(r *http.Request, cfg SecurityConfig) bool {
+	path := r.URL.Path
+
+	// Check if path is in the excluded list
+	if slices.Contains(cfg.ExcludePaths, path) {
+		return false
+	}
+
+	// If include paths are specified, check if this path is included
+	if len(cfg.IncludePaths) > 0 {
+		return slices.Contains(cfg.IncludePaths, path)
+	}
+
+	// By default, apply security headers to all paths not explicitly excluded
+	return true
+}
+
+// applySecurityHeaders applies the configured security headers to the response.
+func applySecurityHeaders(w http.ResponseWriter, cfg SecurityConfig) {
+	header := w.Header()
+
+	// Content Security Policy
+	if cfg.ContentSecurityPolicy != "" {
+		header.Set("Content-Security-Policy", cfg.ContentSecurityPolicy)
+	}
+
+	// X-Content-Type-Options
+	if cfg.XContentTypeOptions != "" {
+		header.Set("X-Content-Type-Options", cfg.XContentTypeOptions)
+	}
+
+	// X-Frame-Options
+	if cfg.XFrameOptions != "" {
+		header.Set("X-Frame-Options", cfg.XFrameOptions)
+	}
+
+	// X-XSS-Protection
+	if cfg.XXSSProtection != "" {
+		header.Set("X-XSS-Protection", cfg.XXSSProtection)
+	}
+
+	// Strict-Transport-Security
+	if cfg.StrictTransportSecurity != "" {
+		header.Set("Strict-Transport-Security", cfg.StrictTransportSecurity)
+	}
+
+	// Referrer-Policy
+	if cfg.ReferrerPolicy != "" {
+		header.Set("Referrer-Policy", cfg.ReferrerPolicy)
+	}
+
+	// Permissions-Policy
+	if cfg.PermissionsPolicy != "" {
+		header.Set("Permissions-Policy", cfg.PermissionsPolicy)
+	}
+
+	// X-Permitted-Cross-Domain-Policies
+	if cfg.XPermittedCrossDomainPolicies != "" {
+		header.Set("X-Permitted-Cross-Domain-Policies", cfg.XPermittedCrossDomainPolicies)
+	}
+
+	// Cross-Origin-Embedder-Policy
+	if cfg.CrossOriginEmbedderPolicy != "" {
+		header.Set("Cross-Origin-Embedder-Policy", cfg.CrossOriginEmbedderPolicy)
+	}
+
+	// Cross-Origin-Opener-Policy
+	if cfg.CrossOriginOpenerPolicy != "" {
+		header.Set("Cross-Origin-Opener-Policy", cfg.CrossOriginOpenerPolicy)
+	}
+
+	// Cross-Origin-Resource-Policy
+	if cfg.CrossOriginResourcePolicy != "" {
+		header.Set("Cross-Origin-Resource-Policy", cfg.CrossOriginResourcePolicy)
+	}
+}
+
+// RegisterCustomHeadersMiddleware adds custom headers to HTTP responses.
+// This is separate from security headers to maintain separation of concerns.
+func RegisterCustomHeadersMiddleware(router MiddlewareRouter, customHeaders map[string]string) {
+	if len(customHeaders) == 0 {
+		return // No custom headers to add
+	}
+
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Apply custom headers before handler
+			header := w.Header()
+			for name, value := range customHeaders {
+				if value != "" {
+					header.Set(name, value)
+				}
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	})
+}
+
+// RegisterHeaderRemovalMiddleware removes specified headers from HTTP responses.
+// Headers are removed after the handler executes to ensure proper removal
+// of headers that might be set by the handler.
+func RegisterHeaderRemovalMiddleware(router MiddlewareRouter, headersToRemove []string) {
+	if len(headersToRemove) == 0 {
+		return // No headers to remove
+	}
+
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Execute the handler first
+			next.ServeHTTP(w, r)
+
+			// Remove headers after handler execution
+			for _, headerName := range headersToRemove {
+				w.Header().Del(headerName)
+			}
 		})
 	})
 }

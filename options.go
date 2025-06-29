@@ -88,6 +88,18 @@ type Options struct {
 	// If not set, request filtering will be disabled.
 	Filter FilterConfig
 
+	// Security is the security headers configuration for the server.
+	// If not set or disabled, security headers will not be applied.
+	Security SecurityConfig
+
+	// CustomHeaders is the custom headers configuration for the server.
+	// If not set or disabled, custom headers will not be applied.
+	CustomHeaders map[string]string
+
+	// HeadersToRemove is the header removal configuration for the server.
+	// If not set or disabled, header removal will not be applied.
+	HeadersToRemove []string
+
 	// EnableHealthEndpoint, if true, will automatically register a health check endpoint.
 	EnableHealthEndpoint bool
 
@@ -892,11 +904,109 @@ func GetTLSConfig(cert *tls.Certificate) *tls.Config {
 }
 
 func parseOptions(opts []Option) Options {
-	op := Options{}
-	for _, o := range opts {
-		o(&op)
+	out := Options{}
+	for _, opt := range opts {
+		opt(&out)
 	}
-	return op
+	return out
+}
+
+// WithSecurityConfig sets the Security configuration for the server.
+func WithSecurityConfig(security SecurityConfig) Option {
+	return func(op *Options) {
+		op.Security = security
+	}
+}
+
+// WithSecurityHeaders enables security headers with secure default configuration.
+// This sets common security headers with recommended values.
+func WithSecurityHeaders() Option {
+	return func(op *Options) {
+		op.Security = SecurityConfig{
+			Enabled:                       true,
+			XContentTypeOptions:           "nosniff",
+			XFrameOptions:                 "DENY",
+			XXSSProtection:                "1; mode=block",
+			ReferrerPolicy:                "strict-origin-when-cross-origin",
+			XPermittedCrossDomainPolicies: "none",
+			CrossOriginOpenerPolicy:       "same-origin",
+			CrossOriginResourcePolicy:     "same-origin",
+		}
+	}
+}
+
+// WithStrictSecurityHeaders enables security headers with very strict configuration.
+// This is recommended for high-security applications.
+func WithStrictSecurityHeaders() Option {
+	return func(op *Options) {
+		op.Security = SecurityConfig{
+			Enabled:                       true,
+			ContentSecurityPolicy:         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; media-src 'self'; object-src 'none'; child-src 'none'; frame-src 'none'; worker-src 'none'; frame-ancestors 'none'; form-action 'self'; upgrade-insecure-requests",
+			XContentTypeOptions:           "nosniff",
+			XFrameOptions:                 "DENY",
+			XXSSProtection:                "1; mode=block",
+			StrictTransportSecurity:       "max-age=31536000; includeSubDomains; preload",
+			ReferrerPolicy:                "no-referrer",
+			PermissionsPolicy:             "geolocation=(), microphone=(), camera=(), payment=(), usb=(), magnetometer=(), gyroscope=(), speaker=(), fullscreen=(), sync-xhr=()",
+			XPermittedCrossDomainPolicies: "none",
+			CrossOriginEmbedderPolicy:     "require-corp",
+			CrossOriginOpenerPolicy:       "same-origin",
+			CrossOriginResourcePolicy:     "same-origin",
+		}
+	}
+}
+
+// WithContentSecurityPolicy sets the Content-Security-Policy header.
+func WithContentSecurityPolicy(policy string) Option {
+	return func(op *Options) {
+		op.Security.Enabled = true
+		op.Security.ContentSecurityPolicy = policy
+	}
+}
+
+// WithHSTSHeader sets the Strict-Transport-Security header.
+// maxAge is in seconds. includeSubdomains and preload are optional flags.
+func WithHSTSHeader(maxAge int, includeSubdomains, preload bool) Option {
+	return func(op *Options) {
+		op.Security.Enabled = true
+		hsts := fmt.Sprintf("max-age=%d", maxAge)
+		if includeSubdomains {
+			hsts += "; includeSubDomains"
+		}
+		if preload {
+			hsts += "; preload"
+		}
+		op.Security.StrictTransportSecurity = hsts
+	}
+}
+
+// WithSecurityExcludePaths sets paths that should be excluded from security headers.
+func WithSecurityExcludePaths(paths ...string) Option {
+	return func(op *Options) {
+		op.Security.ExcludePaths = paths
+	}
+}
+
+// WithSecurityIncludePaths sets paths that should be included in security headers.
+// If empty, all paths are included except those in ExcludePaths.
+func WithSecurityIncludePaths(paths ...string) Option {
+	return func(op *Options) {
+		op.Security.IncludePaths = paths
+	}
+}
+
+// WithCustomHeaders adds custom headers to HTTP responses.
+func WithCustomHeaders(headers map[string]string) Option {
+	return func(op *Options) {
+		op.CustomHeaders = headers
+	}
+}
+
+// WithRemoveHeaders specifies headers to remove from HTTP responses.
+func WithRemoveHeaders(headers ...string) Option {
+	return func(op *Options) {
+		op.HeadersToRemove = append(op.HeadersToRemove, headers...)
+	}
 }
 
 const (
