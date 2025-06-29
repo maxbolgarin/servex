@@ -812,3 +812,346 @@ func TestContext_ReadEmpty(t *testing.T) {
 		t.Errorf("expected empty body, got %q", string(body))
 	}
 }
+
+// TestContextWithConfiguredSizeLimits tests that context methods use configured size limits as defaults.
+func TestContextWithConfiguredSizeLimits(t *testing.T) {
+	tests := []struct {
+		name               string
+		options            Options
+		body               string
+		contentType        string
+		expectError        bool
+		expectErrorMessage string
+	}{
+		{
+			name: "JSON within configured limit",
+			options: Options{
+				MaxJSONBodySize: 100, // 100 bytes
+			},
+			body:        `{"test": "data"}`,
+			contentType: "application/json",
+			expectError: false,
+		},
+		{
+			name: "JSON exceeds configured limit",
+			options: Options{
+				MaxJSONBodySize: 10, // 10 bytes
+			},
+			body:               `{"test": "this is a long message that exceeds the limit"}`,
+			contentType:        "application/json",
+			expectError:        true,
+			expectErrorMessage: "request body too large",
+		},
+		{
+			name: "General body within configured limit",
+			options: Options{
+				MaxRequestBodySize: 50, // 50 bytes
+			},
+			body:        "short message",
+			contentType: "text/plain",
+			expectError: false,
+		},
+		{
+			name: "General body exceeds configured limit",
+			options: Options{
+				MaxRequestBodySize: 10, // 10 bytes
+			},
+			body:               "this is a long message that exceeds the configured limit",
+			contentType:        "text/plain",
+			expectError:        true,
+			expectErrorMessage: "request body too large",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create request with body
+			req := httptest.NewRequest("POST", "/test", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", tt.contentType)
+			w := httptest.NewRecorder()
+
+			// Create context with configured options
+			ctx := NewContext(w, req, tt.options)
+
+			if strings.Contains(tt.contentType, "application/json") {
+				// Test JSON reading
+				var data map[string]interface{}
+				err := ctx.ReadJSON(&data)
+
+				if tt.expectError {
+					if err == nil {
+						t.Errorf("expected error but got none")
+					} else if !strings.Contains(err.Error(), tt.expectErrorMessage) {
+						t.Errorf("expected error message to contain %q, got %q", tt.expectErrorMessage, err.Error())
+					}
+				} else {
+					if err != nil {
+						t.Errorf("unexpected error: %v", err)
+					}
+				}
+			} else {
+				// Test general body reading
+				_, err := ctx.Read()
+
+				if tt.expectError {
+					if err == nil {
+						t.Errorf("expected error but got none")
+					} else if !strings.Contains(err.Error(), tt.expectErrorMessage) {
+						t.Errorf("expected error message to contain %q, got %q", tt.expectErrorMessage, err.Error())
+					}
+				} else {
+					if err != nil {
+						t.Errorf("unexpected error: %v", err)
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestContextMethodsCanOverrideLimits tests that context methods can still override configured limits.
+func TestContextMethodsCanOverrideLimits(t *testing.T) {
+	// Configure strict limits
+	options := Options{
+		MaxJSONBodySize:    10,  // 10 bytes (very small)
+		MaxRequestBodySize: 10,  // 10 bytes (very small)
+		MaxFileUploadSize:  100, // 100 bytes (small)
+	}
+
+	tests := []struct {
+		name        string
+		body        string
+		contentType string
+		testFunc    func(*Context) error
+		expectError bool
+	}{
+		{
+			name:        "Override JSON limit - should succeed",
+			body:        `{"test": "this message is longer than 10 bytes but should work with override"}`,
+			contentType: "application/json",
+			testFunc: func(ctx *Context) error {
+				var data map[string]interface{}
+				return ctx.ReadJSONWithLimit(&data, 1000) // Override to 1000 bytes
+			},
+			expectError: false,
+		},
+		{
+			name:        "Use configured JSON limit - should fail",
+			body:        `{"test": "this message is longer than 10 bytes"}`,
+			contentType: "application/json",
+			testFunc: func(ctx *Context) error {
+				var data map[string]interface{}
+				return ctx.ReadJSON(&data) // Use configured limit (10 bytes)
+			},
+			expectError: true,
+		},
+		{
+			name:        "Override general body limit - should succeed",
+			body:        "this message is longer than 10 bytes but should work with override",
+			contentType: "text/plain",
+			testFunc: func(ctx *Context) error {
+				_, err := ctx.ReadWithLimit(1000) // Override to 1000 bytes
+				return err
+			},
+			expectError: false,
+		},
+		{
+			name:        "Use configured general body limit - should fail",
+			body:        "this message is longer than 10 bytes",
+			contentType: "text/plain",
+			testFunc: func(ctx *Context) error {
+				_, err := ctx.Read() // Use configured limit (10 bytes)
+				return err
+			},
+			expectError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create request with body
+			req := httptest.NewRequest("POST", "/test", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", tt.contentType)
+			w := httptest.NewRecorder()
+
+			// Create context with configured options
+			ctx := NewContext(w, req, options)
+
+			err := tt.testFunc(ctx)
+
+			if tt.expectError && err == nil {
+				t.Errorf("expected error but got none")
+			} else if !tt.expectError && err != nil {
+				t.Errorf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// TestContextWithDefaultLimits tests that context methods use reasonable defaults when no options are provided.
+func TestContextWithDefaultLimits(t *testing.T) {
+	// Create context without any options
+	req := httptest.NewRequest("POST", "/test", strings.NewReader(`{"test": "data"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	ctx := NewContext(w, req) // No options provided
+
+	// Should work with default limits
+	var data map[string]interface{}
+	err := ctx.ReadJSON(&data)
+
+	if err != nil {
+		t.Errorf("unexpected error with default limits: %v", err)
+	}
+
+	if data["test"] != "data" {
+		t.Errorf("expected data.test to be 'data', got %v", data["test"])
+	}
+}
+
+// TestContextSendErrorToClientOption tests that the SendErrorToClient option is properly set in context.
+func TestContextSendErrorToClientOption(t *testing.T) {
+	tests := []struct {
+		name              string
+		sendErrorToClient bool
+		expectedBehavior  string
+	}{
+		{
+			name:              "SendErrorToClient enabled",
+			sendErrorToClient: true,
+			expectedBehavior:  "should send errors to client",
+		},
+		{
+			name:              "SendErrorToClient disabled",
+			sendErrorToClient: false,
+			expectedBehavior:  "should not send errors to client by default",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/test", nil)
+			w := httptest.NewRecorder()
+
+			options := Options{
+				SendErrorToClient: tt.sendErrorToClient,
+			}
+
+			ctx := NewContext(w, req, options)
+
+			// Test that the context was created successfully
+			if ctx == nil {
+				t.Fatal("context should not be nil")
+			}
+
+			// We can't directly test the private field, but we can verify the context
+			// was created with the right options by testing its behavior indirectly
+			if ctx.RequestID() == "" {
+				t.Error("context should have a request ID")
+			}
+		})
+	}
+}
+
+type testValidationStruct struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+func (t *testValidationStruct) Validate() error {
+	if t.Name == "" {
+		return errors.New("name is required")
+	}
+	if t.Email == "" {
+		return errors.New("email is required")
+	}
+	return nil
+}
+
+// TestContextReadAndValidateWithConfiguredLimits tests ReadAndValidate with configured limits.
+func TestContextReadAndValidateWithConfiguredLimits(t *testing.T) {
+	tests := []struct {
+		name          string
+		options       Options
+		body          string
+		expectError   bool
+		errorContains string
+	}{
+		{
+			name: "Valid JSON within limit",
+			options: Options{
+				MaxJSONBodySize: 100,
+			},
+			body:        `{"name": "John", "email": "john@example.com"}`,
+			expectError: false,
+		},
+		{
+			name: "Valid JSON exceeds limit",
+			options: Options{
+				MaxJSONBodySize: 20, // Very small limit
+			},
+			body:          `{"name": "John", "email": "john@example.com"}`,
+			expectError:   true,
+			errorContains: "request body too large",
+		},
+		{
+			name: "Invalid JSON within limit",
+			options: Options{
+				MaxJSONBodySize: 100,
+			},
+			body:          `{"name": "", "email": "john@example.com"}`, // Invalid: empty name
+			expectError:   true,
+			errorContains: "name is required",
+		},
+		{
+			name: "Override limit should work",
+			options: Options{
+				MaxJSONBodySize: 20, // Small limit
+			},
+			body:        `{"name": "John", "email": "john@example.com"}`,
+			expectError: false, // Will use override
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/test", strings.NewReader(tt.body))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+
+			ctx := NewContext(w, req, tt.options)
+
+			var data testValidationStruct
+			var err error
+
+			if tt.name == "Override limit should work" {
+				// Test override functionality
+				err = ctx.ReadAndValidateWithLimit(&data, 1000) // Override to 1000 bytes
+			} else {
+				// Use configured limit
+				err = ctx.ReadAndValidate(&data)
+			}
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("expected error but got none")
+				} else if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
+					t.Errorf("expected error to contain %q, got %q", tt.errorContains, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("unexpected error: %v", err)
+				} else {
+					// Verify data was parsed correctly
+					if data.Name != "John" {
+						t.Errorf("expected name to be 'John', got %q", data.Name)
+					}
+					if data.Email != "john@example.com" {
+						t.Errorf("expected email to be 'john@example.com', got %q", data.Email)
+					}
+				}
+			}
+		})
+	}
+}

@@ -283,6 +283,80 @@ type Options struct {
 	//   - CDN optimization
 	Cache CacheConfig
 
+	// MaxRequestBodySize is the maximum allowed request body size in bytes.
+	// This applies to all request bodies including JSON, form data, and file uploads.
+	// Set via WithMaxRequestBodySize().
+	//
+	// Default values if not set:
+	//   - 32 MB for general request bodies
+	//   - Use 0 to disable global request size limits
+	//
+	// Common configurations:
+	//   - API servers: 1-10 MB
+	//   - Web applications: 10-50 MB
+	//   - File upload services: 100 MB - 1 GB
+	//   - Microservices: 1-5 MB
+	//
+	// This is a global limit applied via middleware. Individual endpoints
+	// can use smaller limits via context methods like ReadJSONWithLimit().
+	MaxRequestBodySize int64
+
+	// MaxJSONBodySize is the maximum allowed JSON request body size in bytes.
+	// This specifically applies to JSON payloads and takes precedence over MaxRequestBodySize for JSON.
+	// Set via WithMaxJSONBodySize().
+	//
+	// Default: 1 MB if not set
+	//
+	// Recommended values:
+	//   - API servers: 1-5 MB
+	//   - Configuration APIs: 100 KB - 1 MB
+	//   - Data import APIs: 5-50 MB
+	//   - Real-time APIs: 100 KB - 1 MB
+	//
+	// Smaller JSON limits help prevent JSON parsing attacks and reduce memory usage.
+	MaxJSONBodySize int64
+
+	// MaxFileUploadSize is the maximum allowed file upload size in bytes.
+	// This applies to multipart form uploads and file uploads.
+	// Set via WithMaxFileUploadSize().
+	//
+	// Default: 100 MB if not set
+	//
+	// Common configurations:
+	//   - Profile images: 5-10 MB
+	//   - Document uploads: 50-200 MB
+	//   - Media files: 500 MB - 2 GB
+	//   - Data imports: 100 MB - 1 GB
+	//
+	// Consider your server's available memory and disk space when setting this limit.
+	MaxFileUploadSize int64
+
+	// MaxMultipartMemory is the maximum memory used for multipart form parsing in bytes.
+	// Files larger than this are stored in temporary files on disk.
+	// Set via WithMaxMultipartMemory().
+	//
+	// Default: 10 MB if not set
+	//
+	// Balance considerations:
+	//   - Higher values: Faster processing, more memory usage
+	//   - Lower values: Slower processing, less memory usage, more disk I/O
+	//
+	// Recommended: 10-50 MB for most applications
+	MaxMultipartMemory int64
+
+	// EnableRequestSizeLimits enables global request size limit middleware.
+	// When enabled, all requests are checked against the configured size limits.
+	// Set via WithEnableRequestSizeLimits() or WithRequestSizeLimits().
+	//
+	// When disabled, only individual endpoint size limits (via context methods) are enforced.
+	//
+	// Use cases for disabling:
+	//   - Fine-grained control per endpoint
+	//   - Custom size limit middleware
+	//   - Performance-critical applications
+	//   - Legacy compatibility
+	EnableRequestSizeLimits bool
+
 	// EnableHealthEndpoint enables an automatic health check endpoint that returns server status.
 	// This creates a simple endpoint that responds with "OK" and HTTP 200 status.
 	// Set to true via WithHealthEndpoint().
@@ -3338,8 +3412,6 @@ func WithHealthPath(path string) Option {
 //		XFrameOptions: "DENY",
 //		XXSSProtection: "1; mode=block",
 //		StrictTransportSecurity: "max-age=31536000; includeSubDomains",
-//		ReferrerPolicy: "strict-origin-when-cross-origin",
-//		ExcludePaths: []string{"/api/*"},
 //	}
 //
 //	server := servex.New(servex.WithSecurityConfig(securityConfig))
@@ -4212,49 +4284,152 @@ func WithCacheStaticAssets(maxAgeSeconds int) Option {
 	}
 }
 
-// WithCacheAPI enables optimized caching for API responses.
-// Sets public caching with must-revalidate for data freshness balance.
-//
-// Example:
-//
-//	// Cache API responses for 5 minutes (default)
-//	server := servex.New(
-//		servex.WithCacheAPI(0), // Uses default 5 minutes
-//		servex.WithCacheIncludePaths("/api/public/*"),
-//	)
-//
-//	// Cache API responses for 1 hour
-//	server := servex.New(
-//		servex.WithCacheAPI(3600), // 1 hour
-//		servex.WithCacheIncludePaths("/api/data/*"),
-//	)
-//
-//	// API with content negotiation
-//	server := servex.New(
-//		servex.WithCacheAPI(300), // 5 minutes
-//		servex.WithCacheVary("Accept, Accept-Encoding"),
-//		servex.WithCacheIncludePaths("/api/v1/*"),
-//	)
-//
-// Use for:
-//   - Public API endpoints
-//   - Data that changes infrequently
-//   - Read-only API responses
-//   - Content APIs
-//
-// This sets Cache-Control to "public, max-age=<seconds>, must-revalidate".
-// If maxAgeSeconds is 0, defaults to 300 (5 minutes).
+// WithCacheAPI sets up cache control for API endpoints with the specified max age.
+// This applies cache headers optimized for API responses.
+// The cache control will be set to "public, max-age=<maxAgeSeconds>".
+// Recommended for stable API responses that don't change frequently.
 func WithCacheAPI(maxAgeSeconds int) Option {
-	if maxAgeSeconds <= 0 {
-		maxAgeSeconds = 300 // Default to 5 minutes
-	}
-	return func(op *Options) {
-		op.Cache.Enabled = true
-		op.Cache.CacheControl = fmt.Sprintf("public, max-age=%d, must-revalidate", maxAgeSeconds)
-		// Set default Vary header for content negotiation
-		if op.Cache.Vary == "" {
-			op.Cache.Vary = "Accept-Encoding"
+	return func(opts *Options) {
+		// Default to 300 seconds (5 minutes) if not specified
+		if maxAgeSeconds <= 0 {
+			maxAgeSeconds = 300
 		}
+
+		opts.Cache.Enabled = true
+		opts.Cache.CacheControl = fmt.Sprintf("public, max-age=%d, must-revalidate", maxAgeSeconds)
+		opts.Cache.Vary = "Accept-Encoding"
+		opts.Cache.ExcludePaths = []string{
+			"/auth/*",
+			"/user/*",
+			"/admin/*",
+			"/ws/*",
+			"/stream/*",
+		}
+	}
+}
+
+// WithMaxRequestBodySize sets the maximum allowed request body size in bytes.
+// This applies to all request bodies including JSON, form data, and file uploads.
+// Use 0 to disable global request size limits.
+//
+// Common configurations:
+//   - API servers: WithMaxRequestBodySize(10 << 20) // 10 MB
+//   - Web applications: WithMaxRequestBodySize(50 << 20) // 50 MB
+//   - File upload services: WithMaxRequestBodySize(1 << 30) // 1 GB
+//   - Microservices: WithMaxRequestBodySize(5 << 20) // 5 MB
+//
+// This is a global limit applied via middleware. Individual endpoints
+// can use smaller limits via context methods like ReadJSONWithLimit().
+func WithMaxRequestBodySize(size int64) Option {
+	return func(opts *Options) {
+		opts.MaxRequestBodySize = size
+		opts.EnableRequestSizeLimits = true
+	}
+}
+
+// WithMaxJSONBodySize sets the maximum allowed JSON request body size in bytes.
+// This specifically applies to JSON payloads and takes precedence over MaxRequestBodySize for JSON.
+//
+// Recommended values:
+//   - API servers: WithMaxJSONBodySize(5 << 20) // 5 MB
+//   - Configuration APIs: WithMaxJSONBodySize(1 << 20) // 1 MB
+//   - Data import APIs: WithMaxJSONBodySize(50 << 20) // 50 MB
+//   - Real-time APIs: WithMaxJSONBodySize(1 << 20) // 1 MB
+//
+// Smaller JSON limits help prevent JSON parsing attacks and reduce memory usage.
+func WithMaxJSONBodySize(size int64) Option {
+	return func(opts *Options) {
+		opts.MaxJSONBodySize = size
+		opts.EnableRequestSizeLimits = true
+	}
+}
+
+// WithMaxFileUploadSize sets the maximum allowed file upload size in bytes.
+// This applies to multipart form uploads and file uploads.
+//
+// Common configurations:
+//   - Profile images: WithMaxFileUploadSize(10 << 20) // 10 MB
+//   - Document uploads: WithMaxFileUploadSize(200 << 20) // 200 MB
+//   - Media files: WithMaxFileUploadSize(2 << 30) // 2 GB
+//   - Data imports: WithMaxFileUploadSize(1 << 30) // 1 GB
+//
+// Consider your server's available memory and disk space when setting this limit.
+func WithMaxFileUploadSize(size int64) Option {
+	return func(opts *Options) {
+		opts.MaxFileUploadSize = size
+		opts.EnableRequestSizeLimits = true
+	}
+}
+
+// WithMaxMultipartMemory sets the maximum memory used for multipart form parsing in bytes.
+// Files larger than this are stored in temporary files on disk.
+//
+// Balance considerations:
+//   - Higher values: Faster processing, more memory usage
+//   - Lower values: Slower processing, less memory usage, more disk I/O
+//
+// Recommended: 10-50 MB for most applications
+// Example: WithMaxMultipartMemory(32 << 20) // 32 MB
+func WithMaxMultipartMemory(size int64) Option {
+	return func(opts *Options) {
+		opts.MaxMultipartMemory = size
+	}
+}
+
+// WithEnableRequestSizeLimits enables global request size limit middleware.
+// When enabled, all requests are checked against the configured size limits.
+// Individual endpoints can still use smaller limits via context methods.
+//
+// Use cases for disabling:
+//   - Fine-grained control per endpoint
+//   - Custom size limit middleware
+//   - Performance-critical applications
+//   - Legacy compatibility
+func WithEnableRequestSizeLimits(enable bool) Option {
+	return func(opts *Options) {
+		opts.EnableRequestSizeLimits = enable
+	}
+}
+
+// WithRequestSizeLimits configures comprehensive request size limits with commonly used defaults.
+// This is a convenience function that sets up reasonable defaults for most applications.
+//
+// Default limits set:
+//   - MaxRequestBodySize: 32 MB
+//   - MaxJSONBodySize: 1 MB
+//   - MaxFileUploadSize: 100 MB
+//   - MaxMultipartMemory: 10 MB
+//   - EnableRequestSizeLimits: true
+//
+// Use individual WithMax* functions for custom limits.
+func WithRequestSizeLimits() Option {
+	return func(opts *Options) {
+		opts.MaxRequestBodySize = 32 << 20 // 32 MB
+		opts.MaxJSONBodySize = 1 << 20     // 1 MB
+		opts.MaxFileUploadSize = 100 << 20 // 100 MB
+		opts.MaxMultipartMemory = 10 << 20 // 10 MB
+		opts.EnableRequestSizeLimits = true
+	}
+}
+
+// WithStrictRequestSizeLimits configures strict request size limits for security-sensitive applications.
+// This sets more restrictive limits than the default WithRequestSizeLimits().
+//
+// Strict limits set:
+//   - MaxRequestBodySize: 5 MB
+//   - MaxJSONBodySize: 512 KB
+//   - MaxFileUploadSize: 10 MB
+//   - MaxMultipartMemory: 5 MB
+//   - EnableRequestSizeLimits: true
+//
+// Use for applications where security is more important than convenience.
+func WithStrictRequestSizeLimits() Option {
+	return func(opts *Options) {
+		opts.MaxRequestBodySize = 5 << 20 // 5 MB
+		opts.MaxJSONBodySize = 512 << 10  // 512 KB
+		opts.MaxFileUploadSize = 10 << 20 // 10 MB
+		opts.MaxMultipartMemory = 5 << 20 // 5 MB
+		opts.EnableRequestSizeLimits = true
 	}
 }
 

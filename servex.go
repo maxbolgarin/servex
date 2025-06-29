@@ -69,6 +69,7 @@ func NewWithOptions(opts Options) *Server {
 	}
 
 	s.cleanup = RegisterRateLimitMiddleware(s.router, opts.RateLimit)
+	RegisterRequestSizeLimitMiddleware(s.router, opts)
 	RegisterFilterMiddleware(s.router, opts.Filter)
 	RegisterSecurityHeadersMiddleware(s.router, opts.Security)
 	RegisterCacheControlMiddleware(s.router, opts.Cache)
@@ -80,7 +81,7 @@ func NewWithOptions(opts Options) *Server {
 	}
 	RegisterLoggingMiddleware(s.router, opts.RequestLogger, opts.Metrics)
 	RegisterRecoverMiddleware(s.router, opts.Logger)
-	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken)
+	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken, opts)
 	registerOptsMiddleware(s.router, opts)
 
 	// Register health and metrics endpoints if enabled
@@ -291,6 +292,18 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.cleanup()
 	}
 	return errors.Join(errs...)
+}
+
+// NewContext returns a new context for the provided request.
+// It is a shortcut for [NewContext] with server options.
+func (s *Server) NewContext(w http.ResponseWriter, r *http.Request) *Context {
+	return NewContext(w, r, s.opts)
+}
+
+// NewContext returns a new context for the provided request.
+// It is a shortcut for [C] with server options.
+func (s *Server) C(w http.ResponseWriter, r *http.Request) *Context {
+	return C(w, r, s.opts)
 }
 
 // HTTPAddress returns the address the HTTP server is listening on.

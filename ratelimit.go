@@ -188,20 +188,17 @@ func getUsernameKeyFuncWithProxies(trustedProxies []string) func(r *http.Request
 	return func(r *http.Request) string {
 		// Only try to extract username from login/register endpoints
 		if r.Method == http.MethodPost && (r.URL.Path == "/login" || r.URL.Path == "/register") {
-			// Read body and preserve it for the actual handler
-			if body, err := io.ReadAll(r.Body); err == nil && len(body) > 0 {
+			// Read body with size limit to prevent DoS attacks
+			body, err := io.ReadAll(io.LimitReader(r.Body, defaultMaxUsernameBodySize)) // 1KB limit for username extraction
+			if err == nil && len(body) > 0 {
 				// Restore the body for subsequent handlers
 				r.Body = io.NopCloser(bytes.NewReader(body))
 
-				// Try to parse JSON from body copy using a temporary request
-				tempReq := *r
-				tempReq.Body = io.NopCloser(bytes.NewReader(body))
-				ctx := NewContext(nil, &tempReq)
-
+				// Try to parse JSON to extract username
 				var req struct {
 					Username string `json:"username"`
 				}
-				if err := ctx.ReadJSON(&req); err == nil && req.Username != "" {
+				if json.Unmarshal(body, &req) == nil && req.Username != "" {
 					return req.Username
 				}
 			}

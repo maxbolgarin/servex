@@ -1688,3 +1688,218 @@ func TestSecurityConfigOverride(t *testing.T) {
 		t.Errorf("expected X-Frame-Options to remain 'SAMEORIGIN', got %q", options.Security.XFrameOptions)
 	}
 }
+
+// TestWithMaxRequestBodySize tests whether the WithMaxRequestBodySize option sets the maximum request body size correctly.
+func TestWithMaxRequestBodySize(t *testing.T) {
+	tests := []struct {
+		name           string
+		size           int64
+		expectedSize   int64
+		expectedEnable bool
+	}{
+		{"1MB size", 1 << 20, 1 << 20, true},
+		{"10MB size", 10 << 20, 10 << 20, true},
+		{"100MB size", 100 << 20, 100 << 20, true},
+		{"zero size", 0, 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			option := servex.WithMaxRequestBodySize(tt.size)
+			options := servex.Options{}
+			option(&options)
+
+			if options.MaxRequestBodySize != tt.expectedSize {
+				t.Errorf("expected MaxRequestBodySize to be %d, got %d", tt.expectedSize, options.MaxRequestBodySize)
+			}
+			if options.EnableRequestSizeLimits != tt.expectedEnable {
+				t.Errorf("expected EnableRequestSizeLimits to be %t, got %t", tt.expectedEnable, options.EnableRequestSizeLimits)
+			}
+		})
+	}
+}
+
+// TestWithMaxJSONBodySize tests whether the WithMaxJSONBodySize option sets the maximum JSON body size correctly.
+func TestWithMaxJSONBodySize(t *testing.T) {
+	tests := []struct {
+		name           string
+		size           int64
+		expectedSize   int64
+		expectedEnable bool
+	}{
+		{"512KB size", 512 << 10, 512 << 10, true},
+		{"1MB size", 1 << 20, 1 << 20, true},
+		{"5MB size", 5 << 20, 5 << 20, true},
+		{"zero size", 0, 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			option := servex.WithMaxJSONBodySize(tt.size)
+			options := servex.Options{}
+			option(&options)
+
+			if options.MaxJSONBodySize != tt.expectedSize {
+				t.Errorf("expected MaxJSONBodySize to be %d, got %d", tt.expectedSize, options.MaxJSONBodySize)
+			}
+			if options.EnableRequestSizeLimits != tt.expectedEnable {
+				t.Errorf("expected EnableRequestSizeLimits to be %t, got %t", tt.expectedEnable, options.EnableRequestSizeLimits)
+			}
+		})
+	}
+}
+
+// TestWithMaxFileUploadSize tests whether the WithMaxFileUploadSize option sets the maximum file upload size correctly.
+func TestWithMaxFileUploadSize(t *testing.T) {
+	tests := []struct {
+		name           string
+		size           int64
+		expectedSize   int64
+		expectedEnable bool
+	}{
+		{"10MB size", 10 << 20, 10 << 20, true},
+		{"100MB size", 100 << 20, 100 << 20, true},
+		{"1GB size", 1 << 30, 1 << 30, true},
+		{"zero size", 0, 0, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			option := servex.WithMaxFileUploadSize(tt.size)
+			options := servex.Options{}
+			option(&options)
+
+			if options.MaxFileUploadSize != tt.expectedSize {
+				t.Errorf("expected MaxFileUploadSize to be %d, got %d", tt.expectedSize, options.MaxFileUploadSize)
+			}
+			if options.EnableRequestSizeLimits != tt.expectedEnable {
+				t.Errorf("expected EnableRequestSizeLimits to be %t, got %t", tt.expectedEnable, options.EnableRequestSizeLimits)
+			}
+		})
+	}
+}
+
+// TestWithMaxMultipartMemory tests whether the WithMaxMultipartMemory option sets the multipart memory limit correctly.
+func TestWithMaxMultipartMemory(t *testing.T) {
+	tests := []struct {
+		name         string
+		size         int64
+		expectedSize int64
+	}{
+		{"5MB memory", 5 << 20, 5 << 20},
+		{"10MB memory", 10 << 20, 10 << 20},
+		{"32MB memory", 32 << 20, 32 << 20},
+		{"zero size", 0, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			option := servex.WithMaxMultipartMemory(tt.size)
+			options := servex.Options{}
+			option(&options)
+
+			if options.MaxMultipartMemory != tt.expectedSize {
+				t.Errorf("expected MaxMultipartMemory to be %d, got %d", tt.expectedSize, options.MaxMultipartMemory)
+			}
+		})
+	}
+}
+
+// TestWithEnableRequestSizeLimits tests whether the WithEnableRequestSizeLimits option enables/disables size limits correctly.
+func TestWithEnableRequestSizeLimits(t *testing.T) {
+	tests := []struct {
+		name     string
+		enable   bool
+		expected bool
+	}{
+		{"enable limits", true, true},
+		{"disable limits", false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			option := servex.WithEnableRequestSizeLimits(tt.enable)
+			options := servex.Options{}
+			option(&options)
+
+			if options.EnableRequestSizeLimits != tt.expected {
+				t.Errorf("expected EnableRequestSizeLimits to be %t, got %t", tt.expected, options.EnableRequestSizeLimits)
+			}
+		})
+	}
+}
+
+// TestWithRequestSizeLimits tests whether the WithRequestSizeLimits option sets reasonable defaults.
+func TestWithRequestSizeLimits(t *testing.T) {
+	option := servex.WithRequestSizeLimits()
+	options := servex.Options{}
+	option(&options)
+
+	if options.MaxRequestBodySize != 32<<20 {
+		t.Errorf("expected MaxRequestBodySize to be %d, got %d", 32<<20, options.MaxRequestBodySize)
+	}
+	if options.MaxJSONBodySize != 1<<20 {
+		t.Errorf("expected MaxJSONBodySize to be %d, got %d", 1<<20, options.MaxJSONBodySize)
+	}
+	if options.MaxFileUploadSize != 100<<20 {
+		t.Errorf("expected MaxFileUploadSize to be %d, got %d", 100<<20, options.MaxFileUploadSize)
+	}
+	if options.MaxMultipartMemory != 10<<20 {
+		t.Errorf("expected MaxMultipartMemory to be %d, got %d", 10<<20, options.MaxMultipartMemory)
+	}
+	if !options.EnableRequestSizeLimits {
+		t.Errorf("expected EnableRequestSizeLimits to be true, got false")
+	}
+}
+
+// TestWithStrictRequestSizeLimits tests whether the WithStrictRequestSizeLimits option sets strict security limits.
+func TestWithStrictRequestSizeLimits(t *testing.T) {
+	option := servex.WithStrictRequestSizeLimits()
+	options := servex.Options{}
+	option(&options)
+
+	if options.MaxRequestBodySize != 5<<20 {
+		t.Errorf("expected MaxRequestBodySize to be %d, got %d", 5<<20, options.MaxRequestBodySize)
+	}
+	if options.MaxJSONBodySize != 512<<10 {
+		t.Errorf("expected MaxJSONBodySize to be %d, got %d", 512<<10, options.MaxJSONBodySize)
+	}
+	if options.MaxFileUploadSize != 10<<20 {
+		t.Errorf("expected MaxFileUploadSize to be %d, got %d", 10<<20, options.MaxFileUploadSize)
+	}
+	if options.MaxMultipartMemory != 5<<20 {
+		t.Errorf("expected MaxMultipartMemory to be %d, got %d", 5<<20, options.MaxMultipartMemory)
+	}
+	if !options.EnableRequestSizeLimits {
+		t.Errorf("expected EnableRequestSizeLimits to be true, got false")
+	}
+}
+
+// TestMultipleRequestSizeOptions tests that multiple request size options work together correctly.
+func TestMultipleRequestSizeOptions(t *testing.T) {
+	options := servex.Options{}
+
+	// Apply multiple options
+	servex.WithMaxRequestBodySize(50 << 20)(&options)
+	servex.WithMaxJSONBodySize(2 << 20)(&options)
+	servex.WithMaxFileUploadSize(200 << 20)(&options)
+	servex.WithMaxMultipartMemory(20 << 20)(&options)
+	servex.WithEnableRequestSizeLimits(true)(&options)
+
+	// Verify all options are set correctly
+	if options.MaxRequestBodySize != 50<<20 {
+		t.Errorf("expected MaxRequestBodySize to be %d, got %d", 50<<20, options.MaxRequestBodySize)
+	}
+	if options.MaxJSONBodySize != 2<<20 {
+		t.Errorf("expected MaxJSONBodySize to be %d, got %d", 2<<20, options.MaxJSONBodySize)
+	}
+	if options.MaxFileUploadSize != 200<<20 {
+		t.Errorf("expected MaxFileUploadSize to be %d, got %d", 200<<20, options.MaxFileUploadSize)
+	}
+	if options.MaxMultipartMemory != 20<<20 {
+		t.Errorf("expected MaxMultipartMemory to be %d, got %d", 20<<20, options.MaxMultipartMemory)
+	}
+	if !options.EnableRequestSizeLimits {
+		t.Errorf("expected EnableRequestSizeLimits to be true, got false")
+	}
+}

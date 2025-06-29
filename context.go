@@ -19,7 +19,15 @@ import (
 	"github.com/maxbolgarin/lang"
 )
 
-const defaultMaxMemoryMultipartForm = 10 << 20 // 10 MB
+const (
+	defaultMaxMemoryMultipartForm = 10 << 20 // 10 MB
+	// Request size limits to prevent DoS attacks (internal defaults)
+	defaultMaxRequestBodySize  = 32 << 20  // 32 MB - default max request body size
+	defaultMaxJSONBodySize     = 1 << 20   // 1 MB - default max JSON body size
+	defaultMaxFormBodySize     = 10 << 20  // 10 MB - default max form body size
+	defaultMaxUsernameBodySize = 1024      // 1 KB - default max body size for username extraction
+	defaultMaxFileUploadSize   = 100 << 20 // 100 MB - default max file upload size
+)
 
 // ErrorResponse represents a JSON for an error response.
 type ErrorResponse struct {
@@ -28,31 +36,80 @@ type ErrorResponse struct {
 
 var json = jsoniter.ConfigCompatibleWithStandardLibrary
 
-// Read reads the request body.
+// Read reads the request body with default size limit to prevent DoS attacks.
 func Read(r *http.Request) ([]byte, error) {
-	return io.ReadAll(r.Body)
+	return ReadWithLimit(r, defaultMaxRequestBodySize)
 }
 
-// ReadJSON reads a JSON from the request body to a variable of the provided type.
+// ReadWithLimit reads the request body with a specific size limit.
+func ReadWithLimit(r *http.Request, maxSize int64) ([]byte, error) {
+	if maxSize <= 0 {
+		maxSize = defaultMaxRequestBodySize
+	}
+
+	bytes, err := io.ReadAll(io.LimitReader(r.Body, maxSize))
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+
+	// Check if we hit the size limit
+	if int64(len(bytes)) >= maxSize {
+		return nil, fmt.Errorf("request body too large (max: %d bytes)", maxSize)
+	}
+
+	return bytes, nil
+}
+
+// ReadJSON reads a JSON from the request body to a variable of the provided type with size limits.
 func ReadJSON[T any](r *http.Request) (T, error) {
+	return ReadJSONWithLimit[T](r, defaultMaxJSONBodySize)
+}
+
+// ReadJSONWithLimit reads a JSON from the request body with a specific size limit.
+func ReadJSONWithLimit[T any](r *http.Request, maxSize int64) (T, error) {
 	var req T
-	bytes, err := io.ReadAll(r.Body)
+	if maxSize <= 0 {
+		maxSize = defaultMaxJSONBodySize
+	}
+
+	bytes, err := io.ReadAll(io.LimitReader(r.Body, maxSize))
 	if err != nil {
 		return req, fmt.Errorf("read: %w", err)
 	}
+
+	// Check if we hit the size limit
+	if int64(len(bytes)) >= maxSize {
+		return req, fmt.Errorf("request body too large (max: %d bytes)", maxSize)
+	}
+
 	if err := json.Unmarshal(bytes, &req); err != nil {
 		return req, fmt.Errorf("unmarshal: %w", err)
 	}
 	return req, nil
 }
 
-// ReadAndValidate reads a JSON from the request body to a variable of the provided type and validates it.
+// ReadAndValidate reads a JSON from the request body to a variable of the provided type and validates it with size limits.
 func ReadAndValidate[T interface{ Validate() error }](r *http.Request) (T, error) {
+	return ReadAndValidateWithLimit[T](r, defaultMaxJSONBodySize)
+}
+
+// ReadAndValidateWithLimit reads and validates a JSON from the request body with a specific size limit.
+func ReadAndValidateWithLimit[T interface{ Validate() error }](r *http.Request, maxSize int64) (T, error) {
 	var req T
-	bytes, err := io.ReadAll(r.Body)
+	if maxSize <= 0 {
+		maxSize = defaultMaxJSONBodySize
+	}
+
+	bytes, err := io.ReadAll(io.LimitReader(r.Body, maxSize))
 	if err != nil {
 		return req, fmt.Errorf("read: %w", err)
 	}
+
+	// Check if we hit the size limit
+	if int64(len(bytes)) >= maxSize {
+		return req, fmt.Errorf("request body too large (max: %d bytes)", maxSize)
+	}
+
 	if err := json.Unmarshal(bytes, &req); err != nil {
 		return req, fmt.Errorf("unmarshal: %w", err)
 	}
@@ -62,11 +119,21 @@ func ReadAndValidate[T interface{ Validate() error }](r *http.Request) (T, error
 	return req, nil
 }
 
-// ReadFile reads a file from the request body.
-// fileKey is the key of the file in the request.
-// It returns the file bytes, the file header and an error.
+// ReadFile reads a file from the request body with configurable size limits.
 func ReadFile(r *http.Request, fileKey string) ([]byte, *multipart.FileHeader, error) {
-	err := r.ParseMultipartForm(defaultMaxMemoryMultipartForm)
+	return ReadFileWithLimit(r, fileKey, defaultMaxMemoryMultipartForm, defaultMaxFileUploadSize)
+}
+
+// ReadFileWithLimit reads a file from the request body with specific size limits.
+func ReadFileWithLimit(r *http.Request, fileKey string, maxMemory, maxFileSize int64) ([]byte, *multipart.FileHeader, error) {
+	if maxMemory <= 0 {
+		maxMemory = defaultMaxMemoryMultipartForm
+	}
+	if maxFileSize <= 0 {
+		maxFileSize = defaultMaxFileUploadSize
+	}
+
+	err := r.ParseMultipartForm(maxMemory)
 	if err != nil {
 		return nil, nil, fmt.Errorf("parse multipart form: %w", err)
 	}
@@ -77,9 +144,19 @@ func ReadFile(r *http.Request, fileKey string) ([]byte, *multipart.FileHeader, e
 	}
 	defer file.Close()
 
-	bytes, err := io.ReadAll(file)
+	// Check file size before reading
+	if header.Size > maxFileSize {
+		return nil, nil, fmt.Errorf("file too large: %d bytes (max: %d bytes)", header.Size, maxFileSize)
+	}
+
+	bytes, err := io.ReadAll(io.LimitReader(file, maxFileSize))
 	if err != nil {
 		return nil, nil, fmt.Errorf("read file: %w", err)
+	}
+
+	// Double-check actual read size
+	if int64(len(bytes)) > maxFileSize {
+		return nil, nil, fmt.Errorf("file too large after reading: %d bytes (max: %d bytes)", len(bytes), maxFileSize)
 	}
 
 	return bytes, header, nil
@@ -93,24 +170,39 @@ type Context struct {
 
 	isSendErrorToClient bool
 	isSetContentType    bool
-}
 
-// NewContext returns a new context for the provided request.
-func NewContext(w http.ResponseWriter, r *http.Request) *Context {
-	ctx := &Context{
-		w: w,
-		r: r,
-	}
-	if r != nil {
-		ctx.Context = r.Context()
-	}
-	return ctx
+	// Server-configured size limits (used as defaults)
+	maxRequestBodySize int64
+	maxJSONBodySize    int64
+	maxFileUploadSize  int64
+	maxMultipartMemory int64
 }
 
 // C returns a new context for the provided request.
 // It is a shortcut for [NewContext].
-func C(w http.ResponseWriter, r *http.Request) *Context {
-	return NewContext(w, r)
+func C(w http.ResponseWriter, r *http.Request, opts ...Options) *Context {
+	return NewContext(w, r, opts...)
+}
+
+// NewContext returns a new context for the provided request.
+// You can provide options to configure the context.
+func NewContext(w http.ResponseWriter, r *http.Request, optsRaw ...Options) *Context {
+	opts := lang.First(optsRaw)
+
+	ctx := &Context{
+		w:                   w,
+		r:                   r,
+		isSendErrorToClient: opts.SendErrorToClient,
+		maxRequestBodySize:  lang.Check(opts.MaxRequestBodySize, defaultMaxRequestBodySize),
+		maxJSONBodySize:     lang.Check(opts.MaxJSONBodySize, defaultMaxJSONBodySize),
+		maxFileUploadSize:   lang.Check(opts.MaxFileUploadSize, defaultMaxFileUploadSize),
+		maxMultipartMemory:  lang.Check(opts.MaxMultipartMemory, defaultMaxMemoryMultipartForm),
+	}
+	if r != nil {
+		ctx.Context = r.Context()
+	}
+
+	return ctx
 }
 
 // RequestID returns the request ID for the request.
@@ -226,39 +318,79 @@ func (ctx *Context) ParseUnixFromQuery(key string) (time.Time, error) {
 	return time.Unix(number, 0), nil
 }
 
-// Read reads the request body.
-// It is a shortcut for [io.ReadAll].
-func (ctx *Context) Read() ([]byte, error) {
-	return io.ReadAll(ctx.r.Body)
-}
-
-// Body returns the request body.
-// It is a shortcut for [io.ReadAll] without error handling.
+// Body returns the request body as bytes with default size limit.
+// Be careful with this method as it reads the entire body into memory.
+// Use ReadWithLimit for better control over memory usage.
 func (ctx *Context) Body() []byte {
-	bytes, err := io.ReadAll(ctx.r.Body)
+	bytes, err := ctx.Read()
 	if err != nil {
 		return nil
 	}
 	return bytes
 }
 
-// ReadJSON reads a JSON from the request body.
+// Read reads the request body with size limit to prevent DoS attacks.
+// It is a shortcut for ReadWithLimit with configured default size.
+func (ctx *Context) Read() ([]byte, error) {
+	return ctx.ReadWithLimit(ctx.maxRequestBodySize)
+}
+
+// ReadWithLimit reads the request body with a specific size limit.
+func (ctx *Context) ReadWithLimit(maxSize int64) ([]byte, error) {
+	if maxSize <= 0 {
+		maxSize = ctx.maxRequestBodySize
+	}
+
+	bytes, err := io.ReadAll(io.LimitReader(ctx.r.Body, maxSize))
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+
+	// Check if we hit the size limit
+	if int64(len(bytes)) >= maxSize {
+		return nil, fmt.Errorf("request body too large (max: %d bytes)", maxSize)
+	}
+
+	return bytes, nil
+}
+
+// ReadJSON reads a JSON from the request body to the provided variable with size limits.
 // You should provide a pointer to the variable.
 func (ctx *Context) ReadJSON(body any) error {
-	bytes, err := io.ReadAll(ctx.r.Body)
+	return ctx.ReadJSONWithLimit(body, ctx.maxJSONBodySize)
+}
+
+// ReadJSONWithLimit reads a JSON from the request body with a specific size limit.
+func (ctx *Context) ReadJSONWithLimit(body any, maxSize int64) error {
+	if maxSize <= 0 {
+		maxSize = ctx.maxJSONBodySize
+	}
+
+	bytes, err := io.ReadAll(io.LimitReader(ctx.r.Body, maxSize))
 	if err != nil {
 		return fmt.Errorf("read: %w", err)
 	}
+
+	// Check if we hit the size limit
+	if int64(len(bytes)) >= maxSize {
+		return fmt.Errorf("request body too large (max: %d bytes)", maxSize)
+	}
+
 	if err := json.Unmarshal(bytes, body); err != nil {
 		return fmt.Errorf("unmarshal: %w", err)
 	}
 	return nil
 }
 
-// ReadAndValidate reads a JSON from the request body and variable and validate it.
+// ReadAndValidate reads a JSON from the request body to the provided variable and validates it with size limits.
 // You should provide a pointer to the variable.
 func (ctx *Context) ReadAndValidate(body interface{ Validate() error }) error {
-	if err := ctx.ReadJSON(body); err != nil {
+	return ctx.ReadAndValidateWithLimit(body, ctx.maxJSONBodySize)
+}
+
+// ReadAndValidateWithLimit reads and validates a JSON from the request body with a specific size limit.
+func (ctx *Context) ReadAndValidateWithLimit(body interface{ Validate() error }, maxSize int64) error {
+	if err := ctx.ReadJSONWithLimit(body, maxSize); err != nil {
 		return err
 	}
 	if err := body.Validate(); err != nil {
@@ -267,11 +399,16 @@ func (ctx *Context) ReadAndValidate(body interface{ Validate() error }) error {
 	return nil
 }
 
-// ReadFile reads a file from the request body.
+// ReadFile reads a file from the request body with configurable size limits.
 // fileKey is the key of the file in the request.
 // It returns the file bytes, the file header and an error.
 func (ctx *Context) ReadFile(fileKey string) ([]byte, *multipart.FileHeader, error) {
-	return ReadFile(ctx.r, fileKey)
+	return ReadFileWithLimit(ctx.r, fileKey, ctx.maxMultipartMemory, ctx.maxFileUploadSize)
+}
+
+// ReadFileWithLimit reads a file from the request body with specific size limits.
+func (ctx *Context) ReadFileWithLimit(fileKey string, maxMemory, maxFileSize int64) ([]byte, *multipart.FileHeader, error) {
+	return ReadFileWithLimit(ctx.r, fileKey, maxMemory, maxFileSize)
 }
 
 // NoLog marks to not log the request after returning from the handler.

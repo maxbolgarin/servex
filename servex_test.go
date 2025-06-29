@@ -9,6 +9,7 @@ import (
 	mr "math/rand"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -476,4 +477,356 @@ func TestStartupErrorHandling(t *testing.T) {
 			s2.Shutdown(context.Background())
 		}
 	})
+}
+
+// TestRequestSizeLimitMiddleware tests the request size limit middleware functionality.
+func TestRequestSizeLimitMiddleware(t *testing.T) {
+	tests := []struct {
+		name               string
+		options            []Option
+		requestBody        string
+		contentType        string
+		contentLength      *string // Use pointer to distinguish between nil (not set) and "" (empty)
+		expectedStatus     int
+		expectErrorMessage string
+	}{
+		{
+			name: "Request within general limit",
+			options: []Option{
+				WithMaxRequestBodySize(100),
+				WithEnableRequestSizeLimits(true),
+			},
+			requestBody:    "short message",
+			contentType:    "text/plain",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "Request exceeds general limit",
+			options: []Option{
+				WithMaxRequestBodySize(10),
+				WithEnableRequestSizeLimits(true),
+			},
+			requestBody:        "this is a very long message that exceeds the 10 byte limit",
+			contentType:        "text/plain",
+			expectedStatus:     http.StatusRequestEntityTooLarge,
+			expectErrorMessage: "Request body too large",
+		},
+		{
+			name: "JSON request within JSON limit",
+			options: []Option{
+				WithMaxJSONBodySize(100),
+				WithEnableRequestSizeLimits(true),
+			},
+			requestBody:    `{"test": "data"}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "JSON request exceeds JSON limit",
+			options: []Option{
+				WithMaxJSONBodySize(20),
+				WithEnableRequestSizeLimits(true),
+			},
+			requestBody:        `{"test": "this is a very long message that exceeds the JSON limit"}`,
+			contentType:        "application/json",
+			expectedStatus:     http.StatusRequestEntityTooLarge,
+			expectErrorMessage: "JSON body too large",
+		},
+		{
+			name: "Middleware disabled - should pass through",
+			options: []Option{
+				WithMaxRequestBodySize(10),         // Very small limit
+				WithEnableRequestSizeLimits(false), // But disabled
+			},
+			requestBody:    "this message exceeds 10 bytes but should pass through",
+			contentType:    "text/plain",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "Missing Content-Length header - should pass through",
+			options: []Option{
+				WithMaxRequestBodySize(10),
+				WithEnableRequestSizeLimits(true),
+			},
+			requestBody:    "long message",
+			contentType:    "text/plain",
+			contentLength:  func() *string { s := ""; return &s }(), // Empty Content-Length header
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "JSON within general limit but exceeds JSON limit",
+			options: []Option{
+				WithMaxRequestBodySize(100), // General limit: 100 bytes
+				WithMaxJSONBodySize(30),     // JSON limit: 30 bytes
+				WithEnableRequestSizeLimits(true),
+			},
+			requestBody:        `{"test": "this JSON message is longer than 30 bytes but under 100 bytes"}`,
+			contentType:        "application/json",
+			expectedStatus:     http.StatusRequestEntityTooLarge,
+			expectErrorMessage: "JSON body too large",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create server with options
+			server := New(tt.options...)
+
+			// Add a test handler
+			server.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+				ctx := server.C(w, r)
+				ctx.Response(http.StatusOK, "success")
+			}, "POST")
+
+			// Create test request
+			req := httptest.NewRequest("POST", "/test", strings.NewReader(tt.requestBody))
+			req.Header.Set("Content-Type", tt.contentType)
+
+			// Set Content-Length if specified
+			if tt.contentLength != nil {
+				if *tt.contentLength == "" {
+					// For empty contentLength, we want to simulate missing Content-Length
+					// We need to manually set ContentLength to -1 to simulate chunked encoding
+					req.ContentLength = -1
+					req.Header.Del("Content-Length")
+				} else {
+					// Set specific Content-Length value
+					req.Header.Set("Content-Length", *tt.contentLength)
+				}
+			} else {
+				// Default case: set Content-Length to actual body size
+				req.Header.Set("Content-Length", strconv.Itoa(len(tt.requestBody)))
+			}
+
+			// Record response
+			w := httptest.NewRecorder()
+
+			// Execute request
+			server.Router().ServeHTTP(w, req)
+
+			// Check status code
+			if w.Code != tt.expectedStatus {
+				t.Errorf("expected status code %d, got %d", tt.expectedStatus, w.Code)
+			}
+
+			// Check error message if expected
+			if tt.expectErrorMessage != "" {
+				body := w.Body.String()
+				if !strings.Contains(body, tt.expectErrorMessage) {
+					t.Errorf("expected response to contain %q, got %q", tt.expectErrorMessage, body)
+				}
+			}
+		})
+	}
+}
+
+// TestRequestSizeLimitMiddlewareWithStrictLimits tests the middleware with strict security limits.
+func TestRequestSizeLimitMiddlewareWithStrictLimits(t *testing.T) {
+	// Create server with strict limits
+	server := New(WithStrictRequestSizeLimits())
+
+	server.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+		ctx := server.C(w, r)
+		ctx.Response(http.StatusOK, "success")
+	}, "POST")
+
+	tests := []struct {
+		name           string
+		requestBody    string
+		contentType    string
+		expectedStatus int
+	}{
+		{
+			name:           "Small JSON request - should pass",
+			requestBody:    `{"test": "small"}`,
+			contentType:    "application/json",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Large JSON request - should fail with strict limits",
+			requestBody:    strings.Repeat(`{"test": "data"}`, 40000), // ~640KB, larger than 512KB limit
+			contentType:    "application/json",
+			expectedStatus: http.StatusRequestEntityTooLarge,
+		},
+		{
+			name:           "Small general request - should pass",
+			requestBody:    "small message",
+			contentType:    "text/plain",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "Large general request - should fail with strict limits",
+			requestBody:    strings.Repeat("large message ", 400000), // ~5.6MB, larger than 5MB limit
+			contentType:    "text/plain",
+			expectedStatus: http.StatusRequestEntityTooLarge,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/test", strings.NewReader(tt.requestBody))
+			req.Header.Set("Content-Type", tt.contentType)
+			req.Header.Set("Content-Length", strconv.Itoa(len(tt.requestBody)))
+
+			w := httptest.NewRecorder()
+			server.Router().ServeHTTP(w, req)
+
+			if w.Code != tt.expectedStatus {
+				t.Errorf("expected status code %d, got %d", tt.expectedStatus, w.Code)
+			}
+		})
+	}
+}
+
+// TestRequestSizeLimitMiddlewareWithMultipartForm tests the middleware with multipart form data.
+func TestRequestSizeLimitMiddlewareWithMultipartForm(t *testing.T) {
+	server := New(
+		WithMaxRequestBodySize(1000), // 1KB general limit
+		WithEnableRequestSizeLimits(true),
+	)
+
+	server.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
+		ctx := server.C(w, r)
+		ctx.Response(http.StatusOK, "upload success")
+	}, "POST")
+
+	tests := []struct {
+		name           string
+		formData       string
+		expectedStatus int
+	}{
+		{
+			name: "Small multipart form - should pass",
+			formData: "--boundary\r\n" +
+				"Content-Disposition: form-data; name=\"field\"\r\n\r\n" +
+				"value\r\n" +
+				"--boundary--\r\n",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name: "Large multipart form - should fail",
+			formData: "--boundary\r\n" +
+				"Content-Disposition: form-data; name=\"field\"\r\n\r\n" +
+				strings.Repeat("x", 2000) + "\r\n" + // Much larger than 1KB
+				"--boundary--\r\n",
+			expectedStatus: http.StatusRequestEntityTooLarge,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest("POST", "/upload", strings.NewReader(tt.formData))
+			req.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
+			req.Header.Set("Content-Length", strconv.Itoa(len(tt.formData)))
+
+			w := httptest.NewRecorder()
+			server.Router().ServeHTTP(w, req)
+
+			if w.Code != tt.expectedStatus {
+				t.Errorf("expected status code %d, got %d", tt.expectedStatus, w.Code)
+			}
+		})
+	}
+}
+
+// TestRequestSizeLimitMiddlewareNotRegisteredWhenDisabled tests that middleware is not registered when disabled.
+func TestRequestSizeLimitMiddlewareNotRegisteredWhenDisabled(t *testing.T) {
+	// Create server with middleware disabled (default behavior)
+	server := New(
+	// Don't set any size limits - this way we test that middleware is not active
+	// and context methods use their default limits
+	)
+
+	server.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+		ctx := server.C(w, r)
+		// Try to read the body - this should work with default context limits
+		body, err := ctx.Read()
+		if err != nil {
+			ctx.InternalServerError(err, "Failed to read body")
+			return
+		}
+		ctx.Response(http.StatusOK, fmt.Sprintf("received %d bytes", len(body)))
+	}, "POST")
+
+	// Send a moderately large request that would be blocked by strict middleware limits
+	// but should pass with default context limits (32MB default)
+	largeBody := strings.Repeat("this is a moderately large message for testing. ", 500) // ~25KB
+	req := httptest.NewRequest("POST", "/test", strings.NewReader(largeBody))
+	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("Content-Length", strconv.Itoa(len(largeBody)))
+
+	w := httptest.NewRecorder()
+	server.Router().ServeHTTP(w, req)
+
+	// Should succeed because middleware is not registered and context uses reasonable defaults
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status code %d, got %d", http.StatusOK, w.Code)
+	}
+
+	// Should receive the full body
+	body := w.Body.String()
+	if !strings.Contains(body, "received") {
+		t.Errorf("expected response to indicate body was received, got %q", body)
+	}
+}
+
+// TestRequestSizeLimitWithDefaultOptions tests request size limits with default reasonable options.
+func TestRequestSizeLimitWithDefaultOptions(t *testing.T) {
+	// Create server with default request size limits
+	server := New(WithRequestSizeLimits())
+
+	server.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+		ctx := server.C(w, r)
+		ctx.Response(http.StatusOK, "success")
+	}, "POST")
+
+	tests := []struct {
+		name           string
+		bodySize       int
+		contentType    string
+		expectedStatus int
+	}{
+		{
+			name:           "1KB JSON - should pass",
+			bodySize:       1024,
+			contentType:    "application/json",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "2MB JSON - should fail (exceeds 1MB JSON limit)",
+			bodySize:       2 * 1024 * 1024,
+			contentType:    "application/json",
+			expectedStatus: http.StatusRequestEntityTooLarge,
+		},
+		{
+			name:           "10MB general request - should pass (under 32MB general limit)",
+			bodySize:       10 * 1024 * 1024,
+			contentType:    "text/plain",
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:           "50MB general request - should fail (exceeds 32MB general limit)",
+			bodySize:       50 * 1024 * 1024,
+			contentType:    "text/plain",
+			expectedStatus: http.StatusRequestEntityTooLarge,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create body of specified size
+			body := strings.Repeat("x", tt.bodySize)
+
+			req := httptest.NewRequest("POST", "/test", strings.NewReader(body))
+			req.Header.Set("Content-Type", tt.contentType)
+			req.Header.Set("Content-Length", strconv.Itoa(len(body)))
+
+			w := httptest.NewRecorder()
+			server.Router().ServeHTTP(w, req)
+
+			if w.Code != tt.expectedStatus {
+				t.Errorf("expected status code %d, got %d", tt.expectedStatus, w.Code)
+			}
+		})
+	}
 }
