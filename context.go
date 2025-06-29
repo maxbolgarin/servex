@@ -334,11 +334,11 @@ func (ctx *Context) Response(code int, bodyRaw ...any) {
 
 // ResponseFile writes the file to the [http.ResponseWriter].
 // It sets the Content-Type header to the provided mime type.
-// It sets the Content-Disposition header to "attachment; filename=" + filename.
+// It sets the Content-Disposition header to "attachment; filename=" + filename (safely sanitized).
 // It sets the Content-Length header to the length of the body.
 func (ctx *Context) ResponseFile(filename string, mimeType string, body []byte) {
 	ctx.SetContentType(mimeType)
-	ctx.SetHeader("Content-Disposition", "attachment; filename="+filename)
+	ctx.SetHeader("Content-Disposition", formatContentDisposition(filename))
 	ctx.SetHeader("Content-Length", strconv.Itoa(len(body)))
 	ctx.w.WriteHeader(http.StatusOK)
 	_, err := ctx.w.Write(body)
@@ -568,6 +568,8 @@ func getRandomBytes(n int) []byte {
 	return out
 }
 
+// GetFromContext returns a value from the context of the request.
+// It is a shortcut for [context.Value] with error handling.
 func GetFromContext[T any](r *http.Request, key any) (empty T) {
 	raw := r.Context().Value(key)
 	if raw == nil {
@@ -578,4 +580,54 @@ func GetFromContext[T any](r *http.Request, key any) (empty T) {
 		return empty
 	}
 	return res
+}
+
+// sanitizeFilename sanitizes a filename for use in HTTP headers to prevent header injection attacks.
+// It removes or replaces characters that could be used for CRLF injection and other attacks.
+func sanitizeFilename(filename string) string {
+	if filename == "" {
+		return "download"
+	}
+
+	// Remove or replace dangerous characters that could lead to header injection
+	// Replace CRLF characters and other control characters
+	replacer := strings.NewReplacer(
+		"\r", "",
+		"\n", "",
+		"\t", "_",
+		"\"", "'", // Replace quotes to avoid breaking quoted strings
+		"\\", "_", // Replace backslashes
+		":", "_", // Replace colons to prevent URLs in attacks
+		"/", "_", // Replace slashes to prevent paths in attacks
+	)
+
+	sanitized := replacer.Replace(filename)
+
+	// Remove any remaining control characters (ASCII 0-31 and 127)
+	var cleaned strings.Builder
+	for _, r := range sanitized {
+		if r >= 32 && r != 127 {
+			cleaned.WriteRune(r)
+		}
+	}
+
+	result := cleaned.String()
+
+	// If result is empty or contains only underscores/whitespace, use default
+	if result == "" || strings.Trim(result, "_ \t") == "" {
+		return "download"
+	}
+
+	return result
+}
+
+// formatContentDisposition safely formats a Content-Disposition header value with the given filename.
+// This follows RFC 6266 recommendations and prevents header injection attacks.
+func formatContentDisposition(filename string) string {
+	sanitized := sanitizeFilename(filename)
+
+	// Use simple filename format for ASCII filenames
+	// For more complex cases, RFC 6266 suggests using filename* parameter with encoding,
+	// but for this security fix, we'll use the simpler approach
+	return fmt.Sprintf("attachment; filename=\"%s\"", sanitized)
 }

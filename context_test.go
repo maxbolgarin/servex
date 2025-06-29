@@ -1,8 +1,7 @@
-package servex_test
+package servex
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"io"
 	"mime/multipart"
@@ -13,8 +12,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/maxbolgarin/servex"
 )
 
 // Define a struct for testing JSON marshaling and validation
@@ -36,7 +33,7 @@ func TestReadJSON(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
 	defer req.Body.Close()
 
-	received, err := servex.ReadJSON[testStruct](req)
+	received, err := ReadJSON[testStruct](req)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -51,7 +48,7 @@ func TestRead(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(testData))
 	defer req.Body.Close()
 
-	body, err := servex.Read(req)
+	body, err := Read(req)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -65,7 +62,7 @@ func TestReadEmpty(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	defer req.Body.Close()
 
-	body, err := servex.Read(req)
+	body, err := Read(req)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -81,7 +78,7 @@ func TestReadAndValidate_Valid(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
 	defer req.Body.Close()
 
-	received, err := servex.ReadAndValidate[testStruct](req)
+	received, err := ReadAndValidate[testStruct](req)
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -97,7 +94,7 @@ func TestReadAndValidate_Invalid(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
 	defer req.Body.Close()
 
-	_, err := servex.ReadAndValidate[testStruct](req)
+	_, err := ReadAndValidate[testStruct](req)
 	if err == nil {
 		t.Errorf("expected error, got nil")
 	}
@@ -108,7 +105,7 @@ func TestReadAndValidate_Invalid(t *testing.T) {
 
 func TestContext_RequestID(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	requestID1 := ctx.RequestID()
 	requestID2 := ctx.RequestID()
@@ -119,14 +116,14 @@ func TestContext_RequestID(t *testing.T) {
 
 func TestContext_APIVersion(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/v1/test", nil)
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	if ctx.APIVersion() != "v1" {
 		t.Errorf("expected 'v1' API version, got %v", ctx.APIVersion())
 	}
 
 	req = httptest.NewRequest(http.MethodGet, "/no-version", nil)
-	ctx = servex.NewContext(httptest.NewRecorder(), req)
+	ctx = NewContext(httptest.NewRecorder(), req)
 	if ctx.APIVersion() != "" {
 		t.Errorf("expected no API version, got %v", ctx.APIVersion())
 	}
@@ -134,7 +131,7 @@ func TestContext_APIVersion(t *testing.T) {
 
 func TestContext_Query(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/?key=value", nil)
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	if ctx.Query("key") != "value" {
 		t.Errorf("expected 'value' query value, got %v", ctx.Query("key"))
@@ -144,7 +141,7 @@ func TestContext_Query(t *testing.T) {
 func TestContext_Header(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.Header.Set("X-Test", "test-value")
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	if ctx.Header("X-Test") != "test-value" {
 		t.Errorf("expected 'test-value' header value, got %v", ctx.Header("X-Test"))
@@ -153,7 +150,7 @@ func TestContext_Header(t *testing.T) {
 
 func TestContext_SetHeader(t *testing.T) {
 	w := httptest.NewRecorder()
-	ctx := servex.NewContext(w, nil)
+	ctx := NewContext(w, nil)
 
 	ctx.SetHeader("X-Test", "test-value")
 	if w.Header().Get("X-Test") != "test-value" {
@@ -168,7 +165,7 @@ func TestContext_SetHeader(t *testing.T) {
 func TestContext_Cookie(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	req.AddCookie(&http.Cookie{Name: "test-cookie", Value: "cookie-value"})
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	cookie, err := ctx.Cookie("test-cookie")
 	if err != nil {
@@ -181,7 +178,7 @@ func TestContext_Cookie(t *testing.T) {
 
 func TestContext_SetCookie(t *testing.T) {
 	w := httptest.NewRecorder()
-	ctx := servex.NewContext(w, nil)
+	ctx := NewContext(w, nil)
 
 	ctx.SetCookie("test-cookie", "cookie-value", 100, true, true)
 	cookies := w.Result().Cookies()
@@ -204,7 +201,7 @@ func TestContext_SetCookie(t *testing.T) {
 
 func TestContext_SetRawCookie(t *testing.T) {
 	w := httptest.NewRecorder()
-	ctx := servex.NewContext(w, nil)
+	ctx := NewContext(w, nil)
 
 	ctx.SetRawCookie(&http.Cookie{Name: "test-cookie", Value: "cookie-value", Secure: true, HttpOnly: true})
 	cookies := w.Result().Cookies()
@@ -229,7 +226,7 @@ func TestContext_FormValue(t *testing.T) {
 	formData := "key=value"
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(formData))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	if ctx.FormValue("key") != "value" {
 		t.Errorf("expected 'value' form value, got %v", ctx.FormValue("key"))
@@ -239,7 +236,7 @@ func TestContext_FormValue(t *testing.T) {
 func TestContext_ParseUnixFromQuery(t *testing.T) {
 	timestamp := time.Now().Unix()
 	req := httptest.NewRequest(http.MethodGet, "/?ts="+strconv.FormatInt(timestamp, 10), nil)
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	timeValue, err := ctx.ParseUnixFromQuery("ts")
 	if err != nil {
@@ -257,7 +254,7 @@ func TestContext_ReadJSON(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
 	defer req.Body.Close()
 
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	var received testStruct
 	err := ctx.ReadJSON(&received)
@@ -276,7 +273,7 @@ func TestContext_ReadAndValidate(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewBuffer(data))
 	defer req.Body.Close()
 
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	var received testStruct
 	err := ctx.ReadAndValidate(&received)
@@ -290,7 +287,7 @@ func TestContext_ReadAndValidate(t *testing.T) {
 
 func TestContext_Response(t *testing.T) {
 	w := httptest.NewRecorder()
-	ctx := servex.NewContext(w, nil)
+	ctx := NewContext(w, nil)
 
 	ctx.Response(http.StatusOK, "Hello, World!")
 	resp := w.Result()
@@ -309,7 +306,7 @@ func TestContext_Response(t *testing.T) {
 
 func TestContext_ResponseJSON(t *testing.T) {
 	w := httptest.NewRecorder()
-	ctx := servex.NewContext(w, nil)
+	ctx := NewContext(w, nil)
 
 	ctx.Response(http.StatusOK, testStruct{Foo: "bar"})
 	resp := w.Result()
@@ -331,7 +328,7 @@ func TestContext_Error(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	defer req.Body.Close()
 
-	ctx := servex.NewContext(w, req)
+	ctx := NewContext(w, req)
 
 	ctx.Error(errors.New("example error"), http.StatusInternalServerError, "Internal server error")
 	resp := w.Result()
@@ -346,12 +343,12 @@ func TestContext_Error(t *testing.T) {
 }
 
 // Helper function to test the error response
-func testErrorMethod(t *testing.T, method func(*servex.Context, error, string, ...any), expectedStatusCode int, expectedMessage string, args ...any) {
+func testErrorMethod(t *testing.T, method func(*Context, error, string, ...any), expectedStatusCode int, expectedMessage string, args ...any) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
 	defer req.Body.Close()
 
-	ctx := servex.NewContext(w, req)
+	ctx := NewContext(w, req)
 
 	method(ctx, errors.New("sample error"), expectedMessage, args...)
 	resp := w.Result()
@@ -371,51 +368,51 @@ func testErrorMethod(t *testing.T, method func(*servex.Context, error, string, .
 // Define separate test functions for each error method
 
 func TestContext_BadRequest(t *testing.T) {
-	testErrorMethod(t, (*servex.Context).BadRequest, http.StatusBadRequest, "Bad request error")
+	testErrorMethod(t, (*Context).BadRequest, http.StatusBadRequest, "Bad request error")
 }
 
 func TestContext_Unauthorized(t *testing.T) {
-	testErrorMethod(t, (*servex.Context).Unauthorized, http.StatusUnauthorized, "Unauthorized access")
+	testErrorMethod(t, (*Context).Unauthorized, http.StatusUnauthorized, "Unauthorized access")
 }
 
 func TestContext_Forbidden(t *testing.T) {
-	testErrorMethod(t, (*servex.Context).Forbidden, http.StatusForbidden, "Forbidden action")
+	testErrorMethod(t, (*Context).Forbidden, http.StatusForbidden, "Forbidden action")
 }
 
 func TestContext_NotFound(t *testing.T) {
-	testErrorMethod(t, (*servex.Context).NotFound, http.StatusNotFound, "Resource not found")
+	testErrorMethod(t, (*Context).NotFound, http.StatusNotFound, "Resource not found")
 }
 
 func TestContext_NotAcceptable(t *testing.T) {
-	testErrorMethod(t, (*servex.Context).NotAcceptable, http.StatusNotAcceptable, "Not acceptable")
+	testErrorMethod(t, (*Context).NotAcceptable, http.StatusNotAcceptable, "Not acceptable")
 }
 
 func TestContext_Conflict(t *testing.T) {
-	testErrorMethod(t, (*servex.Context).Conflict, http.StatusConflict, "Resource conflict")
+	testErrorMethod(t, (*Context).Conflict, http.StatusConflict, "Resource conflict")
 }
 
 func TestContext_UnprocessableEntity(t *testing.T) {
-	testErrorMethod(t, (*servex.Context).UnprocessableEntity, http.StatusUnprocessableEntity, "Unprocessable entity")
+	testErrorMethod(t, (*Context).UnprocessableEntity, http.StatusUnprocessableEntity, "Unprocessable entity")
 }
 
 func TestContext_TooManyRequests(t *testing.T) {
-	testErrorMethod(t, (*servex.Context).TooManyRequests, http.StatusTooManyRequests, "Too many requests")
+	testErrorMethod(t, (*Context).TooManyRequests, http.StatusTooManyRequests, "Too many requests")
 }
 
 func TestContext_InternalServerError(t *testing.T) {
-	testErrorMethod(t, (*servex.Context).InternalServerError, http.StatusInternalServerError, "Internal server error")
+	testErrorMethod(t, (*Context).InternalServerError, http.StatusInternalServerError, "Internal server error")
 }
 
 func TestContext_NotImplemented(t *testing.T) {
-	testErrorMethod(t, (*servex.Context).NotImplemented, http.StatusNotImplemented, "Not implemented")
+	testErrorMethod(t, (*Context).NotImplemented, http.StatusNotImplemented, "Not implemented")
 }
 
 func TestContext_BadGateway(t *testing.T) {
-	testErrorMethod(t, (*servex.Context).BadGateway, http.StatusBadGateway, "Bad gateway")
+	testErrorMethod(t, (*Context).BadGateway, http.StatusBadGateway, "Bad gateway")
 }
 
 func TestContext_ServiceUnavailable(t *testing.T) {
-	testErrorMethod(t, (*servex.Context).ServiceUnavailable, http.StatusServiceUnavailable, "Service unavailable")
+	testErrorMethod(t, (*Context).ServiceUnavailable, http.StatusServiceUnavailable, "Service unavailable")
 }
 
 func TestReadFile(t *testing.T) {
@@ -447,7 +444,7 @@ func TestReadFile(t *testing.T) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	// Test the global ReadFile function
-	fileBytes, header, err := servex.ReadFile(req, "globalfile")
+	fileBytes, header, err := ReadFile(req, "globalfile")
 	if err != nil {
 		t.Errorf("expected no error, got %v", err)
 	}
@@ -463,7 +460,7 @@ func TestReadFile(t *testing.T) {
 	}
 
 	// Test with non-existent file key
-	_, _, err = servex.ReadFile(req, "nonexistent")
+	_, _, err = ReadFile(req, "nonexistent")
 	if err == nil {
 		t.Errorf("expected error for non-existent file, got nil")
 	}
@@ -498,7 +495,7 @@ func TestContext_ReadFile(t *testing.T) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	// Create a context
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	// Test ReadFile in the Context
 	fileBytes, header, err := ctx.ReadFile("testfile")
@@ -526,7 +523,7 @@ func TestContext_ReadFile(t *testing.T) {
 func TestContext_ResponseFile(t *testing.T) {
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/download", nil)
-	ctx := servex.NewContext(w, req)
+	ctx := NewContext(w, req)
 
 	// Test file data
 	filename := "test-document.pdf"
@@ -551,7 +548,7 @@ func TestContext_ResponseFile(t *testing.T) {
 	}
 
 	// Check Content-Disposition header
-	expectedDisposition := "attachment; filename=test-document.pdf"
+	expectedDisposition := "attachment; filename=\"test-document.pdf\""
 	if resp.Header.Get("Content-Disposition") != expectedDisposition {
 		t.Errorf("expected Content-Disposition %q, got %q", expectedDisposition,
 			resp.Header.Get("Content-Disposition"))
@@ -570,11 +567,205 @@ func TestContext_ResponseFile(t *testing.T) {
 	}
 }
 
+// TestContext_ResponseFile_HeaderInjection tests that ResponseFile properly sanitizes filenames to prevent header injection attacks.
+func TestContext_ResponseFile_HeaderInjection(t *testing.T) {
+	tests := []struct {
+		name                string
+		filename            string
+		expectedDisposition string
+		description         string
+	}{
+		{
+			name:                "Normal filename",
+			filename:            "document.pdf",
+			expectedDisposition: "attachment; filename=\"document.pdf\"",
+			description:         "Should handle normal filenames correctly",
+		},
+		{
+			name:                "CRLF injection attempt",
+			filename:            "file.txt\r\nSet-Cookie: admin=true",
+			expectedDisposition: "attachment; filename=\"file.txtSet-Cookie_ admin=true\"",
+			description:         "Should remove CR and LF characters and replace colons",
+		},
+		{
+			name:                "Header injection with multiple lines",
+			filename:            "evil.pdf\r\nX-XSS-Protection: 0\r\n\r\n<script>alert('xss')</script>",
+			expectedDisposition: "attachment; filename=\"evil.pdfX-XSS-Protection_ 0<script>alert('xss')<_script>\"",
+			description:         "Should remove all CRLF characters and replace dangerous chars",
+		},
+		{
+			name:                "Filename with quotes",
+			filename:            "file\"with\"quotes.txt",
+			expectedDisposition: "attachment; filename=\"file'with'quotes.txt\"",
+			description:         "Should replace quotes with single quotes",
+		},
+		{
+			name:                "Filename with backslashes",
+			filename:            "path\\to\\file.txt",
+			expectedDisposition: "attachment; filename=\"path_to_file.txt\"",
+			description:         "Should replace backslashes with underscores",
+		},
+		{
+			name:                "Filename with tabs",
+			filename:            "file\twith\ttabs.txt",
+			expectedDisposition: "attachment; filename=\"file_with_tabs.txt\"",
+			description:         "Should replace tabs with underscores",
+		},
+		{
+			name:                "Empty filename",
+			filename:            "",
+			expectedDisposition: "attachment; filename=\"download\"",
+			description:         "Should use default filename for empty input",
+		},
+		{
+			name:                "Filename with only control characters",
+			filename:            "\r\n\t\x00\x1f",
+			expectedDisposition: "attachment; filename=\"download\"",
+			description:         "Should use default filename when all characters are removed",
+		},
+		{
+			name:                "Complex attack attempt",
+			filename:            "legitimate.pdf\r\nContent-Type: text/html\r\nSet-Cookie: session=hijacked\r\n\r\n<html><script>document.location='http://evil.com'</script></html>",
+			expectedDisposition: "attachment; filename=\"legitimate.pdfContent-Type_ text_htmlSet-Cookie_ session=hijacked<html><script>document.location='http___evil.com'<_script><_html>\"",
+			description:         "Should neutralize complex injection attempts",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			ctx := NewContext(w, req)
+
+			body := []byte("test content")
+			ctx.ResponseFile(tt.filename, "application/octet-stream", body)
+
+			resp := w.Result()
+			defer resp.Body.Close()
+
+			// Check that status is OK
+			if resp.StatusCode != http.StatusOK {
+				t.Errorf("expected status 200, got %d", resp.StatusCode)
+			}
+
+			// Check Content-Disposition header
+			actualDisposition := resp.Header.Get("Content-Disposition")
+			if actualDisposition != tt.expectedDisposition {
+				t.Errorf("%s: expected Content-Disposition %q, got %q",
+					tt.description, tt.expectedDisposition, actualDisposition)
+			}
+
+			// Verify no CRLF characters made it through
+			if strings.Contains(actualDisposition, "\r") || strings.Contains(actualDisposition, "\n") {
+				t.Errorf("%s: Content-Disposition header contains CRLF characters: %q",
+					tt.description, actualDisposition)
+			}
+
+			// Verify the response body is correct
+			responseBody, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatalf("failed to read response body: %v", err)
+			}
+			if string(responseBody) != "test content" {
+				t.Errorf("expected body 'test content', got %q", string(responseBody))
+			}
+		})
+	}
+}
+
+// TestSanitizeFilename tests the filename sanitization function directly.
+func TestSanitizeFilename(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "Normal filename",
+			input:    "document.pdf",
+			expected: "document.pdf",
+		},
+		{
+			name:     "Empty string",
+			input:    "",
+			expected: "download",
+		},
+		{
+			name:     "CRLF characters",
+			input:    "file\r\nname.txt",
+			expected: "filename.txt",
+		},
+		{
+			name:     "Quotes and backslashes",
+			input:    "file\"name\\path.txt",
+			expected: "file'name_path.txt",
+		},
+		{
+			name:     "Control characters",
+			input:    "file\x00\x1f\x7fname.txt",
+			expected: "filename.txt",
+		},
+		{
+			name:     "Only dangerous characters",
+			input:    "\r\n\t\x00",
+			expected: "download",
+		},
+		{
+			name:     "Unicode filename",
+			input:    "файл.txt",
+			expected: "файл.txt",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := sanitizeFilename(tt.input)
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
+// TestFormatContentDisposition tests the Content-Disposition header formatting function.
+func TestFormatContentDisposition(t *testing.T) {
+	tests := []struct {
+		name     string
+		filename string
+		expected string
+	}{
+		{
+			name:     "Normal filename",
+			filename: "document.pdf",
+			expected: "attachment; filename=\"document.pdf\"",
+		},
+		{
+			name:     "Malicious filename",
+			filename: "file.txt\r\nSet-Cookie: admin=true",
+			expected: "attachment; filename=\"file.txtSet-Cookie_ admin=true\"",
+		},
+		{
+			name:     "Empty filename",
+			filename: "",
+			expected: "attachment; filename=\"download\"",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := formatContentDisposition(tt.filename)
+			if result != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, result)
+			}
+		})
+	}
+}
+
 // TestContext_Body tests the Body method that reads request body without error handling.
 func TestContext_Body(t *testing.T) {
 	testData := "Hello, World!"
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(testData))
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	body := ctx.Body()
 	if string(body) != testData {
@@ -585,7 +776,7 @@ func TestContext_Body(t *testing.T) {
 // TestContext_BodyEmpty tests the Body method with empty request body.
 func TestContext_BodyEmpty(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	body := ctx.Body()
 	if len(body) != 0 {
@@ -597,7 +788,7 @@ func TestContext_BodyEmpty(t *testing.T) {
 func TestContext_Read(t *testing.T) {
 	testData := "Hello, World!"
 	req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(testData))
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	body, err := ctx.Read()
 	if err != nil {
@@ -611,7 +802,7 @@ func TestContext_Read(t *testing.T) {
 // TestContext_ReadEmpty tests the Read method with empty request body.
 func TestContext_ReadEmpty(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/", nil)
-	ctx := servex.NewContext(httptest.NewRecorder(), req)
+	ctx := NewContext(httptest.NewRecorder(), req)
 
 	body, err := ctx.Read()
 	if err != nil {
