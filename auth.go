@@ -265,7 +265,7 @@ func (h *AuthManager) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 func (h *AuthManager) GetCurrentUserHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(w, r)
 
-	userID := GetFromContext[string](r, UserContextKey{})
+	userID := getValueFromContext[string](r, UserContextKey{})
 	if userID == "" {
 		ctx.Unauthorized(errUnauthorized, "not authenticated")
 		return

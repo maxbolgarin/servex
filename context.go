@@ -462,7 +462,7 @@ func (ctx *Context) Error(err error, code int, msg string, args ...any) {
 
 	ctx.setError(err, code, msg)
 
-	isSendErrorToClient := GetFromContext[bool](ctx.r, sendErrorToClientKey{})
+	isSendErrorToClient := getValueFromContext[bool](ctx.r, sendErrorToClientKey{})
 	if isSendErrorToClient || ctx.isSendErrorToClient {
 		msg = fmt.Sprintf("%s: %s", msg, err.Error())
 	}
@@ -532,7 +532,7 @@ func getOrSetRequestID(r *http.Request) string {
 		return rIDHeader
 	}
 
-	requestID := GetFromContext[string](r, requestIDKey{})
+	requestID := getValueFromContext[string](r, requestIDKey{})
 	if requestID == "" {
 		return generateAndSetRequestID(r)
 	}
@@ -568,9 +568,9 @@ func getRandomBytes(n int) []byte {
 	return out
 }
 
-// GetFromContext returns a value from the context of the request.
+// getValueFromContext returns a value from the context of the request.
 // It is a shortcut for [context.Value] with error handling.
-func GetFromContext[T any](r *http.Request, key any) (empty T) {
+func getValueFromContext[T any](r *http.Request, key any) (empty T) {
 	raw := r.Context().Value(key)
 	if raw == nil {
 		return empty

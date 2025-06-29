@@ -44,7 +44,7 @@ func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, me
 
 			next.ServeHTTP(lrw, r)
 
-			noLog := GetFromContext[bool](r, noLogKey{})
+			noLog := getValueFromContext[bool](r, noLogKey{})
 			if noLog {
 				return
 			}
@@ -53,7 +53,7 @@ func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, me
 				Request:           r,
 				RequestID:         getOrSetRequestID(r),
 				StartTime:         start,
-				NoLogClientErrors: GetFromContext[bool](r, noLogClientErrorsKey{}),
+				NoLogClientErrors: getValueFromContext[bool](r, noLogClientErrorsKey{}),
 			}
 			if len(noLogClientErrors) > 0 {
 				logBundle.NoLogClientErrors = noLogClientErrors[0]
@@ -67,9 +67,9 @@ func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, me
 			} else {
 				// Fallback: Try reading from context (might be incorrect if handler modified request context pointer)
 				// and use the status code captured by the wrapper.
-				logBundle.Error = GetFromContext[error](r, errorKey{})
-				logBundle.ErrorMessage = GetFromContext[string](r, msgKey{})
-				logBundle.StatusCode = GetFromContext[int](r, codeKey{})
+				logBundle.Error = getValueFromContext[error](r, errorKey{})
+				logBundle.ErrorMessage = getValueFromContext[string](r, msgKey{})
+				logBundle.StatusCode = getValueFromContext[int](r, codeKey{})
 			}
 
 			logger.Log(logBundle)
