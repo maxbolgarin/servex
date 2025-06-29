@@ -69,6 +69,7 @@ func NewWithOptions(opts Options) *Server {
 	}
 
 	s.cleanup = RegisterRateLimitMiddleware(s.router, opts.RateLimit)
+	RegisterFilterMiddleware(s.router, opts.Filter)
 	RegisterLoggingMiddleware(s.router, opts.RequestLogger, opts.Metrics)
 	RegisterRecoverMiddleware(s.router, opts.Logger)
 	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken)

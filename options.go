@@ -83,6 +83,10 @@ type Options struct {
 	// If RateLimit.RequestsPerInterval is not set, it will be disabled.
 	// If RateLimit.Interval is not set, it will be disabled.
 	RateLimit RateLimitConfig
+
+	// Filter is the request filter configuration for the server.
+	// If not set, request filtering will be disabled.
+	Filter FilterConfig
 }
 
 // AuthConfig holds the configuration specific to authentication.
@@ -192,6 +196,140 @@ type RateLimitConfig struct {
 	// Only requests from these IPs will have their proxy headers (X-Forwarded-For, X-Real-IP) trusted.
 	// If empty, proxy headers are not trusted and RemoteAddr is always used.
 	TrustedProxies []string
+}
+
+// FilterConfig holds configuration for request filtering middleware.
+// This is a pure data structure without any logic.
+type FilterConfig struct {
+	// AllowedIPs is a list of IP addresses or CIDR ranges that are allowed.
+	// If empty, all IPs are allowed unless blocked by BlockedIPs.
+	AllowedIPs []string
+
+	// BlockedIPs is a list of IP addresses or CIDR ranges that are blocked.
+	// Takes precedence over AllowedIPs.
+	BlockedIPs []string
+
+	// AllowedUserAgents is a list of exact User-Agent strings that are allowed.
+	// If empty, all User-Agents are allowed unless blocked.
+	AllowedUserAgents []string
+
+	// AllowedUserAgentsRegex is a list of regex patterns for allowed User-Agents.
+	// More convenient than using "regex:" prefix.
+	AllowedUserAgentsRegex []string
+
+	// BlockedUserAgents is a list of exact User-Agent strings that are blocked.
+	// Takes precedence over AllowedUserAgents.
+	BlockedUserAgents []string
+
+	// BlockedUserAgentsRegex is a list of regex patterns for blocked User-Agents.
+	// Takes precedence over allowed patterns.
+	BlockedUserAgentsRegex []string
+
+	// AllowedHeaders is a map of header names to exact allowed values.
+	// Header names are case-insensitive.
+	AllowedHeaders map[string][]string
+
+	// AllowedHeadersRegex is a map of header names to regex patterns for allowed values.
+	// Header names are case-insensitive.
+	AllowedHeadersRegex map[string][]string
+
+	// BlockedHeaders is a map of header names to exact blocked values.
+	// Header names are case-insensitive. Takes precedence over AllowedHeaders.
+	BlockedHeaders map[string][]string
+
+	// BlockedHeadersRegex is a map of header names to regex patterns for blocked values.
+	// Takes precedence over allowed patterns.
+	BlockedHeadersRegex map[string][]string
+
+	// AllowedQueryParams is a map of query parameter names to exact allowed values.
+	AllowedQueryParams map[string][]string
+
+	// AllowedQueryParamsRegex is a map of query parameter names to regex patterns for allowed values.
+	AllowedQueryParamsRegex map[string][]string
+
+	// BlockedQueryParams is a map of query parameter names to exact blocked values.
+	// Takes precedence over AllowedQueryParams.
+	BlockedQueryParams map[string][]string
+
+	// BlockedQueryParamsRegex is a map of query parameter names to regex patterns for blocked values.
+	// Takes precedence over allowed patterns.
+	BlockedQueryParamsRegex map[string][]string
+
+	// ExcludePaths are paths that should be excluded from filtering.
+	ExcludePaths []string
+
+	// IncludePaths are paths that should be included in filtering.
+	// If empty, all paths are included except those in ExcludePaths.
+	IncludePaths []string
+
+	// StatusCode is the HTTP status code returned when request is blocked.
+	// Defaults to 403 (Forbidden) if not set.
+	StatusCode int
+
+	// Message is the response message when request is blocked.
+	// Defaults to "Request blocked by security filter" if not set.
+	Message string
+
+	// TrustedProxies is a list of trusted proxy IP addresses or CIDR ranges.
+	// Only requests from these IPs will have their proxy headers trusted for IP filtering.
+	TrustedProxies []string
+}
+
+// SecurityConfig holds configuration for security headers middleware.
+type SecurityConfig struct {
+	// Enabled determines whether security headers middleware is active.
+	Enabled bool
+
+	// ContentSecurityPolicy sets the Content-Security-Policy header.
+	// Example: "default-src 'self'; script-src 'self' 'unsafe-inline'"
+	ContentSecurityPolicy string
+
+	// XContentTypeOptions sets the X-Content-Type-Options header.
+	// Recommended: "nosniff"
+	XContentTypeOptions string
+
+	// XFrameOptions sets the X-Frame-Options header.
+	// Options: "DENY", "SAMEORIGIN", "ALLOW-FROM uri"
+	XFrameOptions string
+
+	// XXSSProtection sets the X-XSS-Protection header.
+	// Recommended: "1; mode=block"
+	XXSSProtection string
+
+	// StrictTransportSecurity sets the Strict-Transport-Security header.
+	// Example: "max-age=31536000; includeSubDomains"
+	StrictTransportSecurity string
+
+	// ReferrerPolicy sets the Referrer-Policy header.
+	// Options: "no-referrer", "same-origin", "strict-origin-when-cross-origin", etc.
+	ReferrerPolicy string
+
+	// PermissionsPolicy sets the Permissions-Policy header.
+	// Example: "geolocation=(), microphone=(), camera=()"
+	PermissionsPolicy string
+
+	// XPermittedCrossDomainPolicies sets the X-Permitted-Cross-Domain-Policies header.
+	// Recommended: "none"
+	XPermittedCrossDomainPolicies string
+
+	// CrossOriginEmbedderPolicy sets the Cross-Origin-Embedder-Policy header.
+	// Options: "require-corp", "unsafe-none"
+	CrossOriginEmbedderPolicy string
+
+	// CrossOriginOpenerPolicy sets the Cross-Origin-Opener-Policy header.
+	// Options: "same-origin", "same-origin-allow-popups", "unsafe-none"
+	CrossOriginOpenerPolicy string
+
+	// CrossOriginResourcePolicy sets the Cross-Origin-Resource-Policy header.
+	// Options: "same-site", "same-origin", "cross-origin"
+	CrossOriginResourcePolicy string
+
+	// ExcludePaths are paths that should be excluded from security headers.
+	ExcludePaths []string
+
+	// IncludePaths are paths that should be included in security headers.
+	// If empty, all paths are included except those in ExcludePaths.
+	IncludePaths []string
 }
 
 // WithCertificate sets the TLS [Options.Certificate] to the [Options].
@@ -497,6 +635,177 @@ func WithNoRateInAuthRoutes() Option {
 func WithRateLimitTrustedProxies(proxies ...string) Option {
 	return func(op *Options) {
 		op.RateLimit.TrustedProxies = proxies
+	}
+}
+
+// WithFilterConfig sets the [Options.Filter] to the given filter configuration.
+// This allows full configuration of the request filtering middleware.
+func WithFilterConfig(filter FilterConfig) Option {
+	return func(op *Options) {
+		op.Filter = filter
+	}
+}
+
+// WithAllowedIPs sets the [Options.Filter.AllowedIPs] to the given IP addresses or CIDR ranges.
+// If specified, only requests from these IPs will be allowed.
+// Individual IP addresses and CIDR ranges are both supported.
+func WithAllowedIPs(ips ...string) Option {
+	return func(op *Options) {
+		op.Filter.AllowedIPs = ips
+	}
+}
+
+// WithBlockedIPs sets the [Options.Filter.BlockedIPs] to the given IP addresses or CIDR ranges.
+// Requests from these IPs will be blocked. Takes precedence over AllowedIPs.
+// Individual IP addresses and CIDR ranges are both supported.
+func WithBlockedIPs(ips ...string) Option {
+	return func(op *Options) {
+		op.Filter.BlockedIPs = ips
+	}
+}
+
+// WithAllowedUserAgents sets the [Options.Filter.AllowedUserAgents] to the given exact User-Agent strings.
+// If specified, only requests with matching User-Agent will be allowed.
+func WithAllowedUserAgents(userAgents ...string) Option {
+	return func(op *Options) {
+		op.Filter.AllowedUserAgents = userAgents
+	}
+}
+
+// WithAllowedUserAgentsRegex sets the [Options.Filter.AllowedUserAgentsRegex] to the given regex patterns.
+// If specified, only requests with User-Agent matching these patterns will be allowed.
+func WithAllowedUserAgentsRegex(patterns ...string) Option {
+	return func(op *Options) {
+		op.Filter.AllowedUserAgentsRegex = patterns
+	}
+}
+
+// WithBlockedUserAgents sets the [Options.Filter.BlockedUserAgents] to the given exact User-Agent strings.
+// Requests with matching User-Agent will be blocked. Takes precedence over AllowedUserAgents.
+func WithBlockedUserAgents(userAgents ...string) Option {
+	return func(op *Options) {
+		op.Filter.BlockedUserAgents = userAgents
+	}
+}
+
+// WithBlockedUserAgentsRegex sets the [Options.Filter.BlockedUserAgentsRegex] to the given regex patterns.
+// Requests with User-Agent matching these patterns will be blocked. Takes precedence over allowed patterns.
+func WithBlockedUserAgentsRegex(patterns ...string) Option {
+	return func(op *Options) {
+		op.Filter.BlockedUserAgentsRegex = patterns
+	}
+}
+
+// WithAllowedHeaders sets the [Options.Filter.AllowedHeaders] to the given exact header values.
+// Header names are case-insensitive.
+// If specified, requests must have headers with exact matching values.
+func WithAllowedHeaders(headers map[string][]string) Option {
+	return func(op *Options) {
+		op.Filter.AllowedHeaders = headers
+	}
+}
+
+// WithAllowedHeadersRegex sets the [Options.Filter.AllowedHeadersRegex] to the given regex patterns.
+// Header names are case-insensitive.
+// If specified, requests must have headers matching these regex patterns.
+func WithAllowedHeadersRegex(headers map[string][]string) Option {
+	return func(op *Options) {
+		op.Filter.AllowedHeadersRegex = headers
+	}
+}
+
+// WithBlockedHeaders sets the [Options.Filter.BlockedHeaders] to the given exact header values.
+// Header names are case-insensitive. Takes precedence over AllowedHeaders.
+// Requests with matching headers will be blocked.
+func WithBlockedHeaders(headers map[string][]string) Option {
+	return func(op *Options) {
+		op.Filter.BlockedHeaders = headers
+	}
+}
+
+// WithBlockedHeadersRegex sets the [Options.Filter.BlockedHeadersRegex] to the given regex patterns.
+// Header names are case-insensitive. Takes precedence over allowed patterns.
+// Requests with headers matching these patterns will be blocked.
+func WithBlockedHeadersRegex(headers map[string][]string) Option {
+	return func(op *Options) {
+		op.Filter.BlockedHeadersRegex = headers
+	}
+}
+
+// WithAllowedQueryParams sets the [Options.Filter.AllowedQueryParams] to the given exact query parameter values.
+// If specified, requests must have query parameters with exact matching values.
+func WithAllowedQueryParams(params map[string][]string) Option {
+	return func(op *Options) {
+		op.Filter.AllowedQueryParams = params
+	}
+}
+
+// WithAllowedQueryParamsRegex sets the [Options.Filter.AllowedQueryParamsRegex] to the given regex patterns.
+// If specified, requests must have query parameters matching these regex patterns.
+func WithAllowedQueryParamsRegex(params map[string][]string) Option {
+	return func(op *Options) {
+		op.Filter.AllowedQueryParamsRegex = params
+	}
+}
+
+// WithBlockedQueryParams sets the [Options.Filter.BlockedQueryParams] to the given exact query parameter values.
+// Takes precedence over AllowedQueryParams.
+// Requests with matching query parameters will be blocked.
+func WithBlockedQueryParams(params map[string][]string) Option {
+	return func(op *Options) {
+		op.Filter.BlockedQueryParams = params
+	}
+}
+
+// WithBlockedQueryParamsRegex sets the [Options.Filter.BlockedQueryParamsRegex] to the given regex patterns.
+// Takes precedence over allowed patterns.
+// Requests with query parameters matching these patterns will be blocked.
+func WithBlockedQueryParamsRegex(params map[string][]string) Option {
+	return func(op *Options) {
+		op.Filter.BlockedQueryParamsRegex = params
+	}
+}
+
+// WithFilterExcludePaths sets the [Options.Filter.ExcludePaths] to the given paths.
+// These paths will be excluded from request filtering.
+func WithFilterExcludePaths(paths ...string) Option {
+	return func(op *Options) {
+		op.Filter.ExcludePaths = paths
+	}
+}
+
+// WithFilterIncludePaths sets the [Options.Filter.IncludePaths] to the given paths.
+// If specified, only these paths will be subject to request filtering.
+// If empty, all paths are included except those in ExcludePaths.
+func WithFilterIncludePaths(paths ...string) Option {
+	return func(op *Options) {
+		op.Filter.IncludePaths = paths
+	}
+}
+
+// WithFilterStatusCode sets the [Options.Filter.StatusCode] for blocked requests.
+// Defaults to 403 (Forbidden) if not set.
+func WithFilterStatusCode(statusCode int) Option {
+	return func(op *Options) {
+		op.Filter.StatusCode = statusCode
+	}
+}
+
+// WithFilterMessage sets the [Options.Filter.Message] for blocked requests.
+// Defaults to "Request blocked by security filter" if not set.
+func WithFilterMessage(message string) Option {
+	return func(op *Options) {
+		op.Filter.Message = message
+	}
+}
+
+// WithFilterTrustedProxies sets the [Options.Filter.TrustedProxies] to the given proxies.
+// Only requests from these trusted proxy IP addresses or CIDR ranges will have their
+// X-Forwarded-For and X-Real-IP headers trusted for IP filtering.
+// If not set, proxy headers are ignored and RemoteAddr is always used for security.
+func WithFilterTrustedProxies(proxies ...string) Option {
+	return func(op *Options) {
+		op.Filter.TrustedProxies = proxies
 	}
 }
 

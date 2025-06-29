@@ -659,15 +659,304 @@ func TestReadCertificate(t *testing.T) {
 
 // TestReadCertificateFromFile tests the ReadCertificateFromFile utility function with non-existent files.
 func TestReadCertificateFromFile(t *testing.T) {
-	// Test with non-existent files
-	_, err := servex.ReadCertificateFromFile("nonexistent-cert.pem", "nonexistent-key.pem")
-	if err == nil {
-		t.Errorf("expected error for non-existent certificate files, got nil")
-	}
+	certFilePath := "cert.pem"
+	keyFilePath := "key.pem"
 
-	// Test with empty file paths
-	_, err = servex.ReadCertificateFromFile("", "")
+	cert, err := servex.ReadCertificateFromFile(certFilePath, keyFilePath)
 	if err == nil {
-		t.Errorf("expected error for empty certificate file paths, got nil")
+		t.Errorf("expected error reading non-existent certificate files, got none")
+	}
+	// When there's an error, cert should be zero-value
+	if len(cert.Certificate) != 0 {
+		t.Errorf("expected zero-value certificate when error occurs, got %v", cert)
+	}
+}
+
+// Filter option tests
+
+func TestWithFilterConfig(t *testing.T) {
+	filterConfig := servex.FilterConfig{
+		AllowedIPs:     []string{"192.168.1.0/24"},
+		BlockedIPs:     []string{"10.0.0.1"},
+		StatusCode:     403,
+		Message:        "Blocked",
+		ExcludePaths:   []string{"/health"},
+		IncludePaths:   []string{"/api"},
+		TrustedProxies: []string{"172.16.0.0/12"},
+	}
+	option := servex.WithFilterConfig(filterConfig)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter, filterConfig) {
+		t.Errorf("expected filter config to be %v, got %v", filterConfig, options.Filter)
+	}
+}
+
+func TestWithAllowedIPs(t *testing.T) {
+	ips := []string{"192.168.1.0/24", "10.0.0.1", "::1"}
+	option := servex.WithAllowedIPs(ips...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.AllowedIPs, ips) {
+		t.Errorf("expected allowed IPs to be %v, got %v", ips, options.Filter.AllowedIPs)
+	}
+}
+
+func TestWithBlockedIPs(t *testing.T) {
+	ips := []string{"203.0.113.0/24", "198.51.100.1"}
+	option := servex.WithBlockedIPs(ips...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.BlockedIPs, ips) {
+		t.Errorf("expected blocked IPs to be %v, got %v", ips, options.Filter.BlockedIPs)
+	}
+}
+
+func TestWithAllowedUserAgents(t *testing.T) {
+	userAgents := []string{"Mozilla/5.0", "Chrome/90.0", "Safari/14.0"}
+	option := servex.WithAllowedUserAgents(userAgents...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.AllowedUserAgents, userAgents) {
+		t.Errorf("expected allowed user agents to be %v, got %v", userAgents, options.Filter.AllowedUserAgents)
+	}
+}
+
+func TestWithAllowedUserAgentsRegex(t *testing.T) {
+	patterns := []string{"Mozilla.*", ".*Chrome.*", "Safari/[0-9]+"}
+	option := servex.WithAllowedUserAgentsRegex(patterns...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.AllowedUserAgentsRegex, patterns) {
+		t.Errorf("expected allowed user agent regex patterns to be %v, got %v", patterns, options.Filter.AllowedUserAgentsRegex)
+	}
+}
+
+func TestWithBlockedUserAgents(t *testing.T) {
+	userAgents := []string{"BadBot/1.0", "Scraper/2.0", "EvilCrawler"}
+	option := servex.WithBlockedUserAgents(userAgents...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.BlockedUserAgents, userAgents) {
+		t.Errorf("expected blocked user agents to be %v, got %v", userAgents, options.Filter.BlockedUserAgents)
+	}
+}
+
+func TestWithBlockedUserAgentsRegex(t *testing.T) {
+	patterns := []string{".*[Bb]ot.*", ".*[Ss]craper.*", ".*[Cc]rawler.*"}
+	option := servex.WithBlockedUserAgentsRegex(patterns...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.BlockedUserAgentsRegex, patterns) {
+		t.Errorf("expected blocked user agent regex patterns to be %v, got %v", patterns, options.Filter.BlockedUserAgentsRegex)
+	}
+}
+
+func TestWithAllowedHeaders(t *testing.T) {
+	headers := map[string][]string{
+		"Authorization": {"Bearer token123", "Basic auth456"},
+		"X-API-Key":     {"key1", "key2"},
+	}
+	option := servex.WithAllowedHeaders(headers)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.AllowedHeaders, headers) {
+		t.Errorf("expected allowed headers to be %v, got %v", headers, options.Filter.AllowedHeaders)
+	}
+}
+
+func TestWithAllowedHeadersRegex(t *testing.T) {
+	headers := map[string][]string{
+		"Authorization": {"Bearer .*", "Basic [A-Za-z0-9]+"},
+		"X-API-Key":     {"^key-[0-9a-f]{32}$"},
+	}
+	option := servex.WithAllowedHeadersRegex(headers)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.AllowedHeadersRegex, headers) {
+		t.Errorf("expected allowed header regex patterns to be %v, got %v", headers, options.Filter.AllowedHeadersRegex)
+	}
+}
+
+func TestWithBlockedHeaders(t *testing.T) {
+	headers := map[string][]string{
+		"X-Debug":   {"true", "1", "on"},
+		"X-Private": {"internal"},
+	}
+	option := servex.WithBlockedHeaders(headers)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.BlockedHeaders, headers) {
+		t.Errorf("expected blocked headers to be %v, got %v", headers, options.Filter.BlockedHeaders)
+	}
+}
+
+func TestWithBlockedHeadersRegex(t *testing.T) {
+	headers := map[string][]string{
+		"X-Admin":         {".*"},
+		"X-Forwarded-For": {".*script.*", ".*<.*>.*"},
+	}
+	option := servex.WithBlockedHeadersRegex(headers)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.BlockedHeadersRegex, headers) {
+		t.Errorf("expected blocked header regex patterns to be %v, got %v", headers, options.Filter.BlockedHeadersRegex)
+	}
+}
+
+func TestWithAllowedQueryParams(t *testing.T) {
+	params := map[string][]string{
+		"api_key": {"secret123", "secret456"},
+		"version": {"v1", "v2"},
+	}
+	option := servex.WithAllowedQueryParams(params)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.AllowedQueryParams, params) {
+		t.Errorf("expected allowed query params to be %v, got %v", params, options.Filter.AllowedQueryParams)
+	}
+}
+
+func TestWithAllowedQueryParamsRegex(t *testing.T) {
+	params := map[string][]string{
+		"api_key": {"secret[0-9]+", "key-[a-f0-9]{32}"},
+		"version": {"v[0-9]+", "beta.*"},
+	}
+	option := servex.WithAllowedQueryParamsRegex(params)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.AllowedQueryParamsRegex, params) {
+		t.Errorf("expected allowed query param regex patterns to be %v, got %v", params, options.Filter.AllowedQueryParamsRegex)
+	}
+}
+
+func TestWithBlockedQueryParams(t *testing.T) {
+	params := map[string][]string{
+		"debug":  {"true", "1", "on"},
+		"unsafe": {"yes", "enable"},
+	}
+	option := servex.WithBlockedQueryParams(params)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.BlockedQueryParams, params) {
+		t.Errorf("expected blocked query params to be %v, got %v", params, options.Filter.BlockedQueryParams)
+	}
+}
+
+func TestWithBlockedQueryParamsRegex(t *testing.T) {
+	params := map[string][]string{
+		"admin":    {".*"},
+		"redirect": {"https?://[^/]*[^.].*"},
+	}
+	option := servex.WithBlockedQueryParamsRegex(params)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.BlockedQueryParamsRegex, params) {
+		t.Errorf("expected blocked query param regex patterns to be %v, got %v", params, options.Filter.BlockedQueryParamsRegex)
+	}
+}
+
+func TestWithFilterExcludePaths(t *testing.T) {
+	paths := []string{"/health", "/metrics", "/favicon.ico"}
+	option := servex.WithFilterExcludePaths(paths...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.ExcludePaths, paths) {
+		t.Errorf("expected filter exclude paths to be %v, got %v", paths, options.Filter.ExcludePaths)
+	}
+}
+
+func TestWithFilterIncludePaths(t *testing.T) {
+	paths := []string{"/api/v1", "/secure", "/admin"}
+	option := servex.WithFilterIncludePaths(paths...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.IncludePaths, paths) {
+		t.Errorf("expected filter include paths to be %v, got %v", paths, options.Filter.IncludePaths)
+	}
+}
+
+func TestWithFilterStatusCode(t *testing.T) {
+	statusCode := 418 // I'm a teapot
+	option := servex.WithFilterStatusCode(statusCode)
+	options := servex.Options{}
+	option(&options)
+
+	if options.Filter.StatusCode != statusCode {
+		t.Errorf("expected filter status code to be %d, got %d", statusCode, options.Filter.StatusCode)
+	}
+}
+
+func TestWithFilterMessage(t *testing.T) {
+	message := "Custom security filter message"
+	option := servex.WithFilterMessage(message)
+	options := servex.Options{}
+	option(&options)
+
+	if options.Filter.Message != message {
+		t.Errorf("expected filter message to be %q, got %q", message, options.Filter.Message)
+	}
+}
+
+func TestWithFilterTrustedProxies(t *testing.T) {
+	proxies := []string{"172.16.0.0/12", "10.0.0.0/8", "192.168.1.1"}
+	option := servex.WithFilterTrustedProxies(proxies...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Filter.TrustedProxies, proxies) {
+		t.Errorf("expected filter trusted proxies to be %v, got %v", proxies, options.Filter.TrustedProxies)
+	}
+}
+
+// Test combinations of filter options
+func TestMultipleFilterOptions(t *testing.T) {
+	options := servex.Options{}
+
+	// Apply multiple filter options
+	servex.WithAllowedIPs("192.168.1.0/24")(&options)
+	servex.WithBlockedUserAgentsRegex(".*[Bb]ot.*")(&options)
+	servex.WithAllowedHeaders(map[string][]string{"Authorization": {"Bearer token"}})(&options)
+	servex.WithFilterStatusCode(403)(&options)
+	servex.WithFilterMessage("Access denied")(&options)
+
+	// Verify all options were applied correctly
+	expectedIPs := []string{"192.168.1.0/24"}
+	expectedUA := []string{".*[Bb]ot.*"}
+	expectedHeaders := map[string][]string{"Authorization": {"Bearer token"}}
+	expectedStatus := 403
+	expectedMessage := "Access denied"
+
+	if !reflect.DeepEqual(options.Filter.AllowedIPs, expectedIPs) {
+		t.Errorf("expected allowed IPs to be %v, got %v", expectedIPs, options.Filter.AllowedIPs)
+	}
+	if !reflect.DeepEqual(options.Filter.BlockedUserAgentsRegex, expectedUA) {
+		t.Errorf("expected blocked user agent regex to be %v, got %v", expectedUA, options.Filter.BlockedUserAgentsRegex)
+	}
+	if !reflect.DeepEqual(options.Filter.AllowedHeaders, expectedHeaders) {
+		t.Errorf("expected allowed headers to be %v, got %v", expectedHeaders, options.Filter.AllowedHeaders)
+	}
+	if options.Filter.StatusCode != expectedStatus {
+		t.Errorf("expected status code to be %d, got %d", expectedStatus, options.Filter.StatusCode)
+	}
+	if options.Filter.Message != expectedMessage {
+		t.Errorf("expected message to be %q, got %q", expectedMessage, options.Filter.Message)
 	}
 }
