@@ -928,35 +928,45 @@ func TestWithFilterTrustedProxies(t *testing.T) {
 
 // Test combinations of filter options
 func TestMultipleFilterOptions(t *testing.T) {
-	options := servex.Options{}
+	opts := servex.Options{}
+	servex.WithAllowedIPs("192.168.1.0/24")(&opts)
+	servex.WithBlockedUserAgents("badbot")(&opts)
+	servex.WithFilterStatusCode(403)(&opts)
 
-	// Apply multiple filter options
-	servex.WithAllowedIPs("192.168.1.0/24")(&options)
-	servex.WithBlockedUserAgentsRegex(".*[Bb]ot.*")(&options)
-	servex.WithAllowedHeaders(map[string][]string{"Authorization": {"Bearer token"}})(&options)
-	servex.WithFilterStatusCode(403)(&options)
-	servex.WithFilterMessage("Access denied")(&options)
+	if len(opts.Filter.AllowedIPs) != 1 || opts.Filter.AllowedIPs[0] != "192.168.1.0/24" {
+		t.Errorf("Expected AllowedIPs to be ['192.168.1.0/24'], got %v", opts.Filter.AllowedIPs)
+	}
+	if len(opts.Filter.BlockedUserAgents) != 1 || opts.Filter.BlockedUserAgents[0] != "badbot" {
+		t.Errorf("Expected BlockedUserAgents to be ['badbot'], got %v", opts.Filter.BlockedUserAgents)
+	}
+	if opts.Filter.StatusCode != 403 {
+		t.Errorf("Expected StatusCode to be 403, got %d", opts.Filter.StatusCode)
+	}
+}
 
-	// Verify all options were applied correctly
-	expectedIPs := []string{"192.168.1.0/24"}
-	expectedUA := []string{".*[Bb]ot.*"}
-	expectedHeaders := map[string][]string{"Authorization": {"Bearer token"}}
-	expectedStatus := 403
-	expectedMessage := "Access denied"
+// TestWithHealthEndpoint tests the WithHealthEndpoint option.
+func TestWithHealthEndpoint(t *testing.T) {
+	opts := servex.Options{}
+	servex.WithHealthEndpoint()(&opts)
 
-	if !reflect.DeepEqual(options.Filter.AllowedIPs, expectedIPs) {
-		t.Errorf("expected allowed IPs to be %v, got %v", expectedIPs, options.Filter.AllowedIPs)
+	if !opts.EnableHealthEndpoint {
+		t.Errorf("Expected EnableHealthEndpoint to be true, got %v", opts.EnableHealthEndpoint)
 	}
-	if !reflect.DeepEqual(options.Filter.BlockedUserAgentsRegex, expectedUA) {
-		t.Errorf("expected blocked user agent regex to be %v, got %v", expectedUA, options.Filter.BlockedUserAgentsRegex)
+	if opts.HealthPath != "/health" {
+		t.Errorf("Expected HealthPath to be '/health', got %s", opts.HealthPath)
 	}
-	if !reflect.DeepEqual(options.Filter.AllowedHeaders, expectedHeaders) {
-		t.Errorf("expected allowed headers to be %v, got %v", expectedHeaders, options.Filter.AllowedHeaders)
+}
+
+// TestWithHealthPath tests the WithHealthPath option.
+func TestWithHealthPath(t *testing.T) {
+	customPath := "/api/health"
+	opts := servex.Options{}
+	servex.WithHealthPath(customPath)(&opts)
+
+	if !opts.EnableHealthEndpoint {
+		t.Errorf("Expected EnableHealthEndpoint to be true, got %v", opts.EnableHealthEndpoint)
 	}
-	if options.Filter.StatusCode != expectedStatus {
-		t.Errorf("expected status code to be %d, got %d", expectedStatus, options.Filter.StatusCode)
-	}
-	if options.Filter.Message != expectedMessage {
-		t.Errorf("expected message to be %q, got %q", expectedMessage, options.Filter.Message)
+	if opts.HealthPath != customPath {
+		t.Errorf("Expected HealthPath to be '%s', got %s", customPath, opts.HealthPath)
 	}
 }

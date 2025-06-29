@@ -79,6 +79,9 @@ func NewWithOptions(opts Options) *Server {
 		s.auth.RegisterRoutes(s.router)
 	}
 
+	// Register health and metrics endpoints if enabled
+	s.registerBuiltinEndpoints()
+
 	return s
 }
 
@@ -425,6 +428,27 @@ func (s *Server) HandleFuncWithAuth(path string, f http.HandlerFunc, roles ...Us
 // HFA is a shortcut for [Server.HandleFuncWithAuth].
 func (s *Server) HFA(path string, f http.HandlerFunc, roles ...UserRole) *mux.Route {
 	return s.HandleFuncWithAuth(path, f, roles...)
+}
+
+// registerBuiltinEndpoints registers health and metrics endpoints if enabled in options.
+func (s *Server) registerBuiltinEndpoints() {
+	// Register health endpoint if enabled
+	if s.opts.EnableHealthEndpoint {
+		healthPath := s.opts.HealthPath
+		if healthPath == "" {
+			healthPath = "/health"
+		}
+		s.router.HandleFunc(healthPath, s.healthHandler).Methods("GET")
+	}
+}
+
+// healthHandler provides a simple health check endpoint.
+func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
+	response := map[string]any{
+		"status":    "ok",
+		"timestamp": time.Now().Format(time.RFC3339),
+	}
+	C(w, r).Response(http.StatusOK, response)
 }
 
 func (s *Server) start(address string, serve func(net.Listener) error, getListener func(string, string) (net.Listener, error), readyChan chan error) error {

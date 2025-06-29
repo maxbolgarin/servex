@@ -87,6 +87,13 @@ type Options struct {
 	// Filter is the request filter configuration for the server.
 	// If not set, request filtering will be disabled.
 	Filter FilterConfig
+
+	// EnableHealthEndpoint, if true, will automatically register a health check endpoint.
+	EnableHealthEndpoint bool
+
+	// HealthPath is the path for the health check endpoint.
+	// Defaults to "/health" if not set.
+	HealthPath string
 }
 
 // AuthConfig holds the configuration specific to authentication.
@@ -799,13 +806,31 @@ func WithFilterMessage(message string) Option {
 	}
 }
 
-// WithFilterTrustedProxies sets the [Options.Filter.TrustedProxies] to the given proxies.
-// Only requests from these trusted proxy IP addresses or CIDR ranges will have their
-// X-Forwarded-For and X-Real-IP headers trusted for IP filtering.
-// If not set, proxy headers are ignored and RemoteAddr is always used for security.
+// WithFilterTrustedProxies sets the [Options.Filter.TrustedProxies] to the given trusted proxy IP addresses.
+// Only requests from these IPs will have their proxy headers trusted for IP filtering.
 func WithFilterTrustedProxies(proxies ...string) Option {
 	return func(op *Options) {
 		op.Filter.TrustedProxies = proxies
+	}
+}
+
+// WithHealthEndpoint enables the automatic registration of a health check endpoint.
+// The endpoint will be registered at "/health" by default, or at the path specified by WithHealthPath.
+func WithHealthEndpoint() Option {
+	return func(op *Options) {
+		op.EnableHealthEndpoint = true
+		if op.HealthPath == "" {
+			op.HealthPath = "/health"
+		}
+	}
+}
+
+// WithHealthPath sets the [Options.HealthPath] to the given path.
+// Automatically enables the health endpoint if not already enabled.
+func WithHealthPath(path string) Option {
+	return func(op *Options) {
+		op.HealthPath = path
+		op.EnableHealthEndpoint = true
 	}
 }
 
