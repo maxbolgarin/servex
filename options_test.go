@@ -1340,3 +1340,351 @@ func TestMultipleCacheOptions(t *testing.T) {
 		t.Errorf("expected exclude paths to be ['/api/*'], got %v", options.Cache.ExcludePaths)
 	}
 }
+
+// TestWithSecurityConfig tests whether the WithSecurityConfig option sets the security configuration correctly.
+func TestWithSecurityConfig(t *testing.T) {
+	securityConfig := servex.SecurityConfig{
+		Enabled:                 true,
+		ContentSecurityPolicy:   "default-src 'self'",
+		XContentTypeOptions:     "nosniff",
+		XFrameOptions:           "DENY",
+		XXSSProtection:          "1; mode=block",
+		StrictTransportSecurity: "max-age=31536000",
+		ReferrerPolicy:          "strict-origin-when-cross-origin",
+		PermissionsPolicy:       "camera=(), microphone=()",
+		ExcludePaths:            []string{"/api/*"},
+		IncludePaths:            []string{"/secure/*"},
+	}
+
+	option := servex.WithSecurityConfig(securityConfig)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Security, securityConfig) {
+		t.Errorf("expected security config to be %+v, got %+v", securityConfig, options.Security)
+	}
+}
+
+// TestWithSecurityHeaders tests whether the WithSecurityHeaders option enables basic security headers.
+func TestWithSecurityHeaders(t *testing.T) {
+	option := servex.WithSecurityHeaders()
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Security.Enabled {
+		t.Errorf("expected security to be enabled, got false")
+	}
+	if options.Security.XContentTypeOptions != "nosniff" {
+		t.Errorf("expected X-Content-Type-Options to be 'nosniff', got %q", options.Security.XContentTypeOptions)
+	}
+	if options.Security.XFrameOptions != "DENY" {
+		t.Errorf("expected X-Frame-Options to be 'DENY', got %q", options.Security.XFrameOptions)
+	}
+	if options.Security.XXSSProtection != "1; mode=block" {
+		t.Errorf("expected X-XSS-Protection to be '1; mode=block', got %q", options.Security.XXSSProtection)
+	}
+	if options.Security.ReferrerPolicy != "strict-origin-when-cross-origin" {
+		t.Errorf("expected Referrer-Policy to be 'strict-origin-when-cross-origin', got %q", options.Security.ReferrerPolicy)
+	}
+}
+
+// TestWithStrictSecurityHeaders tests whether the WithStrictSecurityHeaders option enables all strict security headers.
+func TestWithStrictSecurityHeaders(t *testing.T) {
+	option := servex.WithStrictSecurityHeaders()
+	options := servex.Options{}
+	option(&options)
+
+	expectedHeaders := map[string]string{
+		"ContentSecurityPolicy":         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+		"XContentTypeOptions":           "nosniff",
+		"XFrameOptions":                 "DENY",
+		"XXSSProtection":                "1; mode=block",
+		"StrictTransportSecurity":       "max-age=31536000; includeSubDomains; preload",
+		"ReferrerPolicy":                "strict-origin-when-cross-origin",
+		"PermissionsPolicy":             "camera=(), microphone=(), geolocation=()",
+		"XPermittedCrossDomainPolicies": "none",
+		"CrossOriginEmbedderPolicy":     "require-corp",
+		"CrossOriginOpenerPolicy":       "same-origin",
+		"CrossOriginResourcePolicy":     "same-site",
+	}
+
+	if !options.Security.Enabled {
+		t.Errorf("expected security to be enabled, got false")
+	}
+
+	// Check each expected header
+	securityValue := reflect.ValueOf(options.Security)
+	for field, expectedValue := range expectedHeaders {
+		fieldValue := securityValue.FieldByName(field)
+		if !fieldValue.IsValid() {
+			t.Errorf("field %s not found in SecurityConfig", field)
+			continue
+		}
+		actualValue := fieldValue.String()
+		if actualValue != expectedValue {
+			t.Errorf("expected %s to be %q, got %q", field, expectedValue, actualValue)
+		}
+	}
+}
+
+// TestWithContentSecurityPolicy tests whether the WithContentSecurityPolicy option sets CSP correctly.
+func TestWithContentSecurityPolicy(t *testing.T) {
+	policy := "default-src 'self'; script-src 'self' 'unsafe-inline'"
+	option := servex.WithContentSecurityPolicy(policy)
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Security.Enabled {
+		t.Errorf("expected security to be enabled, got false")
+	}
+	if options.Security.ContentSecurityPolicy != policy {
+		t.Errorf("expected Content-Security-Policy to be %q, got %q", policy, options.Security.ContentSecurityPolicy)
+	}
+}
+
+// TestWithHSTSHeader tests whether the WithHSTSHeader option sets HSTS correctly with different configurations.
+func TestWithHSTSHeader(t *testing.T) {
+	tests := []struct {
+		maxAge            int
+		includeSubdomains bool
+		preload           bool
+		expected          string
+	}{
+		{31536000, false, false, "max-age=31536000"},
+		{31536000, true, false, "max-age=31536000; includeSubDomains"},
+		{31536000, false, true, "max-age=31536000; preload"},
+		{31536000, true, true, "max-age=31536000; includeSubDomains; preload"},
+		{0, false, false, "max-age=0"},
+	}
+
+	for _, tt := range tests {
+		option := servex.WithHSTSHeader(tt.maxAge, tt.includeSubdomains, tt.preload)
+		options := servex.Options{}
+		option(&options)
+
+		if !options.Security.Enabled {
+			t.Errorf("expected security to be enabled, got false")
+		}
+		if options.Security.StrictTransportSecurity != tt.expected {
+			t.Errorf("expected HSTS header to be %q, got %q", tt.expected, options.Security.StrictTransportSecurity)
+		}
+	}
+}
+
+// TestWithSecurityExcludePaths tests whether the WithSecurityExcludePaths option sets exclude paths correctly.
+func TestWithSecurityExcludePaths(t *testing.T) {
+	paths := []string{"/api/*", "/health", "/metrics"}
+	option := servex.WithSecurityExcludePaths(paths...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Security.ExcludePaths, paths) {
+		t.Errorf("expected exclude paths to be %v, got %v", paths, options.Security.ExcludePaths)
+	}
+}
+
+// TestWithSecurityIncludePaths tests whether the WithSecurityIncludePaths option sets include paths correctly.
+func TestWithSecurityIncludePaths(t *testing.T) {
+	paths := []string{"/app/*", "/secure/*", "/admin/*"}
+	option := servex.WithSecurityIncludePaths(paths...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Security.IncludePaths, paths) {
+		t.Errorf("expected include paths to be %v, got %v", paths, options.Security.IncludePaths)
+	}
+}
+
+// TestWithCustomHeaders tests whether the WithCustomHeaders option sets custom headers correctly.
+func TestWithCustomHeaders(t *testing.T) {
+	headers := map[string]string{
+		"X-API-Version":  "v1.0",
+		"X-Service-Name": "test-service",
+		"X-Environment":  "testing",
+	}
+
+	option := servex.WithCustomHeaders(headers)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.CustomHeaders, headers) {
+		t.Errorf("expected custom headers to be %v, got %v", headers, options.CustomHeaders)
+	}
+}
+
+// TestWithCustomHeadersMultiple tests whether multiple calls to WithCustomHeaders merge headers correctly.
+func TestWithCustomHeadersMultiple(t *testing.T) {
+	headers1 := map[string]string{
+		"X-API-Version": "v1.0",
+		"X-Service":     "test",
+	}
+	headers2 := map[string]string{
+		"X-Environment": "testing",
+		"X-API-Version": "v2.0", // This should override
+	}
+
+	option1 := servex.WithCustomHeaders(headers1)
+	option2 := servex.WithCustomHeaders(headers2)
+	options := servex.Options{}
+	option1(&options)
+	option2(&options)
+
+	expected := map[string]string{
+		"X-API-Version": "v2.0", // Overridden value
+		"X-Service":     "test",
+		"X-Environment": "testing",
+	}
+
+	if !reflect.DeepEqual(options.CustomHeaders, expected) {
+		t.Errorf("expected custom headers to be %v, got %v", expected, options.CustomHeaders)
+	}
+}
+
+// TestWithRemoveHeaders tests whether the WithRemoveHeaders option sets headers to remove correctly.
+func TestWithRemoveHeaders(t *testing.T) {
+	headers := []string{"Server", "X-Powered-By", "X-AspNet-Version"}
+	option := servex.WithRemoveHeaders(headers...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.HeadersToRemove, headers) {
+		t.Errorf("expected headers to remove to be %v, got %v", headers, options.HeadersToRemove)
+	}
+}
+
+// TestWithRemoveHeadersMultiple tests whether multiple calls to WithRemoveHeaders append headers correctly.
+func TestWithRemoveHeadersMultiple(t *testing.T) {
+	headers1 := []string{"Server", "X-Powered-By"}
+	headers2 := []string{"X-AspNet-Version", "X-Generator"}
+
+	option1 := servex.WithRemoveHeaders(headers1...)
+	option2 := servex.WithRemoveHeaders(headers2...)
+	options := servex.Options{}
+	option1(&options)
+	option2(&options)
+
+	expected := []string{"Server", "X-Powered-By", "X-AspNet-Version", "X-Generator"}
+	if !reflect.DeepEqual(options.HeadersToRemove, expected) {
+		t.Errorf("expected headers to remove to be %v, got %v", expected, options.HeadersToRemove)
+	}
+}
+
+// TestSecurityPathsMultiple tests whether multiple calls to security path options append paths correctly.
+func TestSecurityPathsMultiple(t *testing.T) {
+	excludePaths1 := []string{"/api/*", "/health"}
+	excludePaths2 := []string{"/metrics", "/debug/*"}
+	includePaths1 := []string{"/app/*", "/secure/*"}
+	includePaths2 := []string{"/admin/*"}
+
+	option1 := servex.WithSecurityExcludePaths(excludePaths1...)
+	option2 := servex.WithSecurityExcludePaths(excludePaths2...)
+	option3 := servex.WithSecurityIncludePaths(includePaths1...)
+	option4 := servex.WithSecurityIncludePaths(includePaths2...)
+
+	options := servex.Options{}
+	option1(&options)
+	option2(&options)
+	option3(&options)
+	option4(&options)
+
+	expectedExclude := []string{"/api/*", "/health", "/metrics", "/debug/*"}
+	expectedInclude := []string{"/app/*", "/secure/*", "/admin/*"}
+
+	if !reflect.DeepEqual(options.Security.ExcludePaths, expectedExclude) {
+		t.Errorf("expected exclude paths to be %v, got %v", expectedExclude, options.Security.ExcludePaths)
+	}
+	if !reflect.DeepEqual(options.Security.IncludePaths, expectedInclude) {
+		t.Errorf("expected include paths to be %v, got %v", expectedInclude, options.Security.IncludePaths)
+	}
+}
+
+// TestMultipleSecurityOptions tests whether multiple security options work together correctly.
+func TestMultipleSecurityOptions(t *testing.T) {
+	options := servex.Options{}
+
+	// Apply multiple security options
+	servex.WithSecurityHeaders()(&options)
+	servex.WithContentSecurityPolicy("default-src 'self'")(&options)
+	servex.WithHSTSHeader(31536000, true, true)(&options)
+	servex.WithSecurityExcludePaths("/api/*", "/health")(&options)
+	servex.WithCustomHeaders(map[string]string{
+		"X-API-Version": "v1.0",
+	})(&options)
+	servex.WithRemoveHeaders("Server", "X-Powered-By")(&options)
+
+	// Verify security is enabled
+	if !options.Security.Enabled {
+		t.Errorf("expected security to be enabled, got false")
+	}
+
+	// Verify CSP was set (should override the basic one)
+	if options.Security.ContentSecurityPolicy != "default-src 'self'" {
+		t.Errorf("expected CSP to be 'default-src 'self'', got %q", options.Security.ContentSecurityPolicy)
+	}
+
+	// Verify HSTS was set
+	expectedHSTS := "max-age=31536000; includeSubDomains; preload"
+	if options.Security.StrictTransportSecurity != expectedHSTS {
+		t.Errorf("expected HSTS to be %q, got %q", expectedHSTS, options.Security.StrictTransportSecurity)
+	}
+
+	// Verify basic security headers are still there
+	if options.Security.XContentTypeOptions != "nosniff" {
+		t.Errorf("expected X-Content-Type-Options to be 'nosniff', got %q", options.Security.XContentTypeOptions)
+	}
+
+	// Verify paths
+	expectedExclude := []string{"/api/*", "/health"}
+	if !reflect.DeepEqual(options.Security.ExcludePaths, expectedExclude) {
+		t.Errorf("expected exclude paths to be %v, got %v", expectedExclude, options.Security.ExcludePaths)
+	}
+
+	// Verify custom headers
+	expectedHeaders := map[string]string{"X-API-Version": "v1.0"}
+	if !reflect.DeepEqual(options.CustomHeaders, expectedHeaders) {
+		t.Errorf("expected custom headers to be %v, got %v", expectedHeaders, options.CustomHeaders)
+	}
+
+	// Verify headers to remove
+	expectedRemove := []string{"Server", "X-Powered-By"}
+	if !reflect.DeepEqual(options.HeadersToRemove, expectedRemove) {
+		t.Errorf("expected headers to remove to be %v, got %v", expectedRemove, options.HeadersToRemove)
+	}
+}
+
+// TestSecurityConfigOverride tests whether individual security options override SecurityConfig.
+func TestSecurityConfigOverride(t *testing.T) {
+	// Start with a full security config
+	securityConfig := servex.SecurityConfig{
+		Enabled:                 true,
+		ContentSecurityPolicy:   "default-src 'none'",
+		XContentTypeOptions:     "nosniff",
+		XFrameOptions:           "SAMEORIGIN",
+		StrictTransportSecurity: "max-age=86400",
+	}
+
+	options := servex.Options{}
+	servex.WithSecurityConfig(securityConfig)(&options)
+
+	// Override specific values
+	servex.WithContentSecurityPolicy("default-src 'self'")(&options)
+	servex.WithHSTSHeader(31536000, true, false)(&options)
+
+	// Verify overrides took effect
+	if options.Security.ContentSecurityPolicy != "default-src 'self'" {
+		t.Errorf("expected CSP to be overridden to 'default-src 'self'', got %q", options.Security.ContentSecurityPolicy)
+	}
+
+	expectedHSTS := "max-age=31536000; includeSubDomains"
+	if options.Security.StrictTransportSecurity != expectedHSTS {
+		t.Errorf("expected HSTS to be overridden to %q, got %q", expectedHSTS, options.Security.StrictTransportSecurity)
+	}
+
+	// Verify non-overridden values remain
+	if options.Security.XContentTypeOptions != "nosniff" {
+		t.Errorf("expected X-Content-Type-Options to remain 'nosniff', got %q", options.Security.XContentTypeOptions)
+	}
+	if options.Security.XFrameOptions != "SAMEORIGIN" {
+		t.Errorf("expected X-Frame-Options to remain 'SAMEORIGIN', got %q", options.Security.XFrameOptions)
+	}
+}

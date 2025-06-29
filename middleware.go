@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"path/filepath"
 	"runtime/debug"
-	"slices"
 	"strings"
 	"time"
 
@@ -251,20 +250,7 @@ func RegisterSecurityHeadersMiddleware(router MiddlewareRouter, cfg SecurityConf
 
 // shouldApplySecurityHeaders determines if security headers should be applied based on the path.
 func shouldApplySecurityHeaders(r *http.Request, cfg SecurityConfig) bool {
-	path := r.URL.Path
-
-	// Check if path is in the excluded list
-	if slices.Contains(cfg.ExcludePaths, path) {
-		return false
-	}
-
-	// If include paths are specified, check if this path is included
-	if len(cfg.IncludePaths) > 0 {
-		return slices.Contains(cfg.IncludePaths, path)
-	}
-
-	// By default, apply security headers to all paths not explicitly excluded
-	return true
+	return matchPath(r.URL.Path, cfg.ExcludePaths, cfg.IncludePaths, true)
 }
 
 // applySecurityHeaders applies the configured security headers to the response.
@@ -399,27 +385,7 @@ func RegisterCacheControlMiddleware(router MiddlewareRouter, cfg CacheConfig) {
 
 // shouldApplyCacheHeaders determines if cache headers should be applied based on the path.
 func shouldApplyCacheHeaders(r *http.Request, cfg CacheConfig) bool {
-	path := r.URL.Path
-
-	// Check if path matches any excluded patterns
-	for _, excludePath := range cfg.ExcludePaths {
-		if matched, _ := filepath.Match(excludePath, path); matched {
-			return false
-		}
-	}
-
-	// If include paths are specified, check if this path matches any included patterns
-	if len(cfg.IncludePaths) > 0 {
-		for _, includePath := range cfg.IncludePaths {
-			if matched, _ := filepath.Match(includePath, path); matched {
-				return true
-			}
-		}
-		return false // No include path matched
-	}
-
-	// By default, apply cache headers to all paths not explicitly excluded
-	return true
+	return matchPath(r.URL.Path, cfg.ExcludePaths, cfg.IncludePaths, true)
 }
 
 // applyCacheHeaders applies the configured cache control headers to the response.
@@ -516,4 +482,52 @@ func handleConditionalRequest(w http.ResponseWriter, r *http.Request, etag, last
 	}
 
 	return false // No conditional request matched
+}
+
+// matchPath checks if a request path should be included or excluded based on the provided patterns.
+// It supports both exact string matching and wildcard pattern matching (using filepath.Match).
+// Returns true if the path should be processed, false if it should be skipped.
+//
+// Parameters:
+//   - path: the request path to check
+//   - excludePaths: list of paths/patterns to exclude (takes precedence)
+//   - includePaths: list of paths/patterns to include (only checked if excludePaths don't match)
+//   - useWildcards: if true, uses filepath.Match for pattern matching; if false, uses exact string matching
+//
+// Logic:
+//  1. If path matches any exclude pattern, return false
+//  2. If include patterns are specified and path doesn't match any, return false
+//  3. Otherwise, return true (default behavior is to process the path)
+func matchPath(path string, excludePaths, includePaths []string, useWildcards bool) bool {
+	// Check if path is in the excluded list
+	for _, excludePath := range excludePaths {
+		var matched bool
+		if useWildcards {
+			matched, _ = filepath.Match(excludePath, path)
+		} else {
+			matched = excludePath == path
+		}
+		if matched {
+			return false
+		}
+	}
+
+	// If include paths are specified, check if this path is included
+	if len(includePaths) > 0 {
+		for _, includePath := range includePaths {
+			var matched bool
+			if useWildcards {
+				matched, _ = filepath.Match(includePath, path)
+			} else {
+				matched = includePath == path
+			}
+			if matched {
+				return true
+			}
+		}
+		return false // Path not in include list
+	}
+
+	// By default, process all paths not explicitly excluded
+	return true
 }

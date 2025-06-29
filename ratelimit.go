@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -130,19 +129,7 @@ func (m *rateLimiterMiddleware) middleware(next http.Handler) http.Handler {
 
 // shouldRateLimit determines if the request should be rate limited based on the path.
 func (m *rateLimiterMiddleware) shouldRateLimit(r *http.Request) bool {
-	// Check if path is in the excluded list
-	path := r.URL.Path
-	if slices.Contains(m.cfg.ExcludePaths, path) {
-		return false
-	}
-
-	// If include paths are specified, check if this path is included
-	if len(m.cfg.IncludePaths) > 0 {
-		return slices.Contains(m.cfg.IncludePaths, path)
-	}
-
-	// By default, rate limit all paths not explicitly excluded
-	return true
+	return matchPath(r.URL.Path, m.cfg.ExcludePaths, m.cfg.IncludePaths, false)
 }
 
 // getLimiter retrieves or creates a rate limiter for a visitor.

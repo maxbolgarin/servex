@@ -5,7 +5,6 @@ import (
 	"net"
 	"net/http"
 	"regexp"
-	"slices"
 	"strings"
 )
 
@@ -263,20 +262,7 @@ func (f *Filter) middleware(next http.Handler) http.Handler {
 
 // shouldFilter determines if the request should be filtered based on the path.
 func (f *Filter) shouldFilter(r *http.Request) bool {
-	path := r.URL.Path
-
-	// Check if path is in the excluded list
-	if slices.Contains(f.config.ExcludePaths, path) {
-		return false
-	}
-
-	// If include paths are specified, check if this path is included
-	if len(f.config.IncludePaths) > 0 {
-		return slices.Contains(f.config.IncludePaths, path)
-	}
-
-	// By default, filter all paths not explicitly excluded
-	return true
+	return matchPath(r.URL.Path, f.config.ExcludePaths, f.config.IncludePaths, false)
 }
 
 // getClientIP extracts the real client IP, considering trusted proxies.
