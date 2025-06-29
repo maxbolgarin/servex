@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"net/http"
 	"reflect"
+	"strconv"
 	"testing"
 	"time"
 
@@ -954,5 +955,388 @@ func TestWithHealthPath(t *testing.T) {
 	}
 	if opts.HealthPath != customPath {
 		t.Errorf("Expected HealthPath to be '%s', got %s", customPath, opts.HealthPath)
+	}
+}
+
+// Cache Control Tests
+
+// TestWithCacheConfig verifies that WithCacheConfig sets the cache configuration correctly.
+func TestWithCacheConfig(t *testing.T) {
+	config := servex.CacheConfig{
+		Enabled:      true,
+		CacheControl: "public, max-age=3600",
+		ETag:         `"v1.2.3"`,
+		LastModified: "Wed, 21 Oct 2015 07:28:00 GMT",
+		Vary:         "Accept-Encoding",
+		ExcludePaths: []string{"/api/*"},
+		IncludePaths: []string{"/static/*"},
+	}
+
+	option := servex.WithCacheConfig(config)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Cache, config) {
+		t.Errorf("expected cache config to be %+v, got %+v", config, options.Cache)
+	}
+}
+
+// TestWithCacheControl verifies that WithCacheControl enables caching and sets the Cache-Control header.
+func TestWithCacheControl(t *testing.T) {
+	cacheControl := "public, max-age=3600"
+	option := servex.WithCacheControl(cacheControl)
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.CacheControl != cacheControl {
+		t.Errorf("expected cache control to be %q, got %q", cacheControl, options.Cache.CacheControl)
+	}
+}
+
+// TestWithCacheHeaders verifies that WithCacheHeaders sets default cache headers.
+func TestWithCacheHeaders(t *testing.T) {
+	option := servex.WithCacheHeaders()
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.CacheControl != "public, max-age=3600" {
+		t.Errorf("expected default cache control, got %q", options.Cache.CacheControl)
+	}
+	if options.Cache.Vary != "Accept-Encoding" {
+		t.Errorf("expected default vary header, got %q", options.Cache.Vary)
+	}
+}
+
+// TestWithCacheExpires verifies that WithCacheExpires sets the Expires header.
+func TestWithCacheExpires(t *testing.T) {
+	expires := "Wed, 21 Oct 2025 07:28:00 GMT"
+	option := servex.WithCacheExpires(expires)
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.Expires != expires {
+		t.Errorf("expected expires to be %q, got %q", expires, options.Cache.Expires)
+	}
+}
+
+// TestWithCacheExpiresTime verifies that WithCacheExpiresTime formats time correctly.
+func TestWithCacheExpiresTime(t *testing.T) {
+	testTime := time.Date(2025, 10, 21, 7, 28, 0, 0, time.UTC)
+	expected := testTime.Format(http.TimeFormat)
+
+	option := servex.WithCacheExpiresTime(testTime)
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.Expires != expected {
+		t.Errorf("expected expires to be %q, got %q", expected, options.Cache.Expires)
+	}
+}
+
+// TestWithCacheETag verifies that WithCacheETag sets the ETag header.
+func TestWithCacheETag(t *testing.T) {
+	etag := `"v1.2.3"`
+	option := servex.WithCacheETag(etag)
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.ETag != etag {
+		t.Errorf("expected etag to be %q, got %q", etag, options.Cache.ETag)
+	}
+}
+
+// TestWithCacheETagFunc verifies that WithCacheETagFunc sets the dynamic ETag function.
+func TestWithCacheETagFunc(t *testing.T) {
+	etagFunc := func(r *http.Request) string {
+		return `"dynamic-etag"`
+	}
+
+	option := servex.WithCacheETagFunc(etagFunc)
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.ETagFunc == nil {
+		t.Errorf("expected etag function to be set, got nil")
+	}
+
+	// Test the function works
+	req, _ := http.NewRequest("GET", "/test", nil)
+	result := options.Cache.ETagFunc(req)
+	if result != `"dynamic-etag"` {
+		t.Errorf("expected etag function to return %q, got %q", `"dynamic-etag"`, result)
+	}
+}
+
+// TestWithCacheLastModified verifies that WithCacheLastModified sets the Last-Modified header.
+func TestWithCacheLastModified(t *testing.T) {
+	lastModified := "Wed, 21 Oct 2015 07:28:00 GMT"
+	option := servex.WithCacheLastModified(lastModified)
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.LastModified != lastModified {
+		t.Errorf("expected last modified to be %q, got %q", lastModified, options.Cache.LastModified)
+	}
+}
+
+// TestWithCacheLastModifiedTime verifies that WithCacheLastModifiedTime formats time correctly.
+func TestWithCacheLastModifiedTime(t *testing.T) {
+	testTime := time.Date(2015, 10, 21, 7, 28, 0, 0, time.UTC)
+	expected := "Wed, 21 Oct 2015 07:28:00 GMT"
+
+	option := servex.WithCacheLastModifiedTime(testTime)
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.LastModified != expected {
+		t.Errorf("expected last modified to be %q, got %q", expected, options.Cache.LastModified)
+	}
+}
+
+// TestWithCacheLastModifiedFunc verifies that WithCacheLastModifiedFunc sets the dynamic LastModified function.
+func TestWithCacheLastModifiedFunc(t *testing.T) {
+	testTime := time.Date(2015, 10, 21, 7, 28, 0, 0, time.UTC)
+	lastModFunc := func(r *http.Request) time.Time {
+		return testTime
+	}
+
+	option := servex.WithCacheLastModifiedFunc(lastModFunc)
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.LastModifiedFunc == nil {
+		t.Errorf("expected last modified function to be set, got nil")
+	}
+
+	// Test the function works
+	req, _ := http.NewRequest("GET", "/test", nil)
+	result := options.Cache.LastModifiedFunc(req)
+	if !result.Equal(testTime) {
+		t.Errorf("expected last modified function to return %v, got %v", testTime, result)
+	}
+}
+
+// TestWithCacheVary verifies that WithCacheVary sets the Vary header.
+func TestWithCacheVary(t *testing.T) {
+	vary := "Accept-Encoding, User-Agent"
+	option := servex.WithCacheVary(vary)
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.Vary != vary {
+		t.Errorf("expected vary to be %q, got %q", vary, options.Cache.Vary)
+	}
+}
+
+// TestWithCacheExcludePaths verifies that WithCacheExcludePaths sets exclude paths.
+func TestWithCacheExcludePaths(t *testing.T) {
+	paths := []string{"/api/*", "/admin/*"}
+	option := servex.WithCacheExcludePaths(paths...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Cache.ExcludePaths, paths) {
+		t.Errorf("expected exclude paths to be %v, got %v", paths, options.Cache.ExcludePaths)
+	}
+}
+
+// TestWithCacheIncludePaths verifies that WithCacheIncludePaths sets include paths.
+func TestWithCacheIncludePaths(t *testing.T) {
+	paths := []string{"/static/*", "/assets/*"}
+	option := servex.WithCacheIncludePaths(paths...)
+	options := servex.Options{}
+	option(&options)
+
+	if !reflect.DeepEqual(options.Cache.IncludePaths, paths) {
+		t.Errorf("expected include paths to be %v, got %v", paths, options.Cache.IncludePaths)
+	}
+}
+
+// TestWithCacheNoCache verifies that WithCacheNoCache sets no-cache headers.
+func TestWithCacheNoCache(t *testing.T) {
+	option := servex.WithCacheNoCache()
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.CacheControl != "no-cache, must-revalidate" {
+		t.Errorf("expected no-cache control, got %q", options.Cache.CacheControl)
+	}
+}
+
+// TestWithCacheNoStore verifies that WithCacheNoStore sets no-store headers.
+func TestWithCacheNoStore(t *testing.T) {
+	option := servex.WithCacheNoStore()
+	options := servex.Options{}
+	option(&options)
+
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.CacheControl != "no-store, no-cache, must-revalidate" {
+		t.Errorf("expected no-store control, got %q", options.Cache.CacheControl)
+	}
+}
+
+// TestWithCachePublic verifies that WithCachePublic sets public cache headers.
+func TestWithCachePublic(t *testing.T) {
+	maxAge := 3600
+	option := servex.WithCachePublic(maxAge)
+	options := servex.Options{}
+	option(&options)
+
+	expected := "public, max-age=3600"
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.CacheControl != expected {
+		t.Errorf("expected cache control to be %q, got %q", expected, options.Cache.CacheControl)
+	}
+}
+
+// TestWithCachePrivate verifies that WithCachePrivate sets private cache headers.
+func TestWithCachePrivate(t *testing.T) {
+	maxAge := 900
+	option := servex.WithCachePrivate(maxAge)
+	options := servex.Options{}
+	option(&options)
+
+	expected := "private, max-age=900"
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.CacheControl != expected {
+		t.Errorf("expected cache control to be %q, got %q", expected, options.Cache.CacheControl)
+	}
+}
+
+// TestWithCacheStaticAssets verifies that WithCacheStaticAssets sets optimal static asset headers.
+func TestWithCacheStaticAssets(t *testing.T) {
+	tests := []struct {
+		name           string
+		maxAge         int
+		expectedMaxAge int
+	}{
+		{"default max-age", 0, 31536000},
+		{"custom max-age", 15552000, 15552000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			option := servex.WithCacheStaticAssets(tt.maxAge)
+			options := servex.Options{}
+			option(&options)
+
+			expected := "public, max-age=" + strconv.Itoa(tt.expectedMaxAge) + ", immutable"
+			if !options.Cache.Enabled {
+				t.Errorf("expected cache to be enabled, got disabled")
+			}
+			if options.Cache.CacheControl != expected {
+				t.Errorf("expected cache control to be %q, got %q", expected, options.Cache.CacheControl)
+			}
+			if options.Cache.Vary != "Accept-Encoding" {
+				t.Errorf("expected default vary header, got %q", options.Cache.Vary)
+			}
+		})
+	}
+}
+
+// TestWithCacheAPI verifies that WithCacheAPI sets optimal API cache headers.
+func TestWithCacheAPI(t *testing.T) {
+	tests := []struct {
+		name           string
+		maxAge         int
+		expectedMaxAge int
+	}{
+		{"default max-age", 0, 300},
+		{"custom max-age", 600, 600},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			option := servex.WithCacheAPI(tt.maxAge)
+			options := servex.Options{}
+			option(&options)
+
+			expected := "public, max-age=" + strconv.Itoa(tt.expectedMaxAge) + ", must-revalidate"
+			if !options.Cache.Enabled {
+				t.Errorf("expected cache to be enabled, got disabled")
+			}
+			if options.Cache.CacheControl != expected {
+				t.Errorf("expected cache control to be %q, got %q", expected, options.Cache.CacheControl)
+			}
+			if options.Cache.Vary != "Accept-Encoding" {
+				t.Errorf("expected default vary header, got %q", options.Cache.Vary)
+			}
+		})
+	}
+}
+
+// TestMultipleCacheOptions verifies that multiple cache options work together correctly.
+func TestMultipleCacheOptions(t *testing.T) {
+	testTime := time.Date(2015, 10, 21, 7, 28, 0, 0, time.UTC)
+	options := servex.Options{}
+
+	// Apply multiple options
+	servex.WithCachePublic(3600)(&options)
+	servex.WithCacheETag(`"v1.2.3"`)(&options)
+	servex.WithCacheLastModifiedTime(testTime)(&options)
+	servex.WithCacheVary("Accept-Encoding, User-Agent")(&options)
+	servex.WithCacheIncludePaths("/static/*")(&options)
+	servex.WithCacheExcludePaths("/api/*")(&options)
+
+	// Verify all options are set correctly
+	if !options.Cache.Enabled {
+		t.Errorf("expected cache to be enabled, got disabled")
+	}
+	if options.Cache.CacheControl != "public, max-age=3600" {
+		t.Errorf("expected cache control to be 'public, max-age=3600', got %q", options.Cache.CacheControl)
+	}
+	if options.Cache.ETag != `"v1.2.3"` {
+		t.Errorf("expected etag to be '\"v1.2.3\"', got %q", options.Cache.ETag)
+	}
+	if options.Cache.LastModified != "Wed, 21 Oct 2015 07:28:00 GMT" {
+		t.Errorf("expected last modified to be correctly formatted, got %q", options.Cache.LastModified)
+	}
+	if options.Cache.Vary != "Accept-Encoding, User-Agent" {
+		t.Errorf("expected vary header, got %q", options.Cache.Vary)
+	}
+	if len(options.Cache.IncludePaths) != 1 || options.Cache.IncludePaths[0] != "/static/*" {
+		t.Errorf("expected include paths to be ['/static/*'], got %v", options.Cache.IncludePaths)
+	}
+	if len(options.Cache.ExcludePaths) != 1 || options.Cache.ExcludePaths[0] != "/api/*" {
+		t.Errorf("expected exclude paths to be ['/api/*'], got %v", options.Cache.ExcludePaths)
 	}
 }

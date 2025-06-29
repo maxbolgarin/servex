@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -367,4 +368,152 @@ func RegisterHeaderRemovalMiddleware(router MiddlewareRouter, headersToRemove []
 			}
 		})
 	})
+}
+
+// RegisterCacheControlMiddleware adds cache control headers to HTTP responses.
+// It implements common HTTP caching headers to control browser and proxy caching behavior.
+// If the config is empty or disabled, no middleware will be registered.
+func RegisterCacheControlMiddleware(router MiddlewareRouter, cfg CacheConfig) {
+	if !cfg.Enabled {
+		return // Don't register cache control middleware if disabled
+	}
+
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Check if the path should have cache control headers applied
+			if !shouldApplyCacheHeaders(r, cfg) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Apply cache control headers and handle conditional requests
+			if applyCacheHeaders(w, r, cfg) {
+				return // Conditional request was handled with 304 Not Modified
+			}
+
+			// Execute the handler
+			next.ServeHTTP(w, r)
+		})
+	})
+}
+
+// shouldApplyCacheHeaders determines if cache headers should be applied based on the path.
+func shouldApplyCacheHeaders(r *http.Request, cfg CacheConfig) bool {
+	path := r.URL.Path
+
+	// Check if path matches any excluded patterns
+	for _, excludePath := range cfg.ExcludePaths {
+		if matched, _ := filepath.Match(excludePath, path); matched {
+			return false
+		}
+	}
+
+	// If include paths are specified, check if this path matches any included patterns
+	if len(cfg.IncludePaths) > 0 {
+		for _, includePath := range cfg.IncludePaths {
+			if matched, _ := filepath.Match(includePath, path); matched {
+				return true
+			}
+		}
+		return false // No include path matched
+	}
+
+	// By default, apply cache headers to all paths not explicitly excluded
+	return true
+}
+
+// applyCacheHeaders applies the configured cache control headers to the response.
+// Returns true if a conditional request was handled with 304 Not Modified.
+func applyCacheHeaders(w http.ResponseWriter, r *http.Request, cfg CacheConfig) bool {
+	header := w.Header()
+
+	// ETag header - dynamic function takes precedence over static value
+	var etag string
+	if cfg.ETagFunc != nil {
+		if dynamicETag := cfg.ETagFunc(r); dynamicETag != "" {
+			etag = dynamicETag
+			header.Set("ETag", etag)
+		}
+	} else if cfg.ETag != "" {
+		etag = cfg.ETag
+		header.Set("ETag", etag)
+	}
+
+	// Last-Modified header - dynamic function takes precedence over static value
+	var lastModified string
+	if cfg.LastModifiedFunc != nil {
+		lastModTime := cfg.LastModifiedFunc(r)
+		if !lastModTime.IsZero() {
+			lastModified = lastModTime.Format(http.TimeFormat)
+			header.Set("Last-Modified", lastModified)
+		}
+	} else if cfg.LastModified != "" {
+		lastModified = cfg.LastModified
+		header.Set("Last-Modified", lastModified)
+	}
+
+	// Handle conditional requests
+	if handleConditionalRequest(w, r, etag, lastModified) {
+		return true // Request was handled with 304 Not Modified
+	}
+
+	// Cache-Control header
+	if cfg.CacheControl != "" {
+		header.Set("Cache-Control", cfg.CacheControl)
+	}
+
+	// Expires header
+	if cfg.Expires != "" {
+		header.Set("Expires", cfg.Expires)
+	}
+
+	// Vary header
+	if cfg.Vary != "" {
+		header.Set("Vary", cfg.Vary)
+	}
+
+	return false // No conditional request was handled, continue normally
+}
+
+// handleConditionalRequest checks for conditional request headers and returns true if a 304 response was sent.
+func handleConditionalRequest(w http.ResponseWriter, r *http.Request, etag, lastModified string) bool {
+	// Handle If-None-Match (ETag-based conditional requests)
+	if etag != "" {
+		ifNoneMatch := r.Header.Get("If-None-Match")
+		if ifNoneMatch != "" {
+			// Check for exact match or wildcard
+			if ifNoneMatch == "*" || ifNoneMatch == etag {
+				w.WriteHeader(http.StatusNotModified)
+				return true
+			}
+			// Handle comma-separated list of ETags
+			for _, tag := range strings.Split(ifNoneMatch, ",") {
+				tag = strings.TrimSpace(tag)
+				if tag == etag {
+					w.WriteHeader(http.StatusNotModified)
+					return true
+				}
+			}
+		}
+	}
+
+	// Handle If-Modified-Since (Last-Modified-based conditional requests)
+	if lastModified != "" {
+		ifModifiedSince := r.Header.Get("If-Modified-Since")
+		if ifModifiedSince != "" {
+			// Parse both timestamps
+			lastModTime, err1 := time.Parse(http.TimeFormat, lastModified)
+			ifModTime, err2 := time.Parse(http.TimeFormat, ifModifiedSince)
+
+			if err1 == nil && err2 == nil {
+				// If the resource hasn't been modified since the client's timestamp
+				if !lastModTime.After(ifModTime) {
+					w.WriteHeader(http.StatusNotModified)
+					return true
+				}
+			}
+		}
+	}
+
+	return false // No conditional request matched
 }

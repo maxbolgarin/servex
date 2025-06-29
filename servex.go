@@ -71,6 +71,7 @@ func NewWithOptions(opts Options) *Server {
 	s.cleanup = RegisterRateLimitMiddleware(s.router, opts.RateLimit)
 	RegisterFilterMiddleware(s.router, opts.Filter)
 	RegisterSecurityHeadersMiddleware(s.router, opts.Security)
+	RegisterCacheControlMiddleware(s.router, opts.Cache)
 	if len(opts.CustomHeaders) > 0 {
 		RegisterCustomHeadersMiddleware(s.router, opts.CustomHeaders)
 	}
