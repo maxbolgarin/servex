@@ -75,10 +75,6 @@ func NewWithOptions(opts Options) *Server {
 	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken)
 	registerOptsMiddleware(s.router, opts)
 
-	if opts.Auth.enabled && !opts.Auth.NotRegisterRoutes {
-		s.auth.RegisterRoutes(s.router)
-	}
-
 	// Register health and metrics endpoints if enabled
 	s.registerBuiltinEndpoints()
 
@@ -462,6 +458,8 @@ func (s *Server) start(address string, serve func(net.Listener) error, getListen
 			return fmt.Errorf("cannot create auth manager: %w", err)
 		}
 		s.auth = authManager
+
+		s.auth.RegisterRoutes(s.router)
 
 		for _, user := range s.opts.Auth.InitialUsers {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
