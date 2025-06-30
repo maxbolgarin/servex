@@ -23,6 +23,7 @@ type Server struct {
 	https  *http.Server
 	router *mux.Router
 	auth   *AuthManager
+	filter *Filter
 	opts   Options
 
 	basePath string
@@ -67,9 +68,12 @@ func NewWithOptions(opts Options) (*Server, error) {
 
 	s.cleanup = RegisterRateLimitMiddleware(s.router, opts.RateLimit)
 	RegisterRequestSizeLimitMiddleware(s.router, opts)
-	if err := RegisterFilterMiddleware(s.router, opts.Filter); err != nil {
+
+	filter, err := RegisterFilterMiddleware(s.router, opts.Filter)
+	if err != nil {
 		return nil, err
 	}
+	s.filter = filter
 
 	RegisterSecurityHeadersMiddleware(s.router, opts.Security)
 	RegisterCacheControlMiddleware(s.router, opts.Cache)
@@ -336,6 +340,29 @@ func (s *Server) AuthManager() *AuthManager {
 		return nil
 	}
 	return s.auth
+}
+
+// Filter returns the active filter instance for dynamic modification.
+// Returns nil if no filter is configured or enabled.
+//
+// Example:
+//
+//	// Block an IP that accessed a honeypot
+//	if filter := server.Filter(); filter != nil {
+//	    err := filter.AddBlockedIP("192.168.1.100")
+//	    if err != nil {
+//	        log.Printf("Failed to block IP: %v", err)
+//	    }
+//	}
+//
+//	// Check if a User-Agent is blocked
+//	if filter := server.Filter(); filter != nil {
+//	    if filter.IsUserAgentBlocked("BadBot/1.0") {
+//	        log.Println("User-Agent is blocked")
+//	    }
+//	}
+func (s *Server) Filter() DynamicFilterMethods {
+	return s.filter
 }
 
 // IsAuthEnabled returns true if auth is enabled.

@@ -30,14 +30,19 @@ func (s *Server) R(path ...string) *mux.Router {
 	return s.Router(path...)
 }
 
-// AddMiddleware adds one or more [mux.MiddlewareFunc] to the router.
-func (s *Server) AddMiddleware(middleware ...func(http.Handler) http.Handler) {
+// AddMiddlewares adds one or more [mux.MiddlewareFunc] to the router.
+func (s *Server) AddMiddlewares(middleware ...func(http.Handler) http.Handler) {
 	for _, m := range middleware {
 		if m == nil {
 			continue
 		}
 		s.router.Use(m)
 	}
+}
+
+// Use adds one or more [mux.MiddlewareFunc] to the router.
+func (s *Server) Use(middleware ...func(http.Handler) http.Handler) {
+	s.AddMiddlewares(middleware...)
 }
 
 // Handle registers a new route with the provided path, [http.Handler] and methods.

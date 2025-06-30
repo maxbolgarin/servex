@@ -1,11 +1,13 @@
 package servex
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 // LocationFilterConfig defines a filter configuration for specific locations.
@@ -31,6 +33,9 @@ type LocationFilterConfig struct {
 // Filter holds the compiled filtering logic and patterns.
 // This struct is responsible for all filtering logic.
 type Filter struct {
+	// mu protects all fields in this struct for concurrent access
+	mu sync.RWMutex
+
 	config          FilterConfig
 	locationConfigs []LocationFilterConfig
 
@@ -55,21 +60,50 @@ type Filter struct {
 	locationFilters map[int]*Filter
 }
 
+// DynamicFilterMethods provides methods to modify filter rules at runtime.
+// These methods are thread-safe and allow dynamic adaptation of filtering rules.
+type DynamicFilterMethods interface {
+	// IP Management
+	AddBlockedIP(ip string) error
+	RemoveBlockedIP(ip string) error
+	AddAllowedIP(ip string) error
+	RemoveAllowedIP(ip string) error
+	IsIPBlocked(ip string) bool
+	GetBlockedIPs() []string
+	GetAllowedIPs() []string
+
+	// User-Agent Management
+	AddBlockedUserAgent(userAgent string) error
+	RemoveBlockedUserAgent(userAgent string) error
+	AddAllowedUserAgent(userAgent string) error
+	RemoveAllowedUserAgent(userAgent string) error
+	IsUserAgentBlocked(userAgent string) bool
+	GetBlockedUserAgents() []string
+	GetAllowedUserAgents() []string
+
+	// Clear all rules
+	ClearAllBlockedIPs() error
+	ClearAllAllowedIPs() error
+	ClearAllBlockedUserAgents() error
+	ClearAllAllowedUserAgents() error
+}
+
 // RegisterFilterMiddleware adds request filtering middleware to the router.
 // If the config has no filters configured, no middleware will be registered.
-func RegisterFilterMiddleware(router MiddlewareRouter, cfg FilterConfig) error {
+// Returns the created filter instance for dynamic modification, or nil if no filter was created.
+func RegisterFilterMiddleware(router MiddlewareRouter, cfg FilterConfig) (*Filter, error) {
 	if !cfg.isEnabled() {
-		return nil
+		return nil, nil
 	}
 
 	filter, err := newFilter(cfg)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	router.Use(filter.middleware)
 
-	return nil
+	return filter, nil
 }
 
 // RegisterLocationBasedFilterMiddleware adds location-based filtering middleware to the router.
@@ -102,9 +136,9 @@ func RegisterFilterMiddleware(router MiddlewareRouter, cfg FilterConfig) error {
 //	    },
 //	  },
 //	})
-func RegisterLocationBasedFilterMiddleware(router MiddlewareRouter, locationConfigs []LocationFilterConfig) error {
+func RegisterLocationBasedFilterMiddleware(router MiddlewareRouter, locationConfigs []LocationFilterConfig) (*Filter, error) {
 	if len(locationConfigs) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Validate and prepare configs
@@ -126,17 +160,17 @@ func RegisterLocationBasedFilterMiddleware(router MiddlewareRouter, locationConf
 	}
 
 	if len(validConfigs) == 0 {
-		return nil
+		return nil, errors.New("no valid location configs")
 	}
 
 	filter, err := newLocationBasedFilter(validConfigs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	router.Use(filter.middleware)
 
-	return nil
+	return filter, nil
 }
 
 // newLocationBasedFilter creates a new Filter for location-based filtering.
@@ -439,6 +473,9 @@ func (f *Filter) getClientIP(r *http.Request) string {
 
 // checkIP checks if the client IP is allowed.
 func (f *Filter) checkIP(r *http.Request) bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
 	clientIP := f.getClientIP(r)
 	ip := net.ParseIP(clientIP)
 	if ip == nil {
@@ -467,6 +504,9 @@ func (f *Filter) checkIP(r *http.Request) bool {
 
 // checkUserAgent checks if the User-Agent is allowed.
 func (f *Filter) checkUserAgent(r *http.Request) bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
 	userAgent := r.Header.Get("User-Agent")
 
 	// Check blocked User-Agents first (takes precedence)
@@ -501,6 +541,8 @@ func (f *Filter) checkUserAgent(r *http.Request) bool {
 
 // checkHeaders checks if request headers are allowed.
 func (f *Filter) checkHeaders(r *http.Request) bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
 	// Check blocked headers first
 	for headerName, exactMap := range f.blockedHeaderExact {
 		if values, exists := r.Header[http.CanonicalHeaderKey(headerName)]; exists {
@@ -569,6 +611,9 @@ func (f *Filter) checkHeaders(r *http.Request) bool {
 
 // checkQueryParams checks if query parameters are allowed.
 func (f *Filter) checkQueryParams(r *http.Request) bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
 	queryParams := r.URL.Query()
 
 	// Check blocked query parameters first
@@ -650,4 +695,311 @@ func (f *Filter) blockRequest(w http.ResponseWriter, r *http.Request, reason str
 	}
 
 	C(w, r).Error(fmt.Errorf("request blocked: %s", reason), statusCode, message)
+}
+
+// =============================================================================
+// Dynamic Filter Methods - Runtime Filter Modification
+// =============================================================================
+
+// AddBlockedIP dynamically adds an IP address or CIDR range to the blocked list.
+// This method is thread-safe and takes effect immediately.
+//
+// Example:
+//
+//	// Block a specific IP that accessed a honeypot
+//	err := filter.AddBlockedIP("192.168.1.100")
+//
+//	// Block an entire subnet
+//	err := filter.AddBlockedIP("10.0.0.0/24")
+func (f *Filter) AddBlockedIP(ip string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	// Add to config for persistence
+	f.config.BlockedIPs = append(f.config.BlockedIPs, ip)
+
+	// Recompile blocked IP networks
+	nets, err := f.compileIPNets(f.config.BlockedIPs)
+	if err != nil {
+		// Remove from config if compilation failed
+		f.config.BlockedIPs = f.config.BlockedIPs[:len(f.config.BlockedIPs)-1]
+		return fmt.Errorf("add blocked IP %s: %w", ip, err)
+	}
+
+	f.blockedIPNets = nets
+	return nil
+}
+
+// RemoveBlockedIP dynamically removes an IP address or CIDR range from the blocked list.
+// This method is thread-safe and takes effect immediately.
+func (f *Filter) RemoveBlockedIP(ip string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	// Remove from config
+	for i, blockedIP := range f.config.BlockedIPs {
+		if blockedIP == ip {
+			f.config.BlockedIPs = append(f.config.BlockedIPs[:i], f.config.BlockedIPs[i+1:]...)
+			break
+		}
+	}
+
+	// Recompile blocked IP networks
+	nets, err := f.compileIPNets(f.config.BlockedIPs)
+	if err != nil {
+		return fmt.Errorf("recompile blocked IPs after removing %s: %w", ip, err)
+	}
+
+	f.blockedIPNets = nets
+	return nil
+}
+
+// AddAllowedIP dynamically adds an IP address or CIDR range to the allowed list.
+// This method is thread-safe and takes effect immediately.
+func (f *Filter) AddAllowedIP(ip string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	// Add to config for persistence
+	f.config.AllowedIPs = append(f.config.AllowedIPs, ip)
+
+	// Recompile allowed IP networks
+	nets, err := f.compileIPNets(f.config.AllowedIPs)
+	if err != nil {
+		// Remove from config if compilation failed
+		f.config.AllowedIPs = f.config.AllowedIPs[:len(f.config.AllowedIPs)-1]
+		return fmt.Errorf("add allowed IP %s: %w", ip, err)
+	}
+
+	f.allowedIPNets = nets
+	return nil
+}
+
+// RemoveAllowedIP dynamically removes an IP address or CIDR range from the allowed list.
+// This method is thread-safe and takes effect immediately.
+func (f *Filter) RemoveAllowedIP(ip string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	// Remove from config
+	for i, allowedIP := range f.config.AllowedIPs {
+		if allowedIP == ip {
+			f.config.AllowedIPs = append(f.config.AllowedIPs[:i], f.config.AllowedIPs[i+1:]...)
+			break
+		}
+	}
+
+	// Recompile allowed IP networks
+	nets, err := f.compileIPNets(f.config.AllowedIPs)
+	if err != nil {
+		return fmt.Errorf("recompile allowed IPs after removing %s: %w", ip, err)
+	}
+
+	f.allowedIPNets = nets
+	return nil
+}
+
+// IsIPBlocked checks if an IP address is currently blocked.
+// This method is thread-safe.
+func (f *Filter) IsIPBlocked(ip string) bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	parsedIP := net.ParseIP(ip)
+	if parsedIP == nil {
+		return false // Invalid IP
+	}
+
+	// Check blocked IPs
+	for _, blockedNet := range f.blockedIPNets {
+		if blockedNet.Contains(parsedIP) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// GetBlockedIPs returns a copy of the current blocked IP list.
+// This method is thread-safe.
+func (f *Filter) GetBlockedIPs() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	// Return a copy to prevent external modification
+	blocked := make([]string, len(f.config.BlockedIPs))
+	copy(blocked, f.config.BlockedIPs)
+	return blocked
+}
+
+// GetAllowedIPs returns a copy of the current allowed IP list.
+// This method is thread-safe.
+func (f *Filter) GetAllowedIPs() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	// Return a copy to prevent external modification
+	allowed := make([]string, len(f.config.AllowedIPs))
+	copy(allowed, f.config.AllowedIPs)
+	return allowed
+}
+
+// AddBlockedUserAgent dynamically adds a User-Agent string to the blocked list.
+// This method is thread-safe and takes effect immediately.
+//
+// Example:
+//
+//	// Block a specific bot after it accessed a honeypot
+//	err := filter.AddBlockedUserAgent("BadBot/1.0")
+func (f *Filter) AddBlockedUserAgent(userAgent string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	// Add to config for persistence
+	f.config.BlockedUserAgents = append(f.config.BlockedUserAgents, userAgent)
+
+	// Recompile exact patterns
+	f.blockedUAExact = f.compileExactPatterns(f.config.BlockedUserAgents)
+	return nil
+}
+
+// RemoveBlockedUserAgent dynamically removes a User-Agent string from the blocked list.
+// This method is thread-safe and takes effect immediately.
+func (f *Filter) RemoveBlockedUserAgent(userAgent string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	// Remove from config
+	for i, blockedUA := range f.config.BlockedUserAgents {
+		if blockedUA == userAgent {
+			f.config.BlockedUserAgents = append(f.config.BlockedUserAgents[:i], f.config.BlockedUserAgents[i+1:]...)
+			break
+		}
+	}
+
+	// Recompile exact patterns
+	f.blockedUAExact = f.compileExactPatterns(f.config.BlockedUserAgents)
+	return nil
+}
+
+// AddAllowedUserAgent dynamically adds a User-Agent string to the allowed list.
+// This method is thread-safe and takes effect immediately.
+func (f *Filter) AddAllowedUserAgent(userAgent string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	// Add to config for persistence
+	f.config.AllowedUserAgents = append(f.config.AllowedUserAgents, userAgent)
+
+	// Recompile exact patterns
+	f.allowedUAExact = f.compileExactPatterns(f.config.AllowedUserAgents)
+	return nil
+}
+
+// RemoveAllowedUserAgent dynamically removes a User-Agent string from the allowed list.
+// This method is thread-safe and takes effect immediately.
+func (f *Filter) RemoveAllowedUserAgent(userAgent string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	// Remove from config
+	for i, allowedUA := range f.config.AllowedUserAgents {
+		if allowedUA == userAgent {
+			f.config.AllowedUserAgents = append(f.config.AllowedUserAgents[:i], f.config.AllowedUserAgents[i+1:]...)
+			break
+		}
+	}
+
+	// Recompile exact patterns
+	f.allowedUAExact = f.compileExactPatterns(f.config.AllowedUserAgents)
+	return nil
+}
+
+// IsUserAgentBlocked checks if a User-Agent string is currently blocked.
+// This method is thread-safe.
+func (f *Filter) IsUserAgentBlocked(userAgent string) bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	// Check exact matches
+	if f.blockedUAExact[userAgent] {
+		return true
+	}
+
+	// Check regex patterns
+	for _, regex := range f.blockedUARegex {
+		if regex.MatchString(userAgent) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// GetBlockedUserAgents returns a copy of the current blocked User-Agent list.
+// This method is thread-safe.
+func (f *Filter) GetBlockedUserAgents() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	// Return a copy to prevent external modification
+	blocked := make([]string, len(f.config.BlockedUserAgents))
+	copy(blocked, f.config.BlockedUserAgents)
+	return blocked
+}
+
+// GetAllowedUserAgents returns a copy of the current allowed User-Agent list.
+// This method is thread-safe.
+func (f *Filter) GetAllowedUserAgents() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	// Return a copy to prevent external modification
+	allowed := make([]string, len(f.config.AllowedUserAgents))
+	copy(allowed, f.config.AllowedUserAgents)
+	return allowed
+}
+
+// ClearAllBlockedIPs removes all blocked IP addresses.
+// This method is thread-safe and takes effect immediately.
+func (f *Filter) ClearAllBlockedIPs() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.config.BlockedIPs = nil
+	f.blockedIPNets = nil
+	return nil
+}
+
+// ClearAllAllowedIPs removes all allowed IP addresses.
+// This method is thread-safe and takes effect immediately.
+func (f *Filter) ClearAllAllowedIPs() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.config.AllowedIPs = nil
+	f.allowedIPNets = nil
+	return nil
+}
+
+// ClearAllBlockedUserAgents removes all blocked User-Agent strings.
+// This method is thread-safe and takes effect immediately.
+func (f *Filter) ClearAllBlockedUserAgents() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.config.BlockedUserAgents = nil
+	f.blockedUAExact = make(map[string]bool)
+	return nil
+}
+
+// ClearAllAllowedUserAgents removes all allowed User-Agent strings.
+// This method is thread-safe and takes effect immediately.
+func (f *Filter) ClearAllAllowedUserAgents() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.config.AllowedUserAgents = nil
+	f.allowedUAExact = make(map[string]bool)
+	return nil
 }

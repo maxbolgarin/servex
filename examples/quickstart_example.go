@@ -34,6 +34,9 @@ func quickstartMain() {
 
 	// Example 8: API with Authentication
 	apiWithAuthentication()
+
+	// Example 9: Real world server example
+	realWorldExampleQuickStart()
 }
 
 // Example 1: Quick Development Server
@@ -383,7 +386,7 @@ func handleAdminData(w http.ResponseWriter, r *http.Request) {
 }
 
 // Real-world usage example
-func realWorldExample() {
+func realWorldExampleQuickStart() {
 	// === Real-World Production API ===
 
 	// Start with a preset and customize as needed

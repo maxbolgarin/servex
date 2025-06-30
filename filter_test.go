@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/gorilla/mux"
@@ -1120,5 +1121,350 @@ func TestLocationBasedFilterMiddleware_MultiplePatterns(t *testing.T) {
 				t.Errorf("Expected status %d, got %d for path %s", tt.wantStatus, rr.Code, tt.path)
 			}
 		})
+	}
+}
+
+// TestDynamicFilterMethods tests the runtime modification of filter rules.
+func TestDynamicFilterMethods(t *testing.T) {
+	// Create a filter with some initial configuration
+	config := FilterConfig{
+		BlockedIPs:        []string{"10.0.0.1"},
+		BlockedUserAgents: []string{"InitialBot/1.0"},
+	}
+
+	filter, err := newFilter(config)
+	if err != nil {
+		t.Fatalf("Failed to create filter: %v", err)
+	}
+
+	t.Run("AddBlockedIP", func(t *testing.T) {
+		err := filter.AddBlockedIP("192.168.1.100")
+		if err != nil {
+			t.Fatalf("Failed to add blocked IP: %v", err)
+		}
+
+		// Verify IP is blocked
+		if !filter.IsIPBlocked("192.168.1.100") {
+			t.Error("IP should be blocked after adding")
+		}
+
+		// Verify it's in the list
+		blockedIPs := filter.GetBlockedIPs()
+		found := false
+		for _, ip := range blockedIPs {
+			if ip == "192.168.1.100" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("IP not found in blocked IPs list")
+		}
+	})
+
+	t.Run("RemoveBlockedIP", func(t *testing.T) {
+		// First add an IP
+		err := filter.AddBlockedIP("192.168.1.200")
+		if err != nil {
+			t.Fatalf("Failed to add blocked IP: %v", err)
+		}
+
+		// Verify it's blocked
+		if !filter.IsIPBlocked("192.168.1.200") {
+			t.Error("IP should be blocked after adding")
+		}
+
+		// Remove it
+		err = filter.RemoveBlockedIP("192.168.1.200")
+		if err != nil {
+			t.Fatalf("Failed to remove blocked IP: %v", err)
+		}
+
+		// Verify it's not blocked anymore
+		if filter.IsIPBlocked("192.168.1.200") {
+			t.Error("IP should not be blocked after removal")
+		}
+	})
+
+	t.Run("AddAllowedIP", func(t *testing.T) {
+		err := filter.AddAllowedIP("172.16.0.0/24")
+		if err != nil {
+			t.Fatalf("Failed to add allowed IP: %v", err)
+		}
+
+		// Verify it's in the list
+		allowedIPs := filter.GetAllowedIPs()
+		found := false
+		for _, ip := range allowedIPs {
+			if ip == "172.16.0.0/24" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("IP not found in allowed IPs list")
+		}
+	})
+
+	t.Run("AddBlockedUserAgent", func(t *testing.T) {
+		err := filter.AddBlockedUserAgent("NewBot/2.0")
+		if err != nil {
+			t.Fatalf("Failed to add blocked User-Agent: %v", err)
+		}
+
+		// Verify User-Agent is blocked
+		if !filter.IsUserAgentBlocked("NewBot/2.0") {
+			t.Error("User-Agent should be blocked after adding")
+		}
+
+		// Verify it's in the list
+		blockedUAs := filter.GetBlockedUserAgents()
+		found := false
+		for _, ua := range blockedUAs {
+			if ua == "NewBot/2.0" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Error("User-Agent not found in blocked User-Agents list")
+		}
+	})
+
+	t.Run("RemoveBlockedUserAgent", func(t *testing.T) {
+		// Remove the initial User-Agent
+		err := filter.RemoveBlockedUserAgent("InitialBot/1.0")
+		if err != nil {
+			t.Fatalf("Failed to remove blocked User-Agent: %v", err)
+		}
+
+		// Verify it's not blocked anymore
+		if filter.IsUserAgentBlocked("InitialBot/1.0") {
+			t.Error("User-Agent should not be blocked after removal")
+		}
+	})
+
+	t.Run("ClearMethods", func(t *testing.T) {
+		// Add some data first
+		filter.AddBlockedIP("1.2.3.4")
+		filter.AddAllowedIP("5.6.7.8")
+		filter.AddBlockedUserAgent("TestBot/1.0")
+		filter.AddAllowedUserAgent("GoodBot/1.0")
+
+		// Clear blocked IPs
+		err := filter.ClearAllBlockedIPs()
+		if err != nil {
+			t.Fatalf("Failed to clear blocked IPs: %v", err)
+		}
+		blockedIPs := filter.GetBlockedIPs()
+		if len(blockedIPs) != 0 {
+			t.Errorf("Expected 0 blocked IPs after clear, got %d", len(blockedIPs))
+		}
+
+		// Clear allowed IPs
+		err = filter.ClearAllAllowedIPs()
+		if err != nil {
+			t.Fatalf("Failed to clear allowed IPs: %v", err)
+		}
+		allowedIPs := filter.GetAllowedIPs()
+		if len(allowedIPs) != 0 {
+			t.Errorf("Expected 0 allowed IPs after clear, got %d", len(allowedIPs))
+		}
+
+		// Clear blocked User-Agents
+		err = filter.ClearAllBlockedUserAgents()
+		if err != nil {
+			t.Fatalf("Failed to clear blocked User-Agents: %v", err)
+		}
+		blockedUAs := filter.GetBlockedUserAgents()
+		if len(blockedUAs) != 0 {
+			t.Errorf("Expected 0 blocked User-Agents after clear, got %d", len(blockedUAs))
+		}
+
+		// Clear allowed User-Agents
+		err = filter.ClearAllAllowedUserAgents()
+		if err != nil {
+			t.Fatalf("Failed to clear allowed User-Agents: %v", err)
+		}
+		allowedUAs := filter.GetAllowedUserAgents()
+		if len(allowedUAs) != 0 {
+			t.Errorf("Expected 0 allowed User-Agents after clear, got %d", len(allowedUAs))
+		}
+	})
+}
+
+// TestDynamicFilterConcurrency tests thread safety of dynamic filter methods.
+func TestDynamicFilterConcurrency(t *testing.T) {
+	config := FilterConfig{}
+	filter, err := newFilter(config)
+	if err != nil {
+		t.Fatalf("Failed to create filter: %v", err)
+	}
+
+	const numGoroutines = 10
+	const numOperations = 100
+
+	// Test concurrent IP operations
+	t.Run("ConcurrentIPOperations", func(t *testing.T) {
+		var wg sync.WaitGroup
+
+		// Add IPs concurrently
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				for j := 0; j < numOperations; j++ {
+					ip := fmt.Sprintf("192.168.%d.%d", id, j)
+					filter.AddBlockedIP(ip)
+				}
+			}(i)
+		}
+
+		// Read operations concurrently
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := 0; j < numOperations; j++ {
+					filter.GetBlockedIPs()
+					filter.IsIPBlocked("192.168.1.1")
+				}
+			}()
+		}
+
+		wg.Wait()
+
+		// Verify some IPs were added
+		blockedIPs := filter.GetBlockedIPs()
+		if len(blockedIPs) == 0 {
+			t.Error("Expected some blocked IPs after concurrent operations")
+		}
+	})
+
+	// Test concurrent User-Agent operations
+	t.Run("ConcurrentUserAgentOperations", func(t *testing.T) {
+		var wg sync.WaitGroup
+
+		// Add User-Agents concurrently
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				for j := 0; j < numOperations; j++ {
+					ua := fmt.Sprintf("Bot%d-%d/1.0", id, j)
+					filter.AddBlockedUserAgent(ua)
+				}
+			}(i)
+		}
+
+		// Read operations concurrently
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := 0; j < numOperations; j++ {
+					filter.GetBlockedUserAgents()
+					filter.IsUserAgentBlocked("TestBot/1.0")
+				}
+			}()
+		}
+
+		wg.Wait()
+
+		// Verify some User-Agents were added
+		blockedUAs := filter.GetBlockedUserAgents()
+		if len(blockedUAs) == 0 {
+			t.Error("Expected some blocked User-Agents after concurrent operations")
+		}
+	})
+}
+
+// TestDynamicFilterInMiddleware tests that dynamic changes are applied in middleware.
+func TestDynamicFilterInMiddleware(t *testing.T) {
+	// Create initial filter configuration
+	config := FilterConfig{}
+
+	router := mux.NewRouter()
+	filter, err := RegisterFilterMiddleware(router, config)
+	if err != nil {
+		t.Fatalf("Failed to register filter middleware: %v", err)
+	}
+
+	// Should be nil since no filters are enabled
+	if filter != nil {
+		t.Error("Expected filter to be nil when no filters are configured")
+	}
+
+	// Create filter with enabled configuration
+	config = FilterConfig{
+		BlockedIPs: []string{"10.0.0.1"},
+	}
+
+	router = mux.NewRouter()
+	filter, err = RegisterFilterMiddleware(router, config)
+	if err != nil {
+		t.Fatalf("Failed to register filter middleware: %v", err)
+	}
+
+	if filter == nil {
+		t.Fatal("Expected filter to be non-nil when filters are configured")
+	}
+
+	// Add test handler
+	router.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	// Test initial block
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected status %d for blocked IP, got %d", http.StatusForbidden, rr.Code)
+	}
+
+	// Dynamically add another blocked IP
+	err = filter.AddBlockedIP("192.168.1.100")
+	if err != nil {
+		t.Fatalf("Failed to add blocked IP: %v", err)
+	}
+
+	// Test that the new IP is immediately blocked
+	req = httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "192.168.1.100:12345"
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected status %d for dynamically blocked IP, got %d", http.StatusForbidden, rr.Code)
+	}
+
+	// Test that an unblocked IP works
+	req = httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "192.168.1.50:12345"
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status %d for allowed IP, got %d", http.StatusOK, rr.Code)
+	}
+
+	// Remove the dynamically added IP
+	err = filter.RemoveBlockedIP("192.168.1.100")
+	if err != nil {
+		t.Fatalf("Failed to remove blocked IP: %v", err)
+	}
+
+	// Test that the removed IP is now allowed
+	req = httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "192.168.1.100:12345"
+	rr = httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status %d for removed IP, got %d", http.StatusOK, rr.Code)
 	}
 }

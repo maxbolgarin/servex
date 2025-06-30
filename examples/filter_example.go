@@ -195,10 +195,6 @@ func comprehensiveSecurity() {
 	// }
 }
 
-func handleUsers(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Users API - secure endpoint"))
-}
-
 func handleAdmin(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte("Admin API - highly secure endpoint"))
 }

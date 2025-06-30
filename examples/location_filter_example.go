@@ -130,7 +130,7 @@ func locationFilterExample() {
 	}
 
 	// Register the location-based filter middleware
-	if err := servex.RegisterLocationBasedFilterMiddleware(router, locationFilterConfigs); err != nil {
+	if _, err := servex.RegisterLocationBasedFilterMiddleware(router, locationFilterConfigs); err != nil {
 		log.Fatal("Failed to register location-based filter middleware:", err)
 	}
 
@@ -297,7 +297,7 @@ func alternativeLocationFilterExample() {
 	}
 
 	// Register location-based filtering middleware
-	if err := servex.RegisterLocationBasedFilterMiddleware(server.Router(), locationFilterConfigs); err != nil {
+	if _, err := servex.RegisterLocationBasedFilterMiddleware(server.Router(), locationFilterConfigs); err != nil {
 		log.Fatal("Failed to register location-based filter middleware:", err)
 	}
 

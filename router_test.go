@@ -118,7 +118,7 @@ func TestServer_AddMiddleware(t *testing.T) {
 			})
 		}
 
-		server.AddMiddleware(middleware)
+		server.AddMiddlewares(middleware)
 		server.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
@@ -155,7 +155,7 @@ func TestServer_AddMiddleware(t *testing.T) {
 			})
 		}
 
-		server2.AddMiddleware(middleware1, middleware2)
+		server2.Use(middleware1, middleware2)
 		server2.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 			order = append(order, "handler")
 			w.WriteHeader(http.StatusOK)
@@ -183,7 +183,7 @@ func TestServer_AddMiddleware(t *testing.T) {
 		}
 
 		// Should not panic
-		server3.AddMiddleware(nil)
+		server3.AddMiddlewares(nil)
 		server3.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})

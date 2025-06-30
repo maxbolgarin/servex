@@ -545,7 +545,7 @@ func customHeadersConfiguration() {
 		log.Fatal("Failed to create server:", err)
 	}
 	// Add custom middleware after server creation
-	server.AddMiddleware(func(next http.Handler) http.Handler {
+	server.AddMiddlewares(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			// Custom middleware logic here
 			w.Header().Set("X-Custom-Middleware", "active")

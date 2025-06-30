@@ -9,6 +9,7 @@ import (
 	"math"
 	mr "math/rand"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -317,6 +318,46 @@ func (ctx *Context) FormValue(key string) string {
 	return ""
 }
 
+// RemoteAddr returns the remote address of the request.
+// This is the direct connection address and may be a proxy IP.
+// For real client IP detection, use ClientIP() instead.
+func (ctx *Context) RemoteAddr() string {
+	return ctx.r.RemoteAddr
+}
+
+// ClientIP returns the real client IP address, considering proxy headers.
+// It checks common proxy headers in order of preference and validates IP addresses.
+// Falls back to RemoteAddr if no valid IP is found in headers.
+//
+// Headers checked (in order):
+//   - CF-Connecting-IP (Cloudflare)
+//   - True-Client-IP (Akamai, Cloudflare)
+//   - X-Real-IP (nginx)
+//   - X-Forwarded-For (first valid IP)
+//   - X-Client-IP
+//   - X-Forwarded
+//   - X-Cluster-Client-IP
+//   - Forwarded (RFC 7239)
+//
+// Example:
+//
+//	clientIP := servex.C(w, r).ClientIP()
+func (ctx *Context) ClientIP() string {
+	return extractClientIP(ctx.r)
+}
+
+// ClientIPWithTrustedProxies returns the real client IP address, but only trusts
+// proxy headers if the request comes from a trusted proxy network.
+// This is more secure when you know which proxies to trust.
+//
+// Example:
+//
+//	trustedNets := []string{"10.0.0.0/8", "172.16.0.0/12"}
+//	clientIP := servex.C(w, r).ClientIPWithTrustedProxies(trustedNets)
+func (ctx *Context) ClientIPWithTrustedProxies(trustedProxies []string) string {
+	return extractClientIPWithTrustedProxies(ctx.r, trustedProxies)
+}
+
 // ParseUnixFromQuery parses unix timestamp from query params to time.Time.
 func (ctx *Context) ParseUnixFromQuery(key string) (time.Time, error) {
 	raw := ctx.r.URL.Query().Get(key)
@@ -498,6 +539,11 @@ func (ctx *Context) ResponseFile(filename string, mimeType string, body []byte) 
 		ctx.setError(fmt.Errorf("write response: %w", err), http.StatusInternalServerError, "failed to write response body")
 		// No return here, let the handler finish, but the response is likely broken.
 	}
+}
+
+// JSON is an alias for [Context.Response] with 200 code.
+func (ctx *Context) JSON(bodyRaw any) {
+	ctx.Response(http.StatusOK, bodyRaw)
 }
 
 // BadRequest handles an error by returning an HTTP error response with status code 400.
@@ -786,4 +832,163 @@ func formatContentDisposition(filename string) string {
 	// For more complex cases, RFC 6266 suggests using filename* parameter with encoding,
 	// but for this security fix, we'll use the simpler approach
 	return fmt.Sprintf("attachment; filename=\"%s\"", sanitized)
+}
+
+// extractClientIP extracts the real client IP from request headers.
+// It checks common proxy headers in order of preference and validates IP addresses.
+// Falls back to RemoteAddr if no valid IP is found in headers.
+func extractClientIP(r *http.Request) string {
+	// Check headers in order of preference
+	headers := []string{
+		"CF-Connecting-IP",    // Cloudflare
+		"True-Client-IP",      // Akamai, Cloudflare
+		"X-Real-IP",           // nginx
+		"X-Forwarded-For",     // Standard proxy header (first IP)
+		"X-Client-IP",         // Some proxies
+		"X-Forwarded",         // RFC 7239
+		"X-Cluster-Client-IP", // GCP, Azure
+		"Forwarded",           // RFC 7239 (parse for= parameter)
+	}
+
+	for _, header := range headers {
+		if value := r.Header.Get(header); value != "" {
+			// Handle special parsing for different headers
+			switch header {
+			case "X-Forwarded-For":
+				if ip := parseXForwardedFor(value); ip != "" {
+					return ip
+				}
+			case "Forwarded":
+				if ip := parseForwardedHeader(value); ip != "" {
+					return ip
+				}
+			default:
+				if ip := parseAndValidateIP(value); ip != "" {
+					return ip
+				}
+			}
+		}
+	}
+
+	// Fall back to RemoteAddr
+	remoteAddr := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return host
+	}
+	return remoteAddr
+}
+
+// extractClientIPWithTrustedProxies extracts client IP but only trusts proxy headers
+// if the request comes from a trusted proxy network.
+func extractClientIPWithTrustedProxies(r *http.Request, trustedProxies []string) string {
+	// Get remote address
+	remoteAddr := r.RemoteAddr
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		remoteAddr = host
+	}
+
+	// Parse trusted proxy networks
+	var trustedNets []*net.IPNet
+	for _, proxy := range trustedProxies {
+		_, network, err := net.ParseCIDR(proxy)
+		if err == nil {
+			trustedNets = append(trustedNets, network)
+		} else {
+			// Try as single IP
+			if ip := net.ParseIP(proxy); ip != nil {
+				var network *net.IPNet
+				if ip.To4() != nil {
+					_, network, _ = net.ParseCIDR(proxy + "/32")
+				} else {
+					_, network, _ = net.ParseCIDR(proxy + "/128")
+				}
+				if network != nil {
+					trustedNets = append(trustedNets, network)
+				}
+			}
+		}
+	}
+
+	// Check if request comes from trusted proxy
+	if len(trustedNets) > 0 {
+		remoteIP := net.ParseIP(remoteAddr)
+		if remoteIP != nil {
+			for _, trustedNet := range trustedNets {
+				if trustedNet.Contains(remoteIP) {
+					// Request comes from trusted proxy, check headers
+					return extractClientIP(r)
+				}
+			}
+		}
+	}
+
+	// Not from trusted proxy, return remote address
+	return remoteAddr
+}
+
+// parseXForwardedFor parses X-Forwarded-For header and returns the first valid IP.
+// X-Forwarded-For format: client, proxy1, proxy2
+func parseXForwardedFor(value string) string {
+	ips := strings.Split(value, ",")
+	for _, ip := range ips {
+		if cleaned := parseAndValidateIP(ip); cleaned != "" {
+			return cleaned
+		}
+	}
+	return ""
+}
+
+// parseForwardedHeader parses RFC 7239 Forwarded header and extracts the "for" parameter.
+// Forwarded format: for=192.0.2.60;proto=http;by=203.0.113.43
+func parseForwardedHeader(value string) string {
+	// Simple parsing for the "for" parameter
+	parts := strings.Split(value, ";")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "for=") {
+			forValue := strings.TrimPrefix(part, "for=")
+			// Remove quotes if present
+			forValue = strings.Trim(forValue, "\"")
+			// Handle IPv6 brackets: [2001:db8::1]:8080 -> 2001:db8::1
+			if strings.HasPrefix(forValue, "[") && strings.Contains(forValue, "]") {
+				if idx := strings.Index(forValue, "]"); idx > 0 {
+					forValue = forValue[1:idx]
+				}
+			}
+			// Remove port if present
+			if host, _, err := net.SplitHostPort(forValue); err == nil {
+				forValue = host
+			}
+			if ip := parseAndValidateIP(forValue); ip != "" {
+				return ip
+			}
+		}
+	}
+	return ""
+}
+
+// parseAndValidateIP parses and validates an IP address from a header value.
+// It handles IPv4, IPv6, and removes common artifacts like ports.
+func parseAndValidateIP(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	// Handle IPv6 brackets
+	if strings.HasPrefix(value, "[") && strings.HasSuffix(value, "]") {
+		value = value[1 : len(value)-1]
+	}
+
+	// Try to split host:port in case there's a port
+	if host, _, err := net.SplitHostPort(value); err == nil {
+		value = host
+	}
+
+	// Validate IP
+	if ip := net.ParseIP(value); ip != nil {
+		return ip.String()
+	}
+
+	return ""
 }

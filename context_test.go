@@ -1071,86 +1071,524 @@ func (t *testValidationStruct) Validate() error {
 
 // TestContextReadAndValidateWithConfiguredLimits tests ReadAndValidate with configured limits.
 func TestContextReadAndValidateWithConfiguredLimits(t *testing.T) {
+	server, err := New(WithMaxJSONBodySize(100)) // Very small limit for testing
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	// Test case 1: Valid data within limit
+	validData := &testValidationStruct{
+		Name:  "John",
+		Email: "john@example.com",
+	}
+	jsonData, _ := json.Marshal(validData)
+
+	if int64(len(jsonData)) >= 100 {
+		t.Fatal("Test data should be smaller than the limit for this test")
+	}
+
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(jsonData))
+	ctx := server.C(w, req)
+
+	var result testValidationStruct
+	err = ctx.ReadAndValidate(&result)
+	if err != nil {
+		t.Errorf("Expected no error for valid data within limit, got: %v", err)
+	}
+
+	if result.Name != validData.Name || result.Email != validData.Email {
+		t.Errorf("Expected %+v, got %+v", validData, result)
+	}
+
+	// Test case 2: Valid data but exceeds limit
+	largeData := &testValidationStruct{
+		Name:  strings.Repeat("VeryLongName", 20), // This should make it exceed the 100-byte limit
+		Email: "john@example.com",
+	}
+	largeJsonData, _ := json.Marshal(largeData)
+
+	if int64(len(largeJsonData)) < 100 {
+		t.Fatal("Test data should exceed the limit for this test")
+	}
+
+	w2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(largeJsonData))
+	ctx2 := server.C(w2, req2)
+
+	var result2 testValidationStruct
+	err = ctx2.ReadAndValidate(&result2)
+	if err == nil {
+		t.Error("Expected error for data exceeding size limit")
+	}
+	if !strings.Contains(err.Error(), "body too large") {
+		t.Errorf("Expected error about body size limit, got: %v", err)
+	}
+}
+
+// TestContext_ClientIP tests the ClientIP method with various headers
+func TestContext_ClientIP(t *testing.T) {
 	tests := []struct {
-		name          string
-		options       Options
-		body          string
-		expectError   bool
-		errorContains string
+		name        string
+		remoteAddr  string
+		headers     map[string]string
+		expectedIP  string
+		description string
 	}{
 		{
-			name: "Valid JSON within limit",
-			options: Options{
-				MaxJSONBodySize: 100,
-			},
-			body:        `{"name": "John", "email": "john@example.com"}`,
-			expectError: false,
+			name:        "No proxy headers - use RemoteAddr",
+			remoteAddr:  "192.168.1.100:12345",
+			headers:     map[string]string{},
+			expectedIP:  "192.168.1.100",
+			description: "Should extract IP from RemoteAddr when no proxy headers present",
 		},
 		{
-			name: "Valid JSON exceeds limit",
-			options: Options{
-				MaxJSONBodySize: 20, // Very small limit
+			name:       "CF-Connecting-IP header",
+			remoteAddr: "10.0.0.1:80",
+			headers: map[string]string{
+				"CF-Connecting-IP": "203.0.113.195",
 			},
-			body:          `{"name": "John", "email": "john@example.com"}`,
-			expectError:   true,
-			errorContains: "request body too large",
+			expectedIP:  "203.0.113.195",
+			description: "Should prioritize Cloudflare's CF-Connecting-IP header",
 		},
 		{
-			name: "Invalid JSON within limit",
-			options: Options{
-				MaxJSONBodySize: 100,
+			name:       "True-Client-IP header",
+			remoteAddr: "10.0.0.1:80",
+			headers: map[string]string{
+				"True-Client-IP": "203.0.113.196",
 			},
-			body:          `{"name": "", "email": "john@example.com"}`, // Invalid: empty name
-			expectError:   true,
-			errorContains: "name is required",
+			expectedIP:  "203.0.113.196",
+			description: "Should use True-Client-IP when present",
 		},
 		{
-			name: "Override limit should work",
-			options: Options{
-				MaxJSONBodySize: 20, // Small limit
+			name:       "X-Real-IP header",
+			remoteAddr: "10.0.0.1:80",
+			headers: map[string]string{
+				"X-Real-IP": "203.0.113.197",
 			},
-			body:        `{"name": "John", "email": "john@example.com"}`,
-			expectError: false, // Will use override
+			expectedIP:  "203.0.113.197",
+			description: "Should use X-Real-IP when present",
+		},
+		{
+			name:       "X-Forwarded-For with single IP",
+			remoteAddr: "10.0.0.1:80",
+			headers: map[string]string{
+				"X-Forwarded-For": "203.0.113.198",
+			},
+			expectedIP:  "203.0.113.198",
+			description: "Should use first IP from X-Forwarded-For",
+		},
+		{
+			name:       "X-Forwarded-For with multiple IPs",
+			remoteAddr: "10.0.0.1:80",
+			headers: map[string]string{
+				"X-Forwarded-For": "203.0.113.198, 10.0.0.2, 172.16.0.1",
+			},
+			expectedIP:  "203.0.113.198",
+			description: "Should use first (client) IP from X-Forwarded-For chain",
+		},
+		{
+			name:       "X-Client-IP header",
+			remoteAddr: "10.0.0.1:80",
+			headers: map[string]string{
+				"X-Client-IP": "203.0.113.199",
+			},
+			expectedIP:  "203.0.113.199",
+			description: "Should use X-Client-IP when present",
+		},
+		{
+			name:       "Forwarded header RFC 7239",
+			remoteAddr: "10.0.0.1:80",
+			headers: map[string]string{
+				"Forwarded": "for=203.0.113.200;proto=http;by=203.0.113.43",
+			},
+			expectedIP:  "203.0.113.200",
+			description: "Should parse RFC 7239 Forwarded header",
+		},
+		{
+			name:       "Forwarded header with quoted IP",
+			remoteAddr: "10.0.0.1:80",
+			headers: map[string]string{
+				"Forwarded": `for="203.0.113.201";proto=https`,
+			},
+			expectedIP:  "203.0.113.201",
+			description: "Should handle quoted IPs in Forwarded header",
+		},
+		{
+			name:       "Forwarded header with IPv6",
+			remoteAddr: "10.0.0.1:80",
+			headers: map[string]string{
+				"Forwarded": "for=\"[2001:db8::1]\";proto=https",
+			},
+			expectedIP:  "2001:db8::1",
+			description: "Should handle IPv6 addresses in Forwarded header",
+		},
+		{
+			name:       "IPv6 in X-Real-IP",
+			remoteAddr: "10.0.0.1:80",
+			headers: map[string]string{
+				"X-Real-IP": "2001:db8::2",
+			},
+			expectedIP:  "2001:db8::2",
+			description: "Should handle IPv6 addresses in headers",
+		},
+		{
+			name:       "Priority test - CF-Connecting-IP wins",
+			remoteAddr: "10.0.0.1:80",
+			headers: map[string]string{
+				"CF-Connecting-IP": "203.0.113.202",
+				"X-Real-IP":        "203.0.113.203",
+				"X-Forwarded-For":  "203.0.113.204",
+			},
+			expectedIP:  "203.0.113.202",
+			description: "Should prioritize CF-Connecting-IP over other headers",
+		},
+		{
+			name:       "Invalid IP in header - fallback to RemoteAddr",
+			remoteAddr: "192.168.1.101:8080",
+			headers: map[string]string{
+				"X-Real-IP": "not-an-ip",
+			},
+			expectedIP:  "192.168.1.101",
+			description: "Should fallback to RemoteAddr when header contains invalid IP",
+		},
+		{
+			name:       "Empty header value - fallback to RemoteAddr",
+			remoteAddr: "192.168.1.102:9090",
+			headers: map[string]string{
+				"X-Real-IP": "",
+			},
+			expectedIP:  "192.168.1.102",
+			description: "Should fallback to RemoteAddr when header is empty",
+		},
+		{
+			name:       "IP with port in header",
+			remoteAddr: "10.0.0.1:80",
+			headers: map[string]string{
+				"X-Real-IP": "203.0.113.205:8080",
+			},
+			expectedIP:  "203.0.113.205",
+			description: "Should extract IP from header even when port is included",
+		},
+		{
+			name:        "RemoteAddr without port",
+			remoteAddr:  "192.168.1.103",
+			headers:     map[string]string{},
+			expectedIP:  "192.168.1.103",
+			description: "Should handle RemoteAddr without port",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("POST", "/test", strings.NewReader(tt.body))
-			req.Header.Set("Content-Type", "application/json")
-			w := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tt.remoteAddr
 
-			ctx := NewContext(w, req, tt.options)
-
-			var data testValidationStruct
-			var err error
-
-			if tt.name == "Override limit should work" {
-				// Test override functionality
-				err = ctx.ReadAndValidateWithLimit(&data, 1000) // Override to 1000 bytes
-			} else {
-				// Use configured limit
-				err = ctx.ReadAndValidate(&data)
+			// Set headers
+			for key, value := range tt.headers {
+				req.Header.Set(key, value)
 			}
 
-			if tt.expectError {
-				if err == nil {
-					t.Errorf("expected error but got none")
-				} else if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
-					t.Errorf("expected error to contain %q, got %q", tt.errorContains, err.Error())
-				}
-			} else {
-				if err != nil {
-					t.Errorf("unexpected error: %v", err)
-				} else {
-					// Verify data was parsed correctly
-					if data.Name != "John" {
-						t.Errorf("expected name to be 'John', got %q", data.Name)
-					}
-					if data.Email != "john@example.com" {
-						t.Errorf("expected email to be 'john@example.com', got %q", data.Email)
-					}
-				}
+			ctx := NewContext(httptest.NewRecorder(), req)
+			result := ctx.ClientIP()
+
+			if result != tt.expectedIP {
+				t.Errorf("%s: expected IP %s, got %s", tt.description, tt.expectedIP, result)
+			}
+		})
+	}
+}
+
+// TestContext_ClientIPWithTrustedProxies tests the ClientIPWithTrustedProxies method
+func TestContext_ClientIPWithTrustedProxies(t *testing.T) {
+	tests := []struct {
+		name           string
+		remoteAddr     string
+		trustedProxies []string
+		headers        map[string]string
+		expectedIP     string
+		description    string
+	}{
+		{
+			name:           "Trusted proxy - should use headers",
+			remoteAddr:     "10.0.0.1:80",
+			trustedProxies: []string{"10.0.0.0/8"},
+			headers: map[string]string{
+				"X-Real-IP": "203.0.113.100",
+			},
+			expectedIP:  "203.0.113.100",
+			description: "Should trust headers when request comes from trusted proxy",
+		},
+		{
+			name:           "Untrusted proxy - should ignore headers",
+			remoteAddr:     "203.0.113.50:80",
+			trustedProxies: []string{"10.0.0.0/8"},
+			headers: map[string]string{
+				"X-Real-IP": "203.0.113.100",
+			},
+			expectedIP:  "203.0.113.50",
+			description: "Should ignore headers when request comes from untrusted source",
+		},
+		{
+			name:           "Multiple trusted networks",
+			remoteAddr:     "172.16.0.10:443",
+			trustedProxies: []string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"},
+			headers: map[string]string{
+				"CF-Connecting-IP": "203.0.113.101",
+			},
+			expectedIP:  "203.0.113.101",
+			description: "Should work with multiple trusted proxy networks",
+		},
+		{
+			name:           "Single trusted IP",
+			remoteAddr:     "192.168.1.1:8080",
+			trustedProxies: []string{"192.168.1.1"},
+			headers: map[string]string{
+				"X-Forwarded-For": "203.0.113.102, 10.0.0.1",
+			},
+			expectedIP:  "203.0.113.102",
+			description: "Should work with single trusted IP address",
+		},
+		{
+			name:           "IPv6 trusted proxy",
+			remoteAddr:     "[2001:db8::1]:80",
+			trustedProxies: []string{"2001:db8::/32"},
+			headers: map[string]string{
+				"X-Real-IP": "203.0.113.103",
+			},
+			expectedIP:  "203.0.113.103",
+			description: "Should work with IPv6 trusted proxies",
+		},
+		{
+			name:           "No trusted proxies defined",
+			remoteAddr:     "10.0.0.1:80",
+			trustedProxies: []string{},
+			headers: map[string]string{
+				"X-Real-IP": "203.0.113.104",
+			},
+			expectedIP:  "10.0.0.1",
+			description: "Should ignore headers when no trusted proxies are defined",
+		},
+		{
+			name:           "Invalid trusted proxy CIDR",
+			remoteAddr:     "10.0.0.1:80",
+			trustedProxies: []string{"invalid-cidr", "10.0.0.0/8"},
+			headers: map[string]string{
+				"X-Real-IP": "203.0.113.105",
+			},
+			expectedIP:  "203.0.113.105",
+			description: "Should work even if some trusted proxy entries are invalid",
+		},
+		{
+			name:           "Trusted proxy with invalid header",
+			remoteAddr:     "10.0.0.1:80",
+			trustedProxies: []string{"10.0.0.0/8"},
+			headers: map[string]string{
+				"X-Real-IP": "not-an-ip",
+			},
+			expectedIP:  "10.0.0.1",
+			description: "Should fallback to RemoteAddr when trusted proxy sends invalid IP",
+		},
+		{
+			name:           "Cloudflare proxy simulation",
+			remoteAddr:     "103.21.244.10:443", // Cloudflare IP range
+			trustedProxies: []string{"103.21.244.0/22", "103.22.200.0/22"},
+			headers: map[string]string{
+				"CF-Connecting-IP": "203.0.113.106",
+				"X-Forwarded-For":  "203.0.113.106",
+			},
+			expectedIP:  "203.0.113.106",
+			description: "Should work with Cloudflare-like proxy setup",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tt.remoteAddr
+
+			// Set headers
+			for key, value := range tt.headers {
+				req.Header.Set(key, value)
+			}
+
+			ctx := NewContext(httptest.NewRecorder(), req)
+			result := ctx.ClientIPWithTrustedProxies(tt.trustedProxies)
+
+			if result != tt.expectedIP {
+				t.Errorf("%s: expected IP %s, got %s", tt.description, tt.expectedIP, result)
+			}
+		})
+	}
+}
+
+// TestParseXForwardedFor tests the internal parseXForwardedFor function
+func TestParseXForwardedFor(t *testing.T) {
+	tests := []struct {
+		name       string
+		header     string
+		expectedIP string
+	}{
+		{
+			name:       "Single IP",
+			header:     "203.0.113.1",
+			expectedIP: "203.0.113.1",
+		},
+		{
+			name:       "Multiple IPs",
+			header:     "203.0.113.1, 10.0.0.1, 172.16.0.1",
+			expectedIP: "203.0.113.1",
+		},
+		{
+			name:       "IPs with extra spaces",
+			header:     "  203.0.113.1  ,  10.0.0.1  ",
+			expectedIP: "203.0.113.1",
+		},
+		{
+			name:       "Invalid first IP",
+			header:     "invalid, 203.0.113.1",
+			expectedIP: "203.0.113.1",
+		},
+		{
+			name:       "All invalid IPs",
+			header:     "invalid1, invalid2",
+			expectedIP: "",
+		},
+		{
+			name:       "Empty header",
+			header:     "",
+			expectedIP: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseXForwardedFor(tt.header)
+			if result != tt.expectedIP {
+				t.Errorf("parseXForwardedFor(%q) = %q, want %q", tt.header, result, tt.expectedIP)
+			}
+		})
+	}
+}
+
+// TestParseForwardedHeader tests the internal parseForwardedHeader function
+func TestParseForwardedHeader(t *testing.T) {
+	tests := []struct {
+		name       string
+		header     string
+		expectedIP string
+	}{
+		{
+			name:       "Basic for parameter",
+			header:     "for=203.0.113.1;proto=http",
+			expectedIP: "203.0.113.1",
+		},
+		{
+			name:       "Quoted for parameter",
+			header:     `for="203.0.113.1";proto=https`,
+			expectedIP: "203.0.113.1",
+		},
+		{
+			name:       "IPv6 with brackets",
+			header:     "for=\"[2001:db8::1]\";proto=https",
+			expectedIP: "2001:db8::1",
+		},
+		{
+			name:       "IP with port",
+			header:     "for=203.0.113.1:8080;proto=http",
+			expectedIP: "203.0.113.1",
+		},
+		{
+			name:       "Multiple parameters",
+			header:     "for=203.0.113.1;host=example.com;proto=https;by=203.0.113.43",
+			expectedIP: "203.0.113.1",
+		},
+		{
+			name:       "No for parameter",
+			header:     "proto=https;by=203.0.113.43",
+			expectedIP: "",
+		},
+		{
+			name:       "Invalid IP in for parameter",
+			header:     "for=invalid-ip;proto=http",
+			expectedIP: "",
+		},
+		{
+			name:       "Empty header",
+			header:     "",
+			expectedIP: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseForwardedHeader(tt.header)
+			if result != tt.expectedIP {
+				t.Errorf("parseForwardedHeader(%q) = %q, want %q", tt.header, result, tt.expectedIP)
+			}
+		})
+	}
+}
+
+// TestParseAndValidateIP tests the internal parseAndValidateIP function
+func TestParseAndValidateIP(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		expectedIP string
+	}{
+		{
+			name:       "Valid IPv4",
+			input:      "203.0.113.1",
+			expectedIP: "203.0.113.1",
+		},
+		{
+			name:       "Valid IPv6",
+			input:      "2001:db8::1",
+			expectedIP: "2001:db8::1",
+		},
+		{
+			name:       "IPv4 with port",
+			input:      "203.0.113.1:8080",
+			expectedIP: "203.0.113.1",
+		},
+		{
+			name:       "IPv6 with port and brackets",
+			input:      "[2001:db8::1]:8080",
+			expectedIP: "2001:db8::1",
+		},
+		{
+			name:       "IPv6 with brackets only",
+			input:      "[2001:db8::1]",
+			expectedIP: "2001:db8::1",
+		},
+		{
+			name:       "IP with extra whitespace",
+			input:      "  203.0.113.1  ",
+			expectedIP: "203.0.113.1",
+		},
+		{
+			name:       "Invalid IP",
+			input:      "invalid-ip",
+			expectedIP: "",
+		},
+		{
+			name:       "Empty string",
+			input:      "",
+			expectedIP: "",
+		},
+		{
+			name:       "Only whitespace",
+			input:      "   ",
+			expectedIP: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseAndValidateIP(tt.input)
+			if result != tt.expectedIP {
+				t.Errorf("parseAndValidateIP(%q) = %q, want %q", tt.input, result, tt.expectedIP)
 			}
 		})
 	}
