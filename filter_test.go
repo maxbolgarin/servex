@@ -726,3 +726,399 @@ func ExampleRegisterFilterMiddleware() {
 		fmt.Fprintf(w, "OK")
 	})
 }
+
+func TestLocationBasedFilterMiddleware(t *testing.T) {
+	// Set up location-based filter configs
+	locationConfigs := []LocationFilterConfig{
+		{
+			PathPatterns: []string{"/auth/*"},
+			Config: FilterConfig{
+				BlockedIPs:        []string{"10.0.0.1"},
+				AllowedUserAgents: []string{"AuthClient/1.0"},
+			},
+		},
+		{
+			PathPatterns: []string{"/api/*"},
+			Config: FilterConfig{
+				AllowedIPs: []string{"192.168.1.0/24"},
+			},
+		},
+		{
+			PathPatterns: []string{"/admin/*"},
+			Config: FilterConfig{
+				AllowedHeaders: map[string][]string{
+					"Admin-Token": {"secret123"},
+				},
+			},
+		},
+		{
+			PathPatterns: []string{"/upload/*"},
+			Config: FilterConfig{
+				BlockedUserAgents: []string{"BadBot/1.0"},
+				AllowedQueryParams: map[string][]string{
+					"api_key": {"valid_key"},
+				},
+			},
+		},
+	}
+
+	tests := []struct {
+		name        string
+		path        string
+		remoteAddr  string
+		userAgent   string
+		headers     map[string]string
+		queryParams map[string]string
+		wantStatus  int
+	}{
+		// Auth endpoint tests
+		{
+			name:       "auth endpoint - blocked IP",
+			path:       "/auth/login",
+			remoteAddr: "10.0.0.1:12345",
+			userAgent:  "AuthClient/1.0",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "auth endpoint - allowed IP and user agent",
+			path:       "/auth/login",
+			remoteAddr: "192.168.1.100:12345",
+			userAgent:  "AuthClient/1.0",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "auth endpoint - allowed IP but wrong user agent",
+			path:       "/auth/login",
+			remoteAddr: "192.168.1.100:12345",
+			userAgent:  "WrongClient/1.0",
+			wantStatus: http.StatusForbidden,
+		},
+
+		// API endpoint tests
+		{
+			name:       "api endpoint - allowed IP",
+			path:       "/api/users",
+			remoteAddr: "192.168.1.50:12345",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "api endpoint - blocked IP",
+			path:       "/api/users",
+			remoteAddr: "10.0.0.1:12345",
+			wantStatus: http.StatusForbidden,
+		},
+
+		// Admin endpoint tests
+		{
+			name:       "admin endpoint - with valid token",
+			path:       "/admin/dashboard",
+			remoteAddr: "192.168.1.1:12345",
+			headers:    map[string]string{"Admin-Token": "secret123"},
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "admin endpoint - without token",
+			path:       "/admin/dashboard",
+			remoteAddr: "192.168.1.1:12345",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "admin endpoint - wrong token",
+			path:       "/admin/dashboard",
+			remoteAddr: "192.168.1.1:12345",
+			headers:    map[string]string{"Admin-Token": "wrong_token"},
+			wantStatus: http.StatusForbidden,
+		},
+
+		// Upload endpoint tests
+		{
+			name:        "upload endpoint - with valid API key",
+			path:        "/upload/file",
+			remoteAddr:  "192.168.1.1:12345",
+			userAgent:   "GoodClient/1.0",
+			queryParams: map[string]string{"api_key": "valid_key"},
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "upload endpoint - blocked user agent",
+			path:        "/upload/file",
+			remoteAddr:  "192.168.1.1:12345",
+			userAgent:   "BadBot/1.0",
+			queryParams: map[string]string{"api_key": "valid_key"},
+			wantStatus:  http.StatusForbidden,
+		},
+		{
+			name:       "upload endpoint - missing API key",
+			path:       "/upload/file",
+			remoteAddr: "192.168.1.1:12345",
+			userAgent:  "GoodClient/1.0",
+			wantStatus: http.StatusForbidden,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup router and middleware
+			router := mux.NewRouter()
+			RegisterLocationBasedFilterMiddleware(router, locationConfigs)
+
+			// Add test handlers for different paths
+			router.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("Login OK"))
+			})
+			router.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("Users API"))
+			})
+			router.HandleFunc("/admin/dashboard", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("Admin Dashboard"))
+			})
+			router.HandleFunc("/upload/file", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("Upload OK"))
+			})
+
+			// Create test request URL with query params
+			url := tt.path
+			if len(tt.queryParams) > 0 {
+				url += "?"
+				params := []string{}
+				for k, v := range tt.queryParams {
+					params = append(params, fmt.Sprintf("%s=%s", k, v))
+				}
+				url += strings.Join(params, "&")
+			}
+
+			req := httptest.NewRequest("POST", url, nil)
+			req.RemoteAddr = tt.remoteAddr
+
+			if tt.userAgent != "" {
+				req.Header.Set("User-Agent", tt.userAgent)
+			}
+
+			for k, v := range tt.headers {
+				req.Header.Set(k, v)
+			}
+
+			// Record response
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			if rr.Code != tt.wantStatus {
+				t.Errorf("Expected status %d, got %d for path %s", tt.wantStatus, rr.Code, tt.path)
+			}
+		})
+	}
+}
+
+func TestLocationBasedFilterMiddleware_NoMatchingConfig(t *testing.T) {
+	// Set up location-based filter configs that don't match all paths
+	locationConfigs := []LocationFilterConfig{
+		{
+			PathPatterns: []string{"/api/*"},
+			Config: FilterConfig{
+				BlockedIPs: []string{"10.0.0.1"},
+			},
+		},
+	}
+
+	tests := []struct {
+		name       string
+		path       string
+		remoteAddr string
+		wantStatus int
+	}{
+		{
+			name:       "matching path - should be filtered",
+			path:       "/api/users",
+			remoteAddr: "10.0.0.1:12345",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "non-matching path - should not be filtered",
+			path:       "/public/info",
+			remoteAddr: "10.0.0.1:12345", // Same blocked IP
+			wantStatus: http.StatusOK,    // But should pass because no config matches
+		},
+		{
+			name:       "root path - should not be filtered",
+			path:       "/",
+			remoteAddr: "10.0.0.1:12345", // Same blocked IP
+			wantStatus: http.StatusOK,    // But should pass because no config matches
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup router and middleware
+			router := mux.NewRouter()
+			RegisterLocationBasedFilterMiddleware(router, locationConfigs)
+
+			// Add test handlers
+			router.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("API Response"))
+			})
+			router.HandleFunc("/public/info", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("Public Info"))
+			})
+			router.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("Home"))
+			})
+
+			req := httptest.NewRequest("GET", tt.path, nil)
+			req.RemoteAddr = tt.remoteAddr
+
+			// Record response
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			if rr.Code != tt.wantStatus {
+				t.Errorf("Expected status %d, got %d for path %s", tt.wantStatus, rr.Code, tt.path)
+			}
+		})
+	}
+}
+
+func TestLocationBasedFilterMiddleware_EmptyConfigs(t *testing.T) {
+	// Test with empty location configs
+	router := mux.NewRouter()
+	RegisterLocationBasedFilterMiddleware(router, []LocationFilterConfig{})
+
+	router.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	req := httptest.NewRequest("GET", "/test", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+}
+
+func TestLocationBasedFilterMiddleware_OverlappingPatterns(t *testing.T) {
+	// Test with properly overlapping patterns - first match should win
+	// Both patterns can match the same path, demonstrating precedence
+	locationConfigs := []LocationFilterConfig{
+		{
+			PathPatterns: []string{"/api/data"}, // Exact match
+			Config: FilterConfig{
+				BlockedIPs: []string{"10.0.0.1"},
+			},
+		},
+		{
+			PathPatterns: []string{"/api/*"}, // Wildcard that would also match /api/data
+			Config: FilterConfig{
+				AllowedIPs: []string{"10.0.0.1"}, // This would allow the IP that was blocked above
+			},
+		},
+	}
+
+	router := mux.NewRouter()
+	RegisterLocationBasedFilterMiddleware(router, locationConfigs)
+
+	router.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("API Data"))
+	})
+
+	// Test with a path that matches both patterns
+	req := httptest.NewRequest("GET", "/api/data", nil)
+	req.RemoteAddr = "10.0.0.1:12345"
+
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	// Should use the first matching config (blocking the IP) because it's checked first
+	if rr.Code != http.StatusForbidden {
+		t.Errorf("Expected status %d, got %d - first matching config should be used", http.StatusForbidden, rr.Code)
+	}
+}
+
+func TestLocationBasedFilterMiddleware_MultiplePatterns(t *testing.T) {
+	// Test config with multiple patterns
+	locationConfigs := []LocationFilterConfig{
+		{
+			PathPatterns: []string{"/auth/*", "/secure/*", "/admin/*"},
+			Config: FilterConfig{
+				AllowedIPs: []string{"192.168.1.0/24"},
+			},
+		},
+	}
+
+	tests := []struct {
+		name       string
+		path       string
+		remoteAddr string
+		wantStatus int
+	}{
+		{
+			name:       "first pattern match - allowed IP",
+			path:       "/auth/login",
+			remoteAddr: "192.168.1.100:12345",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "second pattern match - blocked IP",
+			path:       "/secure/data",
+			remoteAddr: "10.0.0.1:12345",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name:       "third pattern match - allowed IP",
+			path:       "/admin/dashboard",
+			remoteAddr: "192.168.1.50:12345",
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "no pattern match - should pass",
+			path:       "/public/info",
+			remoteAddr: "10.0.0.1:12345",
+			wantStatus: http.StatusOK,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router := mux.NewRouter()
+			RegisterLocationBasedFilterMiddleware(router, locationConfigs)
+
+			// Add handlers for all test paths
+			router.HandleFunc("/auth/login", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("Auth"))
+			})
+			router.HandleFunc("/secure/data", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("Secure"))
+			})
+			router.HandleFunc("/admin/dashboard", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("Admin"))
+			})
+			router.HandleFunc("/public/info", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("Public"))
+			})
+
+			req := httptest.NewRequest("GET", tt.path, nil)
+			req.RemoteAddr = tt.remoteAddr
+
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			if rr.Code != tt.wantStatus {
+				t.Errorf("Expected status %d, got %d for path %s", tt.wantStatus, rr.Code, tt.path)
+			}
+		})
+	}
+}

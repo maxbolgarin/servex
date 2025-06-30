@@ -8,10 +8,31 @@ import (
 	"strings"
 )
 
+// LocationFilterConfig defines a filter configuration for specific locations.
+// This allows different filter rules to be applied to different URL paths.
+type LocationFilterConfig struct {
+	// PathPatterns are the URL path patterns this config applies to.
+	// Supports wildcards using filepath.Match syntax (e.g., "/api/*", "/admin/*").
+	// If multiple patterns are provided, any match will apply this config.
+	//
+	// Examples:
+	//   - ["/api/*"] - All API endpoints
+	//   - ["/admin/*", "/dashboard/*"] - Admin and dashboard areas
+	//   - ["/auth/login", "/auth/register"] - Specific auth endpoints
+	//   - ["/upload/*"] - File upload endpoints
+	PathPatterns []string
+
+	// Config is the filter configuration to apply for matching paths.
+	// This contains all the filtering settings like allowed/blocked IPs,
+	// user agents, headers, query parameters, etc.
+	Config FilterConfig
+}
+
 // Filter holds the compiled filtering logic and patterns.
 // This struct is responsible for all filtering logic.
 type Filter struct {
-	config FilterConfig
+	config          FilterConfig
+	locationConfigs []LocationFilterConfig
 
 	// compiled regex patterns and IP networks
 	allowedIPNets      []*net.IPNet
@@ -29,6 +50,9 @@ type Filter struct {
 	allowedQueryRegex  map[string][]*regexp.Regexp
 	blockedQueryRegex  map[string][]*regexp.Regexp
 	trustedProxyNets   []*net.IPNet
+
+	// Location-based compiled filters (map from config index to compiled filter)
+	locationFilters map[int]*Filter
 }
 
 // RegisterFilterMiddleware adds request filtering middleware to the router.
@@ -46,6 +70,92 @@ func RegisterFilterMiddleware(router MiddlewareRouter, cfg FilterConfig) error {
 	router.Use(filter.middleware)
 
 	return nil
+}
+
+// RegisterLocationBasedFilterMiddleware adds location-based filtering middleware to the router.
+// This allows different filter configurations for different URL paths.
+// If no location configs are provided or none are enabled, no middleware will be registered.
+//
+// The middleware will:
+// 1. Check each location config in order for path pattern matches
+// 2. Use the first matching config's filter rules
+// 3. Fall back to no filtering if no patterns match
+//
+// Example usage:
+//
+//	err := RegisterLocationBasedFilterMiddleware(router, []LocationFilterConfig{
+//	  {
+//	    PathPatterns: []string{"/api/*"},
+//	    Config: FilterConfig{
+//	      AllowedIPs: []string{"192.168.1.0/24"},
+//	      StatusCode: http.StatusForbidden,
+//	      Message:    "API access restricted",
+//	    },
+//	  },
+//	  {
+//	    PathPatterns: []string{"/admin/*"},
+//	    Config: FilterConfig{
+//	      AllowedIPs: []string{"10.0.0.0/8"},
+//	      BlockedUserAgents: []string{"Bot", "Crawler"},
+//	      StatusCode: http.StatusForbidden,
+//	      Message:    "Admin access denied",
+//	    },
+//	  },
+//	})
+func RegisterLocationBasedFilterMiddleware(router MiddlewareRouter, locationConfigs []LocationFilterConfig) error {
+	if len(locationConfigs) == 0 {
+		return nil
+	}
+
+	// Validate and prepare configs
+	var validConfigs []LocationFilterConfig
+	for _, locCfg := range locationConfigs {
+		if !locCfg.Config.isEnabled() || len(locCfg.PathPatterns) == 0 {
+			continue
+		}
+
+		// Set defaults for this config
+		if locCfg.Config.StatusCode == 0 {
+			locCfg.Config.StatusCode = http.StatusForbidden
+		}
+		if locCfg.Config.Message == "" {
+			locCfg.Config.Message = "Access denied by filter"
+		}
+
+		validConfigs = append(validConfigs, locCfg)
+	}
+
+	if len(validConfigs) == 0 {
+		return nil
+	}
+
+	filter, err := newLocationBasedFilter(validConfigs)
+	if err != nil {
+		return err
+	}
+
+	router.Use(filter.middleware)
+
+	return nil
+}
+
+// newLocationBasedFilter creates a new Filter for location-based filtering.
+func newLocationBasedFilter(locationConfigs []LocationFilterConfig) (*Filter, error) {
+	filter := &Filter{
+		locationConfigs: locationConfigs,
+		locationFilters: make(map[int]*Filter),
+	}
+
+	// Compile each location-specific filter
+	for i, locCfg := range locationConfigs {
+		locFilter, err := newFilter(locCfg.Config)
+		if err != nil {
+			return nil, fmt.Errorf("compile filter for location config %d: %w", i, err)
+		}
+		filter.locationFilters[i] = locFilter
+	}
+
+	return filter, nil
 }
 
 // isEnabled checks if any filtering rules are configured.
@@ -225,39 +335,68 @@ func (f *Filter) compileRegexHeaderPatterns(headers map[string][]string) (map[st
 // middleware is the actual filtering middleware function.
 func (f *Filter) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if the path should be filtered
-		if !f.shouldFilter(r) {
+		// Get the appropriate filter for this request
+		filter := f.getFilterForPath(r.URL.Path)
+		if filter == nil {
+			// No filter config applies to this path
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check if the path should be filtered according to the filter config
+		if !filter.shouldFilter(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		// Check IP filtering
-		if !f.checkIP(r) {
-			f.blockRequest(w, r, "IP address blocked")
+		if !filter.checkIP(r) {
+			filter.blockRequest(w, r, "IP address blocked")
 			return
 		}
 
 		// Check User-Agent filtering
-		if !f.checkUserAgent(r) {
-			f.blockRequest(w, r, "User-Agent blocked")
+		if !filter.checkUserAgent(r) {
+			filter.blockRequest(w, r, "User-Agent blocked")
 			return
 		}
 
 		// Check header filtering
-		if !f.checkHeaders(r) {
-			f.blockRequest(w, r, "Request headers blocked")
+		if !filter.checkHeaders(r) {
+			filter.blockRequest(w, r, "Request headers blocked")
 			return
 		}
 
 		// Check query parameter filtering
-		if !f.checkQueryParams(r) {
-			f.blockRequest(w, r, "Query parameters blocked")
+		if !filter.checkQueryParams(r) {
+			filter.blockRequest(w, r, "Query parameters blocked")
 			return
 		}
 
 		// All checks passed, allow the request
 		next.ServeHTTP(w, r)
 	})
+}
+
+// getFilterForPath returns the filter that applies to the given path.
+// Returns nil if no filter matches the path.
+func (f *Filter) getFilterForPath(path string) *Filter {
+	// If using single config mode (backward compatibility)
+	if len(f.locationConfigs) == 0 {
+		return f
+	}
+
+	// Check location-based configs in order
+	for i, locCfg := range f.locationConfigs {
+		for _, pattern := range locCfg.PathPatterns {
+			if matchPath(path, []string{}, []string{pattern}, true) {
+				return f.locationFilters[i]
+			}
+		}
+	}
+
+	// No config matches this path
+	return nil
 }
 
 // shouldFilter determines if the request should be filtered based on the path.
