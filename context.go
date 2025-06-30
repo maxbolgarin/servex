@@ -205,6 +205,18 @@ func NewContext(w http.ResponseWriter, r *http.Request, optsRaw ...Options) *Con
 	return ctx
 }
 
+// NewContext returns a new context for the provided request.
+// It is a shortcut for [NewContext] with server options.
+func (s *Server) NewContext(w http.ResponseWriter, r *http.Request) *Context {
+	return NewContext(w, r, s.opts)
+}
+
+// NewContext returns a new context for the provided request.
+// It is a shortcut for [C] with server options.
+func (s *Server) C(w http.ResponseWriter, r *http.Request) *Context {
+	return C(w, r, s.opts)
+}
+
 // RequestID returns the request ID for the request.
 func (ctx *Context) RequestID() string {
 	return getOrSetRequestID(ctx.r)

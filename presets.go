@@ -4,6 +4,15 @@ import (
 	"time"
 )
 
+// MergeOptions merges multiple presets into a single slice of options.
+func MergeOptions(presets ...[]Option) []Option {
+	var opts []Option
+	for _, preset := range presets {
+		opts = append(opts, preset...)
+	}
+	return opts
+}
+
 // PresetOptions provides common server configurations for different use cases.
 // These presets combine multiple options to create ready-to-use server setups.
 

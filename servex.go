@@ -307,18 +307,6 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-// NewContext returns a new context for the provided request.
-// It is a shortcut for [NewContext] with server options.
-func (s *Server) NewContext(w http.ResponseWriter, r *http.Request) *Context {
-	return NewContext(w, r, s.opts)
-}
-
-// NewContext returns a new context for the provided request.
-// It is a shortcut for [C] with server options.
-func (s *Server) C(w http.ResponseWriter, r *http.Request) *Context {
-	return C(w, r, s.opts)
-}
-
 // HTTPAddress returns the address the HTTP server is listening on.
 // Returns an empty string if the HTTP server is not running or not configured.
 func (s *Server) HTTPAddress() string {
@@ -335,30 +323,6 @@ func (s *Server) HTTPSAddress() string {
 		return ""
 	}
 	return s.https.Addr
-}
-
-// Router returns [mux.Router], it may be useful if you want to work with router manually.
-// It accepts a path to set as a base path for the router.
-func (s *Server) Router(path ...string) *mux.Router {
-	if len(path) == 0 {
-		return s.router
-	}
-	return s.router.PathPrefix(path[0]).Subrouter()
-}
-
-// R is a shortcut for [Server.Router].
-func (s *Server) R(path ...string) *mux.Router {
-	return s.Router(path...)
-}
-
-// WithBasePath sets the base path for the server's router.
-// It returns the server itself to allow method chaining.
-func (s *Server) WithBasePath(path string) *Server {
-	if len(path) == 0 {
-		return s
-	}
-	s.basePath = path
-	return s
 }
 
 // AuthManager returns [AuthManager], it may be useful if you want to work with auth manually.
@@ -384,80 +348,6 @@ func (s *Server) IsTLS() bool {
 // IsHTTP returns true if HTTP is enabled.
 func (s *Server) IsHTTP() bool {
 	return s.http != nil && s.http.Addr != ""
-}
-
-// AddMiddleware adds one or more [mux.MiddlewareFunc] to the router.
-func (s *Server) AddMiddleware(middleware ...func(http.Handler) http.Handler) {
-	for _, m := range middleware {
-		if m == nil {
-			continue
-		}
-		s.router.Use(m)
-	}
-}
-
-// Handle registers a new route with the provided path, [http.Handler] and methods.
-// It returns a pointer to the created [mux.Route] to set additional settings to the route.
-func (s *Server) Handle(path string, h http.Handler, methods ...string) *mux.Route {
-	r := s.router.PathPrefix(s.basePath).Subrouter().Handle(path, h)
-	if len(methods) == 0 {
-		return r
-	}
-	return r.Methods(methods...)
-}
-
-// H is a shortcut for [Server.Handle].
-func (s *Server) H(path string, h http.Handler, methods ...string) *mux.Route {
-	return s.Handle(path, h, methods...)
-}
-
-// HandleFunc registers a new route with the provided path, [http.HandlerFunc] and methods.
-// It returns a pointer to the created [mux.Route] to set additional settings to the route.
-func (s *Server) HandleFunc(path string, f http.HandlerFunc, methods ...string) *mux.Route {
-	r := s.router.PathPrefix(s.basePath).Subrouter().HandleFunc(path, f)
-	if len(methods) == 0 {
-		return r
-	}
-	return r.Methods(methods...)
-}
-
-// HF is a shortcut for [Server.HandleFunc].
-func (s *Server) HF(path string, f http.HandlerFunc, methods ...string) *mux.Route {
-	return s.HandleFunc(path, f, methods...)
-}
-
-// WithAuth adds auth middleware to the router with the provided roles.
-// It returns a pointer to the created [mux.Route] to set additional settings to the route.
-func (s *Server) WithAuth(next http.HandlerFunc, roles ...UserRole) http.HandlerFunc {
-	if !s.opts.Auth.Enabled {
-		s.opts.Logger.Error("auth is not enabled, skipping auth middleware")
-		return next
-	}
-	return s.auth.WithAuth(next, roles...)
-}
-
-// HandleWithAuth registers a new route with the provided path, [http.Handler] and methods.
-// It adds auth middleware to the route with the provided roles.
-// It returns a pointer to the created [mux.Route] to set additional settings to the route.
-func (s *Server) HandleWithAuth(path string, h http.Handler, roles ...UserRole) *mux.Route {
-	return s.router.PathPrefix(s.basePath).Subrouter().Handle(path, s.WithAuth(h.ServeHTTP, roles...))
-}
-
-// HA is a shortcut for [Server.HandleWithAuth].
-func (s *Server) HA(path string, f http.HandlerFunc, roles ...UserRole) *mux.Route {
-	return s.HandleWithAuth(path, f, roles...)
-}
-
-// HandleFuncWithAuth registers a new route with the provided path, [http.HandlerFunc] and methods.
-// It adds auth middleware to the route with the provided roles.
-// It returns a pointer to the created [mux.Route] to set additional settings to the route.
-func (s *Server) HandleFuncWithAuth(path string, f http.HandlerFunc, roles ...UserRole) *mux.Route {
-	return s.router.PathPrefix(s.basePath).Subrouter().HandleFunc(path, s.WithAuth(f, roles...))
-}
-
-// HFA is a shortcut for [Server.HandleFuncWithAuth].
-func (s *Server) HFA(path string, f http.HandlerFunc, roles ...UserRole) *mux.Route {
-	return s.HandleFuncWithAuth(path, f, roles...)
 }
 
 // registerBuiltinEndpoints registers health and metrics endpoints if enabled in options.
