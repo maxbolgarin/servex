@@ -46,6 +46,9 @@ func configurationGuideMain() {
 
 	// 11. Complete Production Configuration
 	completeProductionConfiguration()
+
+	// 12. YAML and Environment Variable Configuration
+	yamlAndEnvironmentConfiguration()
 }
 
 // 1. Quick Start with Presets
@@ -652,6 +655,159 @@ func completeProductionConfiguration() {
 	// if err != nil {
 	//     log.Fatal("Server failed:", err)
 	// }
+}
+
+// 12. YAML and Environment Variable Configuration
+func yamlAndEnvironmentConfiguration() {
+	// === 12. YAML and Environment Variable Configuration ===
+	// Configure servers using YAML files and environment variables:
+
+	// === YAML Configuration ===
+	// Create a YAML configuration file (server.yaml):
+	yamlExample := `
+# server.yaml
+server:
+  http: ":8080"
+  https: ":8443"
+  cert_file: "/etc/ssl/certs/server.crt"
+  key_file: "/etc/ssl/private/server.key"
+  read_timeout: "30s"
+  idle_timeout: "120s"
+  auth_token: "secret-api-key"
+  enable_health_endpoint: true
+  health_path: "/health"
+
+auth:
+  enabled: true
+  use_memory_database: true
+  issuer: "my-app"
+  access_token_duration: "15m"
+  refresh_token_duration: "7d"
+  base_path: "/api/v1/auth"
+  initial_roles: ["user"]
+
+rate_limit:
+  enabled: true
+  requests_per_interval: 100
+  interval: "1m"
+  burst_size: 20
+  message: "Rate limit exceeded"
+  exclude_paths: ["/health", "/metrics"]
+
+security:
+  enabled: true
+  content_security_policy: "default-src 'self'"
+  x_frame_options: "DENY"
+  strict_transport_security: "max-age=31536000"
+
+cache:
+  enabled: true
+  cache_control: "public, max-age=3600"
+  vary: "Accept-Encoding"
+
+logging:
+  no_log_client_errors: true
+  log_fields: ["method", "url", "status", "duration"]
+`
+
+	_ = yamlExample // For documentation purposes
+
+	// Load configuration from YAML file
+	config, err := servex.LoadConfigFromFile("server.yaml")
+	if err != nil {
+		log.Fatal("Failed to load config:", err)
+	}
+
+	// Create server from configuration
+	server, err := servex.NewFromConfig(config)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
+
+	// === Environment Variable Configuration ===
+	// Environment variables can override YAML settings:
+	envExample := `
+export SERVEX_SERVER_HTTP=":8080"
+export SERVEX_SERVER_HTTPS=":8443"
+export SERVEX_SERVER_AUTH_TOKEN="secret-token"
+export SERVEX_AUTH_ENABLED="true"
+export SERVEX_AUTH_USE_MEMORY_DATABASE="true"
+export SERVEX_AUTH_ISSUER="my-app"
+export SERVEX_RATE_LIMIT_ENABLED="true"
+export SERVEX_RATE_LIMIT_REQUESTS_PER_INTERVAL="100"
+export SERVEX_SECURITY_ENABLED="true"
+`
+
+	_ = envExample // For documentation purposes
+
+	// Load configuration from environment variables only
+	envConfig, err := servex.LoadConfigFromEnv()
+	if err != nil {
+		log.Fatal("Failed to load env config:", err)
+	}
+
+	// Create server from environment configuration
+	envServer, err := servex.NewFromConfig(envConfig)
+	if err != nil {
+		log.Fatal("Failed to create env server:", err)
+	}
+
+	// === Combined Configuration (YAML + Environment) ===
+	// Load from YAML file with environment variable overrides
+	combinedConfig, err := servex.LoadConfig("server.yaml")
+	if err != nil {
+		log.Fatal("Failed to load combined config:", err)
+	}
+
+	// Create server with combined configuration
+	combinedServer, err := servex.NewFromConfig(combinedConfig)
+	if err != nil {
+		log.Fatal("Failed to create combined server:", err)
+	}
+
+	// === Simple Server Startup from Config File ===
+	// Start server directly from config file (one-liner):
+	// shutdown, err := servex.StartFromConfig("server.yaml", func(r *mux.Router) {
+	//     r.HandleFunc("/api/hello", handleHello).Methods("GET")
+	// })
+	// if err != nil {
+	//     log.Fatal("Failed to start server:", err)
+	// }
+	// defer shutdown()
+
+	_ = server
+	_ = envServer
+	_ = combinedServer
+
+	// ✓ YAML file configuration support
+	// ✓ Environment variable configuration
+	// ✓ Combined configuration (YAML + env overrides)
+	// ✓ Direct server startup from config files
+	// ✓ All servex options supported in configuration
+
+	// Configuration priorities (highest to lowest):
+	// 1. Environment variables
+	// 2. YAML file values
+	// 3. Default values
+
+	// Supported configuration sections:
+	// - server: Basic server settings
+	// - auth: JWT authentication with user management
+	// - rate_limit: Request rate limiting
+	// - filter: Request filtering (IPs, user agents, etc.)
+	// - security: Security headers
+	// - cache: Cache control headers
+	// - logging: Request and error logging
+
+	// Environment variable naming convention:
+	// SERVEX_<SECTION>_<FIELD> (e.g., SERVEX_SERVER_HTTP, SERVEX_AUTH_ENABLED)
+
+	// Configuration benefits:
+	// - Declarative server setup
+	// - Environment-specific configs
+	// - Easy CI/CD integration
+	// - Container-friendly
+	// - 12-factor app compliance
 }
 
 // Example of combining preset with custom options
