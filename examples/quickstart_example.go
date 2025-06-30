@@ -41,7 +41,10 @@ func quickDevelopmentServer() {
 	// === Quick Development Server ===
 
 	// Just one line with preset - perfect for development!
-	server := servex.New(servex.DevelopmentPreset()...)
+	server, err := servex.New(servex.DevelopmentPreset()...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 
 	server.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
@@ -65,13 +68,15 @@ func productionReadyServer() {
 	// === Production-Ready Server ===
 
 	// Production preset with additional custom options
-	server := servex.New(append(servex.ProductionPreset(),
+	server, err := servex.New(append(servex.ProductionPreset(),
 		// Add any custom options on top of the preset
 		servex.WithCustomHeaders(map[string]string{
 			"X-App-Version": "1.0.0",
 		}),
 	)...)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	server.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
 		ctx.Response(200, map[string]interface{}{
@@ -105,7 +110,10 @@ func productionReadyServer() {
 func restAPIServer() {
 	// === REST API Server ===
 
-	server := servex.New(servex.APIServerPreset()...)
+	server, err := servex.New(servex.APIServerPreset()...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 
 	// API routes
 	server.HandleFunc("/api/v1/users", handleQuickUsers).Methods("GET", "POST")
@@ -126,7 +134,10 @@ func restAPIServer() {
 func webApplicationServer() {
 	// === Web Application Server ===
 
-	server := servex.New(servex.WebAppPreset()...)
+	server, err := servex.New(servex.WebAppPreset()...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 
 	// Web routes
 	server.HandleFunc("/", handleHomePage)
@@ -150,8 +161,10 @@ func webApplicationServer() {
 func microserviceServer() {
 	// === Microservice Server ===
 
-	server := servex.New(servex.MicroservicePreset()...)
-
+	server, err := servex.New(servex.MicroservicePreset()...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	// Microservice endpoints
 	server.HandleFunc("/api/v1/process", handleProcess)
 	server.HandleFunc("/api/v1/status", handleServiceStatus)
@@ -172,7 +185,10 @@ func microserviceServer() {
 func highSecurityServer() {
 	// === High-Security Server ===
 
-	server := servex.New(servex.HighSecurityPreset()...)
+	server, err := servex.New(servex.HighSecurityPreset()...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 
 	// Secure endpoints only
 	server.HandleFunc("/api/secure/data", handleSecureData)
@@ -193,7 +209,10 @@ func sslEnabledServer() {
 	// === SSL-Enabled Server ===
 
 	// Quick SSL setup with preset
-	server := servex.New(servex.QuickTLSPreset("cert.pem", "key.pem")...)
+	server, err := servex.New(servex.QuickTLSPreset("cert.pem", "key.pem")...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 
 	server.HandleFunc("/api/secure", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
@@ -215,7 +234,7 @@ func sslEnabledServer() {
 func apiWithAuthentication() {
 	// === API with Authentication ===
 
-	server := servex.New(append(servex.AuthAPIPreset(),
+	server, err := servex.New(append(servex.AuthAPIPreset(),
 		// Enable in-memory auth database for this example
 		servex.WithAuthMemoryDatabase(),
 
@@ -226,7 +245,9 @@ func apiWithAuthentication() {
 			Roles:    []servex.UserRole{servex.UserRole("admin")},
 		}),
 	)...)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	// Public endpoints
 	server.HandleFunc("/api/v1/public", handlePublicData)
 
@@ -366,7 +387,7 @@ func realWorldExample() {
 	// === Real-World Production API ===
 
 	// Start with a preset and customize as needed
-	server := servex.New(append(servex.AuthAPIPreset(),
+	server, err := servex.New(append(servex.AuthAPIPreset(),
 		// Database and auth
 		servex.WithAuthMemoryDatabase(),
 		servex.WithAuthInitialUsers(
@@ -387,7 +408,9 @@ func realWorldExample() {
 
 		// Additional custom options
 	)...)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	// Routes
 	server.HandleFunc("/api/v2/users", handleQuickUsers).Methods("GET", "POST")
 	server.HFA("/api/v2/admin/users", handleAdminData, servex.UserRole("admin"))
@@ -396,7 +419,7 @@ func realWorldExample() {
 	defer cancel()
 
 	// Start server with graceful shutdown
-	err := server.StartWithShutdown(ctx, ":8080", ":8443")
+	err = server.StartWithShutdown(ctx, ":8080", ":8443")
 	if err != nil {
 		log.Fatal("Server failed:", err)
 	}

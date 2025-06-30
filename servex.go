@@ -31,12 +31,12 @@ type Server struct {
 
 // New creates a new instance of the [Server]. You can provide a list of options using With* methods.
 // Server without Certificate can serve only plain HTTP.
-func New(ops ...Option) *Server {
+func New(ops ...Option) (*Server, error) {
 	return NewWithOptions(parseOptions(ops))
 }
 
 // NewWithOptions creates a new instance of the [Server] with the provided [Options].
-func NewWithOptions(opts Options) *Server {
+func NewWithOptions(opts Options) (*Server, error) {
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
@@ -48,29 +48,26 @@ func NewWithOptions(opts Options) *Server {
 	if opts.DisableRequestLogging {
 		opts.RequestLogger = &noopRequestLogger{}
 	}
-	opts.Auth.enabled = opts.Auth.Database != nil
+
+	if opts.Certificate == nil && opts.CertFilePath != "" && opts.KeyFilePath != "" {
+		cert, err := ReadCertificateFromFile(opts.CertFilePath, opts.KeyFilePath)
+		if err != nil {
+			return nil, fmt.Errorf("read certificate from file cert=%s, key=%s: %w", opts.CertFilePath, opts.KeyFilePath, err)
+		}
+		opts.Certificate = &cert
+	}
 
 	s := &Server{
 		router: mux.NewRouter(),
 		opts:   opts,
 	}
 
-	if opts.RateLimit.RequestsPerInterval <= 0 && !opts.RateLimit.NoRateInAuthRoutes {
-		opts.RateLimit.RequestsPerInterval = 5
-		opts.RateLimit.Interval = time.Minute
-		opts.RateLimit.IncludePaths = []string{opts.Auth.AuthBasePath}
-	}
-	if opts.RateLimit.RequestsPerInterval > 0 && !opts.RateLimit.NoRateInAuthRoutes {
-		if opts.RateLimit.IncludePaths != nil {
-			opts.RateLimit.IncludePaths = append(opts.RateLimit.IncludePaths, opts.Auth.AuthBasePath)
-		}
-		// If rate limit is enabled without include routes -> it will be applied to all routes
-		// So we dont need to include auth routes in the include list
-	}
-
 	s.cleanup = RegisterRateLimitMiddleware(s.router, opts.RateLimit)
 	RegisterRequestSizeLimitMiddleware(s.router, opts)
-	RegisterFilterMiddleware(s.router, opts.Filter)
+	if err := RegisterFilterMiddleware(s.router, opts.Filter); err != nil {
+		return nil, err
+	}
+
 	RegisterSecurityHeadersMiddleware(s.router, opts.Security)
 	RegisterCacheControlMiddleware(s.router, opts.Cache)
 	if len(opts.CustomHeaders) > 0 {
@@ -84,10 +81,33 @@ func NewWithOptions(opts Options) *Server {
 	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken, opts)
 	registerOptsMiddleware(s.router, opts)
 
-	// Register health and metrics endpoints if enabled
+	// Register health
 	s.registerBuiltinEndpoints()
 
-	return s
+	if s.opts.Auth.Enabled {
+		if s.opts.Auth.Database == nil {
+			return nil, errors.New("auth database is required")
+		}
+		authManager, err := NewAuthManager(s.opts.Auth)
+		if err != nil {
+			return nil, fmt.Errorf("cannot create auth manager: %w", err)
+		}
+		s.auth = authManager
+
+		s.auth.RegisterRoutes(s.router)
+
+		for _, user := range s.opts.Auth.InitialUsers {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			err := s.auth.CreateUser(ctx, user.Username, user.Password, user.Roles...)
+			if err != nil {
+				return nil, fmt.Errorf("cannot create initial user with name=%s: %w", user.Username, err)
+			}
+		}
+	}
+
+	return s, nil
 }
 
 // Start starts the server with the provided [BaseConfig] and [Option]s.
@@ -207,19 +227,12 @@ func (s *Server) StartHTTP(address string) error {
 // StartHTTPS starts an HTTPS server on the provided address.
 // It returns an error if the server cannot be started, address is invalid or no certificate is provided in config.
 func (s *Server) StartHTTPS(address string) error {
+	if s.opts.Certificate == nil {
+		return errors.New("TLS certificate is required for HTTPS server")
+	}
+
 	// Reset the ready channel for fresh startup
 	httpsReady := make(chan error, 1)
-
-	if s.opts.Certificate == nil {
-		if s.opts.CertFilePath == "" || s.opts.KeyFilePath == "" {
-			return errors.New("TLS certificate is required for HTTPS server")
-		}
-		cert, err := ReadCertificateFromFile(s.opts.CertFilePath, s.opts.KeyFilePath)
-		if err != nil {
-			return fmt.Errorf("read certificate from file cert=%s, key=%s: %w", s.opts.CertFilePath, s.opts.KeyFilePath, err)
-		}
-		s.opts.Certificate = &cert
-	}
 
 	s.https = &http.Server{
 		Addr:              address,
@@ -351,7 +364,7 @@ func (s *Server) WithBasePath(path string) *Server {
 // AuthManager returns [AuthManager], it may be useful if you want to work with auth manually.
 // It returns nil if auth is not enabled (database is not set).
 func (s *Server) AuthManager() *AuthManager {
-	if !s.opts.Auth.enabled {
+	if !s.opts.Auth.Enabled {
 		s.opts.Logger.Error("auth is not enabled, cannot return auth manager")
 		return nil
 	}
@@ -360,7 +373,7 @@ func (s *Server) AuthManager() *AuthManager {
 
 // IsAuthEnabled returns true if auth is enabled.
 func (s *Server) IsAuthEnabled() bool {
-	return s.opts.Auth.enabled
+	return s.opts.Auth.Enabled
 }
 
 // IsTLS returns true if TLS is enabled.
@@ -416,7 +429,7 @@ func (s *Server) HF(path string, f http.HandlerFunc, methods ...string) *mux.Rou
 // WithAuth adds auth middleware to the router with the provided roles.
 // It returns a pointer to the created [mux.Route] to set additional settings to the route.
 func (s *Server) WithAuth(next http.HandlerFunc, roles ...UserRole) http.HandlerFunc {
-	if !s.opts.Auth.enabled {
+	if !s.opts.Auth.Enabled {
 		s.opts.Logger.Error("auth is not enabled, skipping auth middleware")
 		return next
 	}
@@ -473,30 +486,6 @@ func (s *Server) start(address string, serve func(net.Listener) error, getListen
 		return errors.New("address is required")
 	}
 
-	if s.opts.Auth.enabled && !s.opts.Auth.isInitialized {
-		if s.opts.Auth.Database == nil {
-			return errors.New("auth database is required")
-		}
-		authManager, err := NewAuthManager(s.opts.Auth)
-		if err != nil {
-			return fmt.Errorf("cannot create auth manager: %w", err)
-		}
-		s.auth = authManager
-
-		s.auth.RegisterRoutes(s.router)
-
-		for _, user := range s.opts.Auth.InitialUsers {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
-			err := s.auth.CreateUser(ctx, user.Username, user.Password, user.Roles...)
-			if err != nil {
-				return fmt.Errorf("cannot create initial user with name=%s: %w", user.Username, err)
-			}
-		}
-		s.opts.Auth.isInitialized = true
-	}
-
 	l, err := getListener("tcp", address)
 	if err != nil {
 		// Signal startup failure
@@ -548,7 +537,10 @@ func prepareServer(cfg BaseConfig, handlerSetter func(*mux.Router), opts ...Opti
 		opts = append(opts, WithAuthToken(cfg.AuthToken))
 	}
 
-	s := New(opts...)
+	s, err := New(opts...)
+	if err != nil {
+		return nil, err
+	}
 	handlerSetter(s.router)
 
 	return s, nil

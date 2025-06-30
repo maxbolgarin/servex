@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net/http"
 	"time"
 
@@ -30,11 +31,13 @@ func securityExampleMain() {
 func basicSecurityExample() {
 	// === Basic Security Headers Example ===
 
-	server := servex.New(
+	server, err := servex.New(
 		// Enable basic security headers with recommended defaults
 		servex.WithSecurityHeaders(),
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	server.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Data endpoint with basic security headers"))
 	})
@@ -46,11 +49,13 @@ func basicSecurityExample() {
 func strictSecurityExample() {
 	// === Strict Security Headers Example ===
 
-	server := servex.New(
+	server, err := servex.New(
 		// Enable strict security headers for high-security applications
 		servex.WithStrictSecurityHeaders(),
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	server.HandleFunc("/api/secure", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Secure endpoint with strict security headers"))
 	})
@@ -74,7 +79,7 @@ func customSecurityExample() {
 		PermissionsPolicy:       "geolocation=(self), microphone=(), camera=()",
 	}
 
-	server := servex.New(
+	server, err := servex.New(
 		servex.WithSecurityConfig(customSecurity),
 
 		// Add custom headers (separate from security headers)
@@ -86,7 +91,9 @@ func customSecurityExample() {
 		// Remove server information (separate from security headers)
 		servex.WithRemoveHeaders("Server", "X-Powered-By"),
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	server.HandleFunc("/api/custom", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Endpoint with custom security configuration"))
 	})
@@ -97,7 +104,7 @@ func customSecurityExample() {
 func pathSpecificSecurityExample() {
 	// === Path-Specific Security Example ===
 
-	server := servex.New(
+	server, err := servex.New(
 		// Apply security headers only to specific paths
 		servex.WithStrictSecurityHeaders(),
 		servex.WithSecurityIncludePaths("/api/v1/secure", "/admin"),
@@ -105,7 +112,9 @@ func pathSpecificSecurityExample() {
 		// Exclude health and metrics endpoints
 		servex.WithSecurityExcludePaths("/health", "/metrics", "/favicon.ico"),
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	server.HandleFunc("/api/v1/secure", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Secure API endpoint - security headers applied"))
 	})
@@ -125,7 +134,7 @@ func productionSecurityExample() {
 	// === Production Security Example ===
 
 	// Production-ready server with comprehensive security
-	server := servex.New(
+	server, err := servex.New(
 		// Strict security headers
 		servex.WithStrictSecurityHeaders(),
 
@@ -163,7 +172,9 @@ func productionSecurityExample() {
 		// Enable request filtering for additional protection
 		servex.WithBlockedUserAgentsRegex(".*[Bb]ot.*", ".*[Ss]craper.*"),
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	// API routes
 	server.HandleFunc("/api/v2/users", handleSecureUsers)
 	server.HandleFunc("/api/v2/auth/login", handleSecureLogin)
@@ -224,7 +235,7 @@ func realWorldSecurityExample() {
 	// === Real-World Security Example ===
 
 	// Example of a complete security setup for a production web application
-	server := servex.New(
+	server, err := servex.New(
 		// Start with production preset for base security
 		append(servex.ProductionPreset(),
 			// Enhanced security configuration
@@ -267,7 +278,9 @@ func realWorldSecurityExample() {
 			}),
 		)...,
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	// Application routes
 	server.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)

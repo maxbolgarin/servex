@@ -1,6 +1,7 @@
 package main
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/maxbolgarin/servex"
@@ -26,7 +27,7 @@ func main() {
 func basicIPFiltering() {
 	// === Basic IP Filtering Example ===
 
-	server := servex.New(
+	server, err := servex.New(
 		// Only allow requests from specific IP ranges
 		servex.WithAllowedIPs("192.168.1.0/24", "10.0.0.0/8"),
 
@@ -40,7 +41,9 @@ func basicIPFiltering() {
 		servex.WithFilterStatusCode(403),
 		servex.WithFilterMessage("Access denied: IP not allowed"),
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	server.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("Access granted to IP: " + r.RemoteAddr))
 	})
@@ -51,7 +54,7 @@ func basicIPFiltering() {
 func userAgentFiltering() {
 	// === User-Agent Filtering Example ===
 
-	server := servex.New(
+	server, err := servex.New(
 		// Block common bots and scrapers
 		servex.WithBlockedUserAgents("BadTool/1.0"), // Specific bad tool
 		servex.WithBlockedUserAgentsRegex(
@@ -71,7 +74,9 @@ func userAgentFiltering() {
 		// Exclude health check from filtering
 		servex.WithFilterExcludePaths("/health", "/status"),
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	server.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
 		userAgent := r.Header.Get("User-Agent")
 		w.Write([]byte("Access granted to User-Agent: " + userAgent))
@@ -87,7 +92,7 @@ func userAgentFiltering() {
 func headerBasedAuth() {
 	// === Header-Based Authentication Example ===
 
-	server := servex.New(
+	server, err := servex.New(
 		// Require specific API key in header
 		servex.WithAllowedHeadersRegex(map[string][]string{
 			"X-API-Key":        {"^api-key-[0-9a-f]{32}$"},      // Require specific API key format
@@ -105,7 +110,9 @@ func headerBasedAuth() {
 		// Only apply to API endpoints
 		servex.WithFilterIncludePaths("/api/v1/secure", "/api/v1/admin"),
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	server.HandleFunc("/api/v1/secure", func(w http.ResponseWriter, r *http.Request) {
 		apiKey := r.Header.Get("X-API-Key")
 		version := r.Header.Get("X-Client-Version")
@@ -123,7 +130,7 @@ func comprehensiveSecurity() {
 	// === Comprehensive Security Example ===
 
 	// Create server with multiple security layers
-	server := servex.New(
+	server, err := servex.New(
 		// Rate limiting
 		servex.WithRPS(10), // 10 requests per second
 
@@ -166,7 +173,9 @@ func comprehensiveSecurity() {
 		// Proxy configuration for real IP detection
 		servex.WithFilterTrustedProxies("172.16.0.0/12", "10.0.0.0/8"),
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	// Add routes
 	server.HandleFunc("/api/users", handleUsers)
 	server.HandleFunc("/api/admin", handleAdmin)
@@ -233,7 +242,10 @@ func productionExample() {
 		},
 	}
 
-	server := createSecureServer(config)
+	server, err := createSecureServer(config)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 
 	// Production routes
 	server.HandleFunc("/api/v1/secure", func(w http.ResponseWriter, r *http.Request) {
@@ -256,7 +268,7 @@ func productionExample() {
 	// server.Start(":8080", ":8443")
 }
 
-func createSecureServer(config SecurityConfig) *servex.Server {
+func createSecureServer(config SecurityConfig) (*servex.Server, error) {
 	options := []servex.Option{
 		// Apply IP filtering
 		servex.WithAllowedIPs(config.AllowedIPs...),
@@ -282,5 +294,9 @@ func createSecureServer(config SecurityConfig) *servex.Server {
 		servex.WithRPS(50),
 	}
 
-	return servex.New(options...)
+	server, err := servex.New(options...)
+	if err != nil {
+		return nil, err
+	}
+	return server, nil
 }

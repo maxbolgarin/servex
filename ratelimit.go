@@ -51,10 +51,9 @@ type rateLimiterMiddleware struct {
 // If the config is not enabled, no middleware will be registered.
 // It returns a function that can be used to stop the cleanup routine.
 func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig) func() {
-	if cfg.RequestsPerInterval <= 0 {
+	if !cfg.Enabled || cfg.RequestsPerInterval <= 0 {
 		return nil
 	}
-
 	cfg.BurstSize = lang.Check(cfg.BurstSize, cfg.RequestsPerInterval)
 	cfg.Interval = lang.Check(cfg.Interval, defaultInterval)
 	cfg.StatusCode = lang.Check(cfg.StatusCode, http.StatusTooManyRequests)

@@ -438,7 +438,6 @@ func TestWithRateLimitConfig(t *testing.T) {
 		KeyFunc:             customKeyFunc,
 		ExcludePaths:        []string{"/health", "/metrics"},
 		IncludePaths:        []string{"/api"},
-		NoRateInAuthRoutes:  true,
 	}
 
 	option := servex.WithRateLimitConfig(rateLimit)
@@ -470,9 +469,6 @@ func TestWithRateLimitConfig(t *testing.T) {
 	}
 	if !reflect.DeepEqual(options.RateLimit.IncludePaths, rateLimit.IncludePaths) {
 		t.Errorf("expected include paths %v, got %v", rateLimit.IncludePaths, options.RateLimit.IncludePaths)
-	}
-	if options.RateLimit.NoRateInAuthRoutes != rateLimit.NoRateInAuthRoutes {
-		t.Errorf("expected NoRateInAuthRoutes %v, got %v", rateLimit.NoRateInAuthRoutes, options.RateLimit.NoRateInAuthRoutes)
 	}
 }
 
@@ -594,17 +590,6 @@ func TestWithRateLimitIncludePaths(t *testing.T) {
 
 	if !reflect.DeepEqual(options.RateLimit.IncludePaths, paths) {
 		t.Errorf("expected include paths %v, got %v", paths, options.RateLimit.IncludePaths)
-	}
-}
-
-// TestWithNoRateInAuthRoutes verifies that WithNoRateInAuthRoutes sets the flag in rate limit configuration.
-func TestWithNoRateInAuthRoutes(t *testing.T) {
-	option := servex.WithNoRateInAuthRoutes()
-	options := servex.Options{}
-	option(&options)
-
-	if !options.RateLimit.NoRateInAuthRoutes {
-		t.Errorf("expected NoRateInAuthRoutes to be true, got false")
 	}
 }
 

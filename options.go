@@ -402,6 +402,9 @@ type Options struct {
 //		RolesOnRegister: []UserRole{"user"},
 //	}
 type AuthConfig struct {
+	// Enabled indicates whether authentication is enabled.
+	Enabled bool
+
 	// Database is the interface for user data persistence.
 	// Must implement AuthDatabase interface for user CRUD operations.
 	// Set via WithAuth() or WithAuthMemoryDatabase().
@@ -548,14 +551,6 @@ type AuthConfig struct {
 	// refreshSecret is the decoded refresh secret key (internal use).
 	// This field is populated automatically from JWTRefreshSecret during initialization.
 	refreshSecret []byte
-
-	// enabled indicates whether authentication is enabled (internal use).
-	// This field is set automatically when a Database is configured.
-	enabled bool
-
-	// isInitialized indicates whether the auth system is initialized (internal use).
-	// This field is set automatically during server startup.
-	isInitialized bool
 }
 
 // InitialUser represents a user to be created during server startup.
@@ -648,6 +643,9 @@ type InitialUser struct {
 //		BurstSize:          1,
 //	}
 type RateLimitConfig struct {
+	// Enabled indicates whether rate limiting is enabled.
+	Enabled bool
+
 	// RequestsPerInterval is the number of requests allowed per time interval.
 	// Set via WithRPM(), WithRPS(), or WithRequestsPerInterval().
 	// If not set or zero, rate limiting will be disabled.
@@ -758,24 +756,6 @@ type RateLimitConfig struct {
 	//   - Rate limit only external-facing endpoints
 	//   - Granular control over protection
 	IncludePaths []string
-
-	// NoRateInAuthRoutes disables rate limiting for authentication endpoints.
-	// This prevents auth routes from being double-limited when they have their own protection.
-	// Set to true via WithNoRateInAuthRoutes().
-	//
-	// Why use this:
-	//   - Auth endpoints often have built-in protection (login attempts, etc.)
-	//   - Prevents blocking legitimate auth operations
-	//   - Allows different limits for auth vs regular endpoints
-	//   - Avoids double-protection overhead
-	//
-	// Affected routes (when auth is enabled):
-	//   - POST /api/v1/auth/login
-	//   - POST /api/v1/auth/register
-	//   - POST /api/v1/auth/refresh
-	//   - POST /api/v1/auth/logout
-	//   - GET /api/v1/auth/me
-	NoRateInAuthRoutes bool
 
 	// TrustedProxies is a list of trusted proxy IP addresses or CIDR ranges
 	// for accurate client IP detection in rate limiting.
@@ -1911,6 +1891,7 @@ func ReadCertificateFromFile(certFile, keyFile string) (tls.Certificate, error) 
 //   - Production authentication systems
 func WithAuth(db AuthDatabase) Option {
 	return func(op *Options) {
+		op.Auth.Enabled = true
 		op.Auth.Database = db
 	}
 }
@@ -1945,6 +1926,7 @@ func WithAuth(db AuthDatabase) Option {
 // For production, implement a persistent database and use WithAuth() instead.
 func WithAuthMemoryDatabase() Option {
 	return func(op *Options) {
+		op.Auth.Enabled = true
 		op.Auth.Database = NewMemoryAuthDatabase()
 	}
 }
@@ -1955,6 +1937,7 @@ func WithAuthMemoryDatabase() Option {
 // Example:
 //
 //	authConfig := servex.AuthConfig{
+//		Enabled:                 true,
 //		Database:                myDB,
 //		AccessTokenDuration:     15 * time.Minute,
 //		RefreshTokenDuration:    7 * 24 * time.Hour,
@@ -2232,13 +2215,14 @@ func WithAuthInitialUsers(users ...InitialUser) Option {
 // Example:
 //
 //	rateLimitConfig := servex.RateLimitConfig{
+//		Enabled:             true,
 //		RequestsPerInterval: 100,
-//		Interval:           time.Minute,
-//		BurstSize:          20,
-//		StatusCode:         429,
-//		Message:           "Rate limit exceeded. Try again later.",
-//		ExcludePaths:      []string{"/health", "/metrics"},
-//		TrustedProxies:    []string{"10.0.0.0/8"},
+//		Interval:            time.Minute,
+//		BurstSize:           20,
+//		StatusCode:          429,
+//		Message:             "Rate limit exceeded. Try again later.",
+//		ExcludePaths:        []string{"/health", "/metrics"},
+//		TrustedProxies:      []string{"10.0.0.0/8"},
 //	}
 //
 //	server := servex.New(servex.WithRateLimitConfig(rateLimitConfig))
@@ -2275,6 +2259,7 @@ func WithRPM(rpm int) Option {
 	return func(op *Options) {
 		op.RateLimit.RequestsPerInterval = rpm
 		op.RateLimit.Interval = time.Minute
+		op.RateLimit.Enabled = true
 	}
 }
 
@@ -2302,6 +2287,7 @@ func WithRPS(rps int) Option {
 	return func(op *Options) {
 		op.RateLimit.RequestsPerInterval = rps
 		op.RateLimit.Interval = time.Second
+		op.RateLimit.Enabled = true
 	}
 }
 
@@ -2330,6 +2316,7 @@ func WithRequestsPerInterval(requestsPerInterval int, interval time.Duration) Op
 	return func(op *Options) {
 		op.RateLimit.RequestsPerInterval = requestsPerInterval
 		op.RateLimit.Interval = interval
+		op.RateLimit.Enabled = true
 	}
 }
 
@@ -2365,6 +2352,7 @@ func WithRequestsPerInterval(requestsPerInterval int, interval time.Duration) Op
 func WithBurstSize(burstSize int) Option {
 	return func(op *Options) {
 		op.RateLimit.BurstSize = burstSize
+		op.RateLimit.Enabled = true
 	}
 }
 
@@ -2395,6 +2383,7 @@ func WithBurstSize(burstSize int) Option {
 func WithRateLimitStatusCode(statusCode int) Option {
 	return func(op *Options) {
 		op.RateLimit.StatusCode = statusCode
+		op.RateLimit.Enabled = true
 	}
 }
 
@@ -2425,6 +2414,7 @@ func WithRateLimitStatusCode(statusCode int) Option {
 func WithRateLimitMessage(message string) Option {
 	return func(op *Options) {
 		op.RateLimit.Message = message
+		op.RateLimit.Enabled = true
 	}
 }
 
@@ -2473,6 +2463,7 @@ func WithRateLimitMessage(message string) Option {
 func WithRateLimitKeyFunc(keyFunc func(r *http.Request) string) Option {
 	return func(op *Options) {
 		op.RateLimit.KeyFunc = keyFunc
+		op.RateLimit.Enabled = true
 	}
 }
 
@@ -2504,6 +2495,7 @@ func WithRateLimitKeyFunc(keyFunc func(r *http.Request) string) Option {
 func WithRateLimitExcludePaths(paths ...string) Option {
 	return func(op *Options) {
 		op.RateLimit.ExcludePaths = append(op.RateLimit.ExcludePaths, paths...)
+		op.RateLimit.Enabled = true
 	}
 }
 
@@ -2536,39 +2528,7 @@ func WithRateLimitExcludePaths(paths ...string) Option {
 func WithRateLimitIncludePaths(paths ...string) Option {
 	return func(op *Options) {
 		op.RateLimit.IncludePaths = append(op.RateLimit.IncludePaths, paths...)
-	}
-}
-
-// WithNoRateInAuthRoutes disables rate limiting for authentication endpoints.
-// This prevents auth routes from being double-limited when they have their own protection.
-//
-// Example:
-//
-//	// Rate limit everything except auth routes
-//	server := servex.New(
-//		servex.WithRPS(100),
-//		servex.WithAuthMemoryDatabase(),
-//		servex.WithNoRateInAuthRoutes(),
-//	)
-//
-// Why use this:
-//   - Auth endpoints often have built-in protection (login attempts, etc.)
-//   - Prevents blocking legitimate auth operations
-//   - Allows different limits for auth vs regular endpoints
-//   - Avoids double-protection overhead
-//
-// Affected routes (when auth is enabled):
-//   - POST /api/v1/auth/login
-//   - POST /api/v1/auth/register
-//   - POST /api/v1/auth/refresh
-//   - POST /api/v1/auth/logout
-//   - GET /api/v1/auth/me
-//
-// You can still apply separate rate limits to auth endpoints using
-// include/exclude path configurations if needed.
-func WithNoRateInAuthRoutes() Option {
-	return func(op *Options) {
-		op.RateLimit.NoRateInAuthRoutes = true
+		op.RateLimit.Enabled = true
 	}
 }
 
@@ -2604,6 +2564,7 @@ func WithNoRateInAuthRoutes() Option {
 func WithRateLimitTrustedProxies(proxies ...string) Option {
 	return func(op *Options) {
 		op.RateLimit.TrustedProxies = append(op.RateLimit.TrustedProxies, proxies...)
+		op.RateLimit.Enabled = true
 	}
 }
 

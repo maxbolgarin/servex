@@ -33,19 +33,19 @@ type Filter struct {
 
 // RegisterFilterMiddleware adds request filtering middleware to the router.
 // If the config has no filters configured, no middleware will be registered.
-func RegisterFilterMiddleware(router MiddlewareRouter, cfg FilterConfig) {
+func RegisterFilterMiddleware(router MiddlewareRouter, cfg FilterConfig) error {
 	if !cfg.isEnabled() {
-		return
+		return nil
 	}
 
 	filter, err := newFilter(cfg)
 	if err != nil {
-		// Log error but don't prevent server startup
-		// In production, you might want to fail startup instead
-		return
+		return err
 	}
 
 	router.Use(filter.middleware)
+
+	return nil
 }
 
 // isEnabled checks if any filtering rules are configured.

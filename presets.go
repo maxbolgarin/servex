@@ -14,7 +14,7 @@ func DevelopmentPreset() []Option {
 		WithReadTimeout(30 * time.Second),
 		WithIdleTimeout(60 * time.Second),
 		WithHealthEndpoint(),
-		WithNoLogClientErrors(), // Don't clutter logs with 4xx errors during dev
+		WithSendErrorToClient(), // Send error to client to see them in browser and better debug
 	}
 }
 
@@ -188,6 +188,5 @@ func AuthAPIPreset() []Option {
 		WithAuthBasePath("/api/v1/auth"),
 		WithAuthInitialRoles(UserRole("user")),                 // Default role for new users
 		WithAuthTokensDuration(15*time.Minute, 7*24*time.Hour), // 15min access, 7 day refresh
-		WithNoRateInAuthRoutes(),                               // Don't rate limit auth routes separately
 	)
 }

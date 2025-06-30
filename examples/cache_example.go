@@ -33,7 +33,7 @@ func cacheMain() {
 	log.Println("Starting complex cache example server on :8080")
 	log.Println("Visit http://localhost:8080 for interactive demo")
 
-	server := servex.New(
+	server, err := servex.New(
 		servex.WithCachePublic(1800),
 		servex.WithCacheIncludePaths("/api/v1/public/*", "/static/*"),
 		servex.WithCacheExcludePaths("/api/v1/private/*", "/admin/*"),
@@ -45,6 +45,9 @@ func cacheMain() {
 			return ""
 		}),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 
 	server.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.NewContext(w, r)
@@ -86,10 +89,12 @@ func cacheMain() {
 // This example shows the simplest way to add cache control to your server
 func basicCacheExample() {
 	// Create a server with basic public caching for 1 hour
-	server := servex.New(
+	server, err := servex.New(
 		servex.WithCachePublic(3600), // Cache for 1 hour (3600 seconds)
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	// Simple API endpoint that will be cached
 	server.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.NewContext(w, r)
@@ -111,7 +116,7 @@ func basicCacheExample() {
 // Example 2: Cache with Path Filtering (Intermediate)
 // This example shows how to apply caching only to specific paths
 func intermediateCacheExample() {
-	server := servex.New(
+	server, err := servex.New(
 		// Cache public content for 30 minutes
 		servex.WithCachePublic(1800),
 
@@ -124,7 +129,9 @@ func intermediateCacheExample() {
 		// Add Vary header for better cache behavior
 		servex.WithCacheVary("Accept-Encoding"),
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	// This endpoint will be cached (matches /api/public/*)
 	server.HandleFunc("/api/public/data", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.NewContext(w, r)
@@ -173,7 +180,7 @@ func advancedCacheExample() {
 		"version":      "v1.2.3",
 	}
 
-	server := servex.New(
+	server, err := servex.New(
 		// Base cache configuration
 		servex.WithCachePublic(1800), // 30 minutes
 
@@ -205,7 +212,9 @@ func advancedCacheExample() {
 			}
 		}),
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	// User profile endpoint with dynamic cache headers
 	server.HandleFunc("/api/user/profile", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.NewContext(w, r)
@@ -253,7 +262,7 @@ func advancedCacheExample() {
 // Example 4: Comprehensive Cache Configuration (Complex)
 // This example demonstrates all cache control features together
 func complexCacheExample() {
-	server := servex.New(
+	server, err := servex.New(
 		// Comprehensive cache configuration using the CacheConfig struct
 		servex.WithCacheConfig(servex.CacheConfig{
 			Enabled:      true,
@@ -295,7 +304,9 @@ func complexCacheExample() {
 			},
 		}),
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	// API version endpoint (cached with static ETag)
 	server.HandleFunc("/api/v1/public/version", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.NewContext(w, r)
@@ -429,35 +440,53 @@ curl -I http://localhost:8080/api/v1/private/user-session
 // This example shows different cache strategies using servex presets
 func cacheStrategyExamples() {
 	// Strategy 1: No caching for sensitive data
-	sensitiveServer := servex.New(
+	sensitiveServer, err := servex.New(
 		servex.WithCacheNoStore(), // Adds: no-store, no-cache, must-revalidate
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 
 	// Strategy 2: Force revalidation for dynamic content
-	dynamicServer := servex.New(
+	dynamicServer, err := servex.New(
 		servex.WithCacheNoCache(), // Adds: no-cache, must-revalidate
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 
 	// Strategy 3: Private caching for user-specific content
-	userServer := servex.New(
+	userServer, err := servex.New(
 		servex.WithCachePrivate(900), // Adds: private, max-age=900 (15 minutes)
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 
 	// Strategy 4: Long-term caching for static assets
-	staticServer := servex.New(
+	staticServer, err := servex.New(
 		servex.WithCacheStaticAssets(31536000), // Adds: public, max-age=31536000, immutable (1 year)
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 
 	// Strategy 5: API caching with revalidation
-	apiServer := servex.New(
+	apiServer, err := servex.New(
 		servex.WithCacheAPI(300), // Adds: public, max-age=300, must-revalidate (5 minutes)
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 
 	// Strategy 6: Time-based caching with specific expiration
-	timedServer := servex.New(
+	timedServer, err := servex.New(
 		servex.WithCacheExpiresTime(time.Now().Add(time.Hour)),       // Expires in 1 hour
 		servex.WithCacheLastModifiedTime(time.Now().Add(-time.Hour)), // Modified 1 hour ago
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 
 	// Each server would handle specific use cases:
 	// - sensitiveServer: Banking, medical records, personal data

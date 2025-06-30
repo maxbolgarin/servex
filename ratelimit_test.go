@@ -24,6 +24,15 @@ func (r *TestRouter) Use(middleware ...mux.MiddlewareFunc) {
 	}
 }
 
+// ServeHTTP applies middleware if it exists, otherwise calls the handler directly
+func (r *TestRouter) ServeHTTP(handler http.Handler, w http.ResponseWriter, req *http.Request) {
+	if r.middleware != nil {
+		r.middleware(handler).ServeHTTP(w, req)
+	} else {
+		handler.ServeHTTP(w, req)
+	}
+}
+
 // createTestHandler returns a simple handler for testing
 func createTestHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +54,7 @@ func TestRateLimitMiddleware_Basic(t *testing.T) {
 
 	// Configure rate limiting with a static key function to ensure all requests use the same key
 	cfg := RateLimitConfig{
+		Enabled:             true,
 		RequestsPerInterval: 3,
 		Interval:            time.Second,
 		StatusCode:          http.StatusTooManyRequests,
@@ -57,9 +67,8 @@ func TestRateLimitMiddleware_Basic(t *testing.T) {
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Apply middleware
-		handler := router.middleware(createTestHandler())
-		handler.ServeHTTP(w, r)
+		// Apply middleware safely
+		router.ServeHTTP(createTestHandler(), w, r)
 	}))
 	defer server.Close()
 
@@ -103,11 +112,15 @@ func TestRateLimitMiddleware_Disabled(t *testing.T) {
 	}
 
 	// Register middleware
-	RegisterRateLimitMiddleware(router, cfg)
+	cleanup := RegisterRateLimitMiddleware(router, cfg)
 
-	// The middleware should not be set
+	// The middleware should not be set and cleanup should be nil
 	if router.middleware != nil {
 		t.Errorf("Rate limiting should be disabled, but middleware was registered")
+	}
+
+	if cleanup != nil {
+		t.Errorf("Expected cleanup function to be nil for disabled rate limiting")
 	}
 }
 
@@ -117,6 +130,7 @@ func TestRateLimitMiddleware_ExcludePaths(t *testing.T) {
 
 	// Configure rate limiting with excluded paths and a static key function
 	cfg := RateLimitConfig{
+		Enabled:             true,
 		RequestsPerInterval: 2,
 		Interval:            time.Second,
 		StatusCode:          http.StatusTooManyRequests,
@@ -130,9 +144,8 @@ func TestRateLimitMiddleware_ExcludePaths(t *testing.T) {
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Apply middleware
-		handler := router.middleware(createTestHandler())
-		handler.ServeHTTP(w, r)
+		// Apply middleware safely
+		router.ServeHTTP(createTestHandler(), w, r)
 	}))
 	defer server.Close()
 
@@ -187,6 +200,7 @@ func TestRateLimitMiddleware_IncludePaths(t *testing.T) {
 
 	// Configure rate limiting with included paths and a static key function
 	cfg := RateLimitConfig{
+		Enabled:             true,
 		RequestsPerInterval: 2,
 		Interval:            time.Second,
 		StatusCode:          http.StatusTooManyRequests,
@@ -200,9 +214,8 @@ func TestRateLimitMiddleware_IncludePaths(t *testing.T) {
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Apply middleware
-		handler := router.middleware(createTestHandler())
-		handler.ServeHTTP(w, r)
+		// Apply middleware safely
+		router.ServeHTTP(createTestHandler(), w, r)
 	}))
 	defer server.Close()
 
@@ -262,6 +275,7 @@ func TestRateLimitMiddleware_KeyFunction(t *testing.T) {
 
 	// Configure rate limiting with a custom key function
 	cfg := RateLimitConfig{
+		Enabled:             true,
 		RequestsPerInterval: 2,
 		Interval:            time.Second,
 		StatusCode:          http.StatusTooManyRequests,
@@ -274,9 +288,8 @@ func TestRateLimitMiddleware_KeyFunction(t *testing.T) {
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Apply middleware
-		handler := router.middleware(createTestHandler())
-		handler.ServeHTTP(w, r)
+		// Apply middleware safely
+		router.ServeHTTP(createTestHandler(), w, r)
 	}))
 	defer server.Close()
 
@@ -324,6 +337,7 @@ func TestRateLimitMiddleware_BurstSize(t *testing.T) {
 
 	// Configure rate limiting with a burst size larger than requests per interval and a static key
 	cfg := RateLimitConfig{
+		Enabled:             true,
 		RequestsPerInterval: 2,
 		BurstSize:           4, // Allow bursts of up to 4 requests
 		Interval:            time.Second,
@@ -337,9 +351,8 @@ func TestRateLimitMiddleware_BurstSize(t *testing.T) {
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Apply middleware
-		handler := router.middleware(createTestHandler())
-		handler.ServeHTTP(w, r)
+		// Apply middleware safely
+		router.ServeHTTP(createTestHandler(), w, r)
 	}))
 	defer server.Close()
 
@@ -395,6 +408,7 @@ func TestRateLimitMiddleware_CleanupInterval(t *testing.T) {
 
 	// Configure rate limiting
 	cfg := RateLimitConfig{
+		Enabled:             true,
 		RequestsPerInterval: 2,
 		Interval:            time.Second,
 		KeyFunc:             staticKeyFunc("test-client"),
@@ -409,9 +423,8 @@ func TestRateLimitMiddleware_CleanupInterval(t *testing.T) {
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Apply middleware
-		handler := router.middleware(createTestHandler())
-		handler.ServeHTTP(w, r)
+		// Apply middleware safely
+		router.ServeHTTP(createTestHandler(), w, r)
 	}))
 	defer server.Close()
 
@@ -447,6 +460,7 @@ func TestRateLimitMiddleware_DefaultValues(t *testing.T) {
 
 	// Configure rate limiting with minimal configuration and a static key
 	cfg := RateLimitConfig{
+		Enabled:             true,
 		RequestsPerInterval: 3,
 		KeyFunc:             staticKeyFunc("test-client"),
 	}
@@ -456,9 +470,8 @@ func TestRateLimitMiddleware_DefaultValues(t *testing.T) {
 
 	// Create a test server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Apply middleware
-		handler := router.middleware(createTestHandler())
-		handler.ServeHTTP(w, r)
+		// Apply middleware safely
+		router.ServeHTTP(createTestHandler(), w, r)
 	}))
 	defer server.Close()
 
@@ -496,6 +509,7 @@ func TestRateLimitMiddleware_DefaultValues(t *testing.T) {
 // for subsequent handlers when extracting username for rate limiting.
 func TestRateLimitMiddleware_RequestBodyPreservation(t *testing.T) {
 	cfg := RateLimitConfig{
+		Enabled:             true,
 		RequestsPerInterval: 10,
 		Interval:            time.Minute,
 		BurstSize:           1,
@@ -515,17 +529,14 @@ func TestRateLimitMiddleware_RequestBodyPreservation(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	// Apply middleware
-	middlewareHandler := router.middleware(handler)
-
 	// Create test request with JSON body containing username
 	requestBody := `{"username":"testuser","password":"testpass"}`
 	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(requestBody))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
-	// Execute request
-	middlewareHandler.ServeHTTP(w, req)
+	// Execute request safely
+	router.ServeHTTP(handler, w, req)
 
 	// Verify the request body was preserved for the handler
 	if receivedBody != requestBody {
@@ -853,6 +864,7 @@ func TestUsernameRateLimitingBodyPreservation(t *testing.T) {
 // TestUsernameRateLimitingIntegration tests username rate limiting through the full middleware.
 func TestUsernameRateLimitingIntegration(t *testing.T) {
 	cfg := RateLimitConfig{
+		Enabled:             true,
 		RequestsPerInterval: 2, // Allow only 2 requests
 		Interval:            time.Minute,
 		BurstSize:           2,
@@ -869,13 +881,11 @@ func TestUsernameRateLimitingIntegration(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middlewareHandler := router.middleware(handler)
-
 	// Test 1: First login for user1 - should succeed
 	req1 := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"user1","password":"pass1"}`))
 	req1.Header.Set("Content-Type", "application/json")
 	w1 := httptest.NewRecorder()
-	middlewareHandler.ServeHTTP(w1, req1)
+	router.ServeHTTP(handler, w1, req1)
 
 	if w1.Code != http.StatusOK {
 		t.Errorf("first request for user1 should succeed, got status %d", w1.Code)
@@ -885,7 +895,7 @@ func TestUsernameRateLimitingIntegration(t *testing.T) {
 	req2 := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"user1","password":"pass1"}`))
 	req2.Header.Set("Content-Type", "application/json")
 	w2 := httptest.NewRecorder()
-	middlewareHandler.ServeHTTP(w2, req2)
+	router.ServeHTTP(handler, w2, req2)
 
 	if w2.Code != http.StatusOK {
 		t.Errorf("second request for user1 should succeed, got status %d", w2.Code)
@@ -895,7 +905,7 @@ func TestUsernameRateLimitingIntegration(t *testing.T) {
 	req3 := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"user1","password":"pass1"}`))
 	req3.Header.Set("Content-Type", "application/json")
 	w3 := httptest.NewRecorder()
-	middlewareHandler.ServeHTTP(w3, req3)
+	router.ServeHTTP(handler, w3, req3)
 
 	if w3.Code != http.StatusTooManyRequests {
 		t.Errorf("third request for user1 should be rate limited, got status %d", w3.Code)
@@ -905,7 +915,7 @@ func TestUsernameRateLimitingIntegration(t *testing.T) {
 	req4 := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"username":"user2","password":"pass2"}`))
 	req4.Header.Set("Content-Type", "application/json")
 	w4 := httptest.NewRecorder()
-	middlewareHandler.ServeHTTP(w4, req4)
+	router.ServeHTTP(handler, w4, req4)
 
 	if w4.Code != http.StatusOK {
 		t.Errorf("first request for user2 should succeed, got status %d", w4.Code)
@@ -932,6 +942,7 @@ func TestUsernameRateLimitingIntegration(t *testing.T) {
 // TestUsernameRateLimitingFallbackToIP tests that invalid username requests fall back to IP-based limiting.
 func TestUsernameRateLimitingFallbackToIP(t *testing.T) {
 	cfg := RateLimitConfig{
+		Enabled:             true,
 		RequestsPerInterval: 2, // Allow only 2 requests
 		Interval:            time.Minute,
 		BurstSize:           2,
@@ -944,8 +955,6 @@ func TestUsernameRateLimitingFallbackToIP(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	middlewareHandler := router.middleware(handler)
-
 	// All requests from same IP with invalid JSON should be rate limited together
 	baseReq := func() *http.Request {
 		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{invalid-json}`))
@@ -955,21 +964,21 @@ func TestUsernameRateLimitingFallbackToIP(t *testing.T) {
 
 	// First request - should succeed
 	w1 := httptest.NewRecorder()
-	middlewareHandler.ServeHTTP(w1, baseReq())
+	router.ServeHTTP(handler, w1, baseReq())
 	if w1.Code != http.StatusOK {
 		t.Errorf("first request should succeed, got status %d", w1.Code)
 	}
 
 	// Second request - should succeed
 	w2 := httptest.NewRecorder()
-	middlewareHandler.ServeHTTP(w2, baseReq())
+	router.ServeHTTP(handler, w2, baseReq())
 	if w2.Code != http.StatusOK {
 		t.Errorf("second request should succeed, got status %d", w2.Code)
 	}
 
 	// Third request - should be rate limited (IP-based)
 	w3 := httptest.NewRecorder()
-	middlewareHandler.ServeHTTP(w3, baseReq())
+	router.ServeHTTP(handler, w3, baseReq())
 	if w3.Code != http.StatusTooManyRequests {
 		t.Errorf("third request should be rate limited, got status %d", w3.Code)
 	}

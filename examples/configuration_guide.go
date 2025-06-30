@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/tls"
+	"log"
 	"log/slog"
 	"net/http"
 	"time"
@@ -53,37 +54,68 @@ func quickStartWithPresets() {
 	// Presets combine multiple options for common use cases:
 
 	// Development - minimal setup, no restrictions
-	_ = servex.New(servex.DevelopmentPreset()...)
+	server, err := servex.New(servex.DevelopmentPreset()...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
+	_ = server
 	// DevelopmentPreset(): Basic setup for development
 
 	// Production - security, rate limiting, monitoring
-	_ = servex.New(servex.ProductionPreset()...)
+	server, err = servex.New(servex.ProductionPreset()...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
+	_ = server
 	// ProductionPreset(): Full production setup with security
 
 	// API Server - optimized for REST APIs
-	_ = servex.New(servex.APIServerPreset()...)
+	server, err = servex.New(servex.APIServerPreset()...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
+	_ = server
 	// APIServerPreset(): Optimized for REST API servers
 
 	// Web App - security headers for web applications
-	_ = servex.New(servex.WebAppPreset()...)
+	server, err = servex.New(servex.WebAppPreset()...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
+	_ = server
 	// WebAppPreset(): Web application with CSP and security
 
 	// Microservice - fast timeouts, minimal security
-	_ = servex.New(servex.MicroservicePreset()...)
+	server, err = servex.New(servex.MicroservicePreset()...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
+	_ = server
 	// MicroservicePreset(): Optimized for microservices
 
 	// High Security - maximum security features
-	_ = servex.New(servex.HighSecurityPreset()...)
+	server, err = servex.New(servex.HighSecurityPreset()...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
+	_ = server
 	// HighSecurityPreset(): Maximum security configuration
 
 	// SSL Setup - production + SSL certificate
-	_ = servex.New(servex.QuickTLSPreset("cert.pem", "key.pem")...)
+	server, err = servex.New(servex.QuickTLSPreset("cert.pem", "key.pem")...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
+	_ = server
 	// QuickTLSPreset(): Production + SSL certificate
 
 	// Auth API - API server + JWT authentication
-	server := servex.New(append(servex.AuthAPIPreset(),
+	server, err = servex.New(append(servex.AuthAPIPreset(),
 		servex.WithAuthMemoryDatabase(),
 	)...)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server
 	// AuthAPIPreset(): API server + JWT authentication
 }
@@ -93,7 +125,7 @@ func basicServerConfiguration() {
 	// === 2. Basic Server Configuration ===
 	// Essential server options:
 
-	server := servex.New(
+	server, err := servex.New(
 		// Health check endpoint (recommended for all servers)
 		servex.WithHealthEndpoint(),
 		servex.WithHealthPath("/health"), // Custom health path
@@ -107,6 +139,9 @@ func basicServerConfiguration() {
 		// Remove server identification headers
 		servex.WithRemoveHeaders("Server", "X-Powered-By"),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server
 
 	// ✓ Health endpoint at /health
@@ -121,32 +156,44 @@ func tlsConfiguration() {
 	// Options for HTTPS setup:
 
 	// Option 1: Certificate from files
-	server1 := servex.New(
+	server1, err := servex.New(
 		servex.WithCertificateFromFile("server.crt", "server.key"),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server1
 	// Method 1: Certificate from files
 
 	// Option 2: Certificate object
 	cert, _ := tls.LoadX509KeyPair("server.crt", "server.key")
-	server2 := servex.New(
+	server2, err := servex.New(
 		servex.WithCertificate(cert),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server2
 	// Method 2: Pre-loaded certificate object
 
 	// Option 3: Certificate pointer
-	server3 := servex.New(
+	server3, err := servex.New(
 		servex.WithCertificatePtr(&cert),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server3
 	// Method 3: Certificate pointer
 
 	// With HSTS header for security
-	server4 := servex.New(
+	server4, err := servex.New(
 		servex.WithCertificateFromFile("server.crt", "server.key"),
 		servex.WithHSTSHeader(31536000, true, true), // 1 year, includeSubdomains, preload
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server4
 	// ✓ HSTS header for enhanced security
 }
@@ -156,7 +203,7 @@ func timeoutConfiguration() {
 	// === 4. Timeout Configuration ===
 	// Control server timeouts:
 
-	server := servex.New(
+	server, err := servex.New(
 		// Read timeout: maximum duration for reading the entire request
 		servex.WithReadTimeout(30*time.Second),
 
@@ -166,6 +213,9 @@ func timeoutConfiguration() {
 		// Idle timeout: maximum time to wait for the next request when keep-alives are enabled
 		servex.WithIdleTimeout(120*time.Second),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server
 
 	// ReadTimeout: 30s (entire request)
@@ -185,9 +235,12 @@ func authenticationConfiguration() {
 	// JWT-based authentication setup:
 
 	// Basic auth with memory database
-	server1 := servex.New(
+	server1, err := servex.New(
 		servex.WithAuthMemoryDatabase(),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server1
 	// Method 1: In-memory database (development/testing)
 
@@ -197,7 +250,7 @@ func authenticationConfiguration() {
 	// )
 
 	// Full auth configuration
-	server3 := servex.New(
+	server3, err := servex.New(
 		servex.WithAuthMemoryDatabase(),
 
 		// JWT secrets (hex encoded, will be generated if not provided)
@@ -229,6 +282,9 @@ func authenticationConfiguration() {
 		// Don't register default auth routes (if you want custom routes)
 		// servex.WithAuthNotRegisterRoutes(true),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server3
 
 	// ✓ JWT access tokens (15 min) and refresh tokens (7 days)
@@ -244,9 +300,12 @@ func authenticationConfiguration() {
 	// - GET /api/v1/auth/me
 
 	// Simple token authentication (alternative to JWT)
-	server4 := servex.New(
+	server4, err := servex.New(
 		servex.WithAuthToken("my-secret-token"),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server4
 	// Alternative: Simple token authentication (Authorization: Bearer token)
 }
@@ -257,20 +316,26 @@ func rateLimitingConfiguration() {
 	// Control request rates:
 
 	// Simple rate limiting
-	server1 := servex.New(
+	server1, err := servex.New(
 		servex.WithRPS(100), // 100 requests per second
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server1
 	// Method 1: Simple RPS (requests per second)
 
-	server2 := servex.New(
+	server2, err := servex.New(
 		servex.WithRPM(1000), // 1000 requests per minute
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server2
 	// Method 2: Simple RPM (requests per minute)
 
 	// Advanced rate limiting
-	server3 := servex.New(
+	server3, err := servex.New(
 		servex.WithRequestsPerInterval(500, 5*time.Minute), // 500 requests per 5 minutes
 		servex.WithBurstSize(50),                           // Allow burst of 50 requests
 
@@ -284,10 +349,10 @@ func rateLimitingConfiguration() {
 
 		// Proxy configuration for real IP detection
 		servex.WithRateLimitTrustedProxies("10.0.0.0/8", "172.16.0.0/12"),
-
-		// Don't rate limit auth routes separately (they have their own limits)
-		servex.WithNoRateInAuthRoutes(),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server3
 
 	// ✓ Custom intervals and burst sizes
@@ -302,21 +367,27 @@ func securityHeadersConfiguration() {
 	// Protect against common web vulnerabilities:
 
 	// Basic security headers
-	server1 := servex.New(
+	server1, err := servex.New(
 		servex.WithSecurityHeaders(),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server1
 	// Method 1: Basic security headers (recommended defaults)
 
 	// Strict security headers
-	server2 := servex.New(
+	server2, err := servex.New(
 		servex.WithStrictSecurityHeaders(),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server2
 	// Method 2: Strict security headers (high-security apps)
 
 	// Custom security configuration
-	server3 := servex.New(
+	server3, err := servex.New(
 		servex.WithContentSecurityPolicy(
 			"default-src 'self'; "+
 				"script-src 'self' 'unsafe-inline' https://cdn.example.com; "+
@@ -328,6 +399,9 @@ func securityHeadersConfiguration() {
 		servex.WithSecurityExcludePaths("/health", "/api/webhook"),
 		servex.WithSecurityIncludePaths("/app/*", "/api/v1/*"),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server3
 
 	// ✓ Content Security Policy (CSP)
@@ -349,7 +423,7 @@ func requestFilteringConfiguration() {
 	// === 8. Request Filtering Configuration ===
 	// Filter requests based on IP, User-Agent, headers, etc.:
 
-	server := servex.New(
+	server, err := servex.New(
 		// IP filtering
 		servex.WithAllowedIPs("192.168.1.0/24", "10.0.0.0/8"),
 		servex.WithBlockedIPs("203.0.113.1", "198.51.100.0/24"),
@@ -390,6 +464,9 @@ func requestFilteringConfiguration() {
 		// Proxy configuration
 		servex.WithFilterTrustedProxies("10.0.0.0/8"),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server
 
 	// ✓ IP-based filtering with CIDR support
@@ -409,7 +486,7 @@ func loggingConfiguration() {
 		Level: slog.LevelInfo,
 	}))
 
-	server := servex.New(
+	server, err := servex.New(
 		// Main logger (for server events, errors, panics)
 		servex.WithLogger(logger),
 
@@ -425,6 +502,9 @@ func loggingConfiguration() {
 		// Send error details to client (only for development!)
 		servex.WithSendErrorToClient(),
 	)
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server
 	_ = logger
 
@@ -444,7 +524,7 @@ func customHeadersConfiguration() {
 	// === 10. Custom Headers and Middleware ===
 	// Add custom headers and remove unwanted ones:
 
-	server := servex.New(
+	server, err := servex.New(
 		// Add custom headers to all responses
 		servex.WithCustomHeaders(map[string]string{
 			"X-API-Version":     "v2.1.0",
@@ -461,7 +541,9 @@ func customHeadersConfiguration() {
 			"X-AspNet-Version", // Remove framework version
 		),
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	// Add custom middleware after server creation
 	server.AddMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -483,7 +565,7 @@ func completeProductionConfiguration() {
 	// === 11. Complete Production Configuration ===
 	// Real-world production server setup:
 
-	server := servex.New(
+	server, err := servex.New(
 		// === BASIC SETUP ===
 		// Timeouts
 		servex.WithReadTimeout(10*time.Second),
@@ -549,7 +631,9 @@ func completeProductionConfiguration() {
 		// === LOGGING ===
 		servex.WithNoLogClientErrors(), // Don't log 4xx errors in production
 	)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server
 
 	// ✓ Complete production-ready configuration
@@ -575,7 +659,7 @@ func presetWithCustomOptions() {
 	// === Combining Presets with Custom Options ===
 	// Start with a preset and add custom configuration:
 
-	server := servex.New(append(
+	server, err := servex.New(append(
 		servex.ProductionPreset(), // Start with production defaults
 
 		// Add custom options
@@ -585,7 +669,9 @@ func presetWithCustomOptions() {
 		}),
 		servex.WithBlockedUserAgentsRegex(".*malicious.*"),
 	)...)
-
+	if err != nil {
+		log.Fatal("Failed to create server:", err)
+	}
 	_ = server
 
 	// ✓ Production preset + custom authentication
