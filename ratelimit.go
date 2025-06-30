@@ -2,10 +2,12 @@ package servex
 
 import (
 	"bytes"
+	stdjson "encoding/json"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -16,9 +18,34 @@ import (
 )
 
 const (
-	cleanupInterval = 3 * time.Hour
-	defaultInterval = time.Minute
+	// Cleanup intervals - more aggressive cleanup to prevent memory buildup
+	cleanupInterval         = 30 * time.Minute // Reduced from 1 hour to 30 minutes
+	defaultInterval         = time.Minute
+	maxVisitors             = 10000            // Maximum number of concurrent visitors
+	cleanupTickInterval     = 5 * time.Minute  // Run cleanup every 5 minutes instead of 10
+	emergencyCleanupTicks   = 30 * time.Second // Emergency cleanup when near memory limits
+	memoryPressureThreshold = 8000             // Trigger more aggressive cleanup at 80% capacity
 )
+
+// LocationRateLimitConfig defines a rate limit configuration for specific locations.
+// This allows different rate limits to be applied to different URL paths.
+type LocationRateLimitConfig struct {
+	// PathPatterns are the URL path patterns this config applies to.
+	// Supports wildcards using filepath.Match syntax (e.g., "/api/*", "/admin/*").
+	// If multiple patterns are provided, any match will apply this config.
+	//
+	// Examples:
+	//   - ["/api/*"] - All API endpoints
+	//   - ["/admin/*", "/dashboard/*"] - Admin and dashboard areas
+	//   - ["/auth/login", "/auth/register"] - Specific auth endpoints
+	//   - ["/upload/*"] - File upload endpoints
+	PathPatterns []string
+
+	// Config is the rate limit configuration to apply for matching paths.
+	// This contains all the rate limiting settings like requests per interval,
+	// burst size, status codes, etc.
+	Config RateLimitConfig
+}
 
 // visitor represents a client accessing the server.
 type visitor struct {
@@ -39,12 +66,17 @@ func (v *visitor) updateLastSeen() {
 
 // rateLimiterMiddleware provides rate limiting middleware functionality.
 type rateLimiterMiddleware struct {
-	cfg         RateLimitConfig
-	visitors    map[string]*visitor
-	mu          sync.RWMutex
-	statusMsg   string
-	cleanupDone chan struct{}
-	cleanupOnce sync.Once
+	cfg             RateLimitConfig
+	locationConfigs []LocationRateLimitConfig
+	visitors        map[string]*visitor
+	mu              sync.RWMutex
+	cleanupDone     chan struct{}
+	cleanupOnce     sync.Once
+	visitorCount    int64 // Atomic counter for visitor count
+
+	// Emergency cleanup control
+	emergencyCleanup chan struct{}
+	emergencyOnce    sync.Once
 }
 
 // RegisterRateLimitMiddleware adds rate limiting middleware to the router.
@@ -52,7 +84,7 @@ type rateLimiterMiddleware struct {
 // It returns a function that can be used to stop the cleanup routine.
 func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig) func() {
 	if !cfg.Enabled || cfg.RequestsPerInterval <= 0 {
-		return nil
+		return func() {} // Return no-op function for consistency
 	}
 	cfg.BurstSize = lang.Check(cfg.BurstSize, cfg.RequestsPerInterval)
 	cfg.Interval = lang.Check(cfg.Interval, defaultInterval)
@@ -64,16 +96,97 @@ func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig) f
 	}
 
 	m := &rateLimiterMiddleware{
-		cfg:         cfg,
-		visitors:    make(map[string]*visitor),
-		cleanupDone: make(chan struct{}),
+		cfg:              cfg,
+		visitors:         make(map[string]*visitor),
+		cleanupDone:      make(chan struct{}),
+		emergencyCleanup: make(chan struct{}, 1), // Buffered to avoid blocking
 	}
 
 	router.Use(m.middleware)
 
-	// Start cleanup goroutine only once
+	// Start cleanup goroutines only once
 	m.cleanupOnce.Do(func() {
 		go m.startCleanupRoutine()
+		go m.startEmergencyCleanupRoutine()
+	})
+
+	return func() {
+		close(m.cleanupDone)
+	}
+}
+
+// RegisterLocationBasedRateLimitMiddleware adds location-based rate limiting middleware to the router.
+// This allows different rate limit configurations for different URL paths.
+// If no location configs are provided or none are enabled, no middleware will be registered.
+// It returns a function that can be used to stop the cleanup routine.
+//
+// The middleware will:
+// 1. Check each location config in order for path pattern matches
+// 2. Use the first matching config's rate limits
+// 3. Fall back to no rate limiting if no patterns match
+//
+// Example usage:
+//
+//	stop := RegisterLocationBasedRateLimitMiddleware(router, []LocationRateLimitConfig{
+//	  {
+//	    PathPatterns: []string{"/api/*"},
+//	    Config: RateLimitConfig{
+//	      Enabled: true,
+//	      RequestsPerInterval: 100,
+//	      Interval: time.Minute,
+//	    },
+//	  },
+//	  {
+//	    PathPatterns: []string{"/auth/login", "/auth/register"},
+//	    Config: RateLimitConfig{
+//	      Enabled: true,
+//	      RequestsPerInterval: 10,
+//	      Interval: time.Minute,
+//	    },
+//	  },
+//	})
+func RegisterLocationBasedRateLimitMiddleware(router MiddlewareRouter, locationConfigs []LocationRateLimitConfig) func() {
+	if len(locationConfigs) == 0 {
+		return func() {} // Return no-op function for consistency
+	}
+
+	// Validate and prepare configs
+	var validConfigs []LocationRateLimitConfig
+	for _, locCfg := range locationConfigs {
+		if !locCfg.Config.Enabled || locCfg.Config.RequestsPerInterval <= 0 || len(locCfg.PathPatterns) == 0 {
+			continue
+		}
+
+		// Set defaults for this config
+		locCfg.Config.BurstSize = lang.Check(locCfg.Config.BurstSize, locCfg.Config.RequestsPerInterval)
+		locCfg.Config.Interval = lang.Check(locCfg.Config.Interval, defaultInterval)
+		locCfg.Config.StatusCode = lang.Check(locCfg.Config.StatusCode, http.StatusTooManyRequests)
+		locCfg.Config.Message = lang.Check(locCfg.Config.Message, "rate limit exceeded, try again later.")
+
+		if locCfg.Config.KeyFunc == nil {
+			locCfg.Config.KeyFunc = getUsernameKeyFuncWithProxies(locCfg.Config.TrustedProxies)
+		}
+
+		validConfigs = append(validConfigs, locCfg)
+	}
+
+	if len(validConfigs) == 0 {
+		return func() {} // Return no-op function for consistency
+	}
+
+	m := &rateLimiterMiddleware{
+		locationConfigs:  validConfigs,
+		visitors:         make(map[string]*visitor),
+		cleanupDone:      make(chan struct{}),
+		emergencyCleanup: make(chan struct{}, 1), // Buffered to avoid blocking
+	}
+
+	router.Use(m.middleware)
+
+	// Start cleanup goroutines only once
+	m.cleanupOnce.Do(func() {
+		go m.startCleanupRoutine()
+		go m.startEmergencyCleanupRoutine()
 	})
 
 	return func() {
@@ -83,53 +196,157 @@ func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig) f
 
 // startCleanupRoutine runs a background cleanup task to remove stale visitors.
 func (m *rateLimiterMiddleware) startCleanupRoutine() {
-	// Run cleanup every 30 minutes instead of every 18 minutes (cleanupInterval/10)
-	ticker := time.NewTicker(30 * time.Minute)
+	ticker := time.NewTicker(cleanupTickInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
-			m.cleanup()
+			m.cleanup(false) // Regular cleanup
 		case <-m.cleanupDone:
 			return
 		}
 	}
 }
 
-// cleanup removes stale visitors from the map.
-func (m *rateLimiterMiddleware) cleanup() {
+// startEmergencyCleanupRoutine handles emergency cleanup when memory pressure is high.
+func (m *rateLimiterMiddleware) startEmergencyCleanupRoutine() {
+	ticker := time.NewTicker(emergencyCleanupTicks)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			// Check if we need emergency cleanup
+			if atomic.LoadInt64(&m.visitorCount) > memoryPressureThreshold {
+				m.cleanup(true) // Aggressive cleanup
+			}
+		case <-m.emergencyCleanup:
+			m.cleanup(true) // Immediate aggressive cleanup
+		case <-m.cleanupDone:
+			return
+		}
+	}
+}
+
+// cleanup removes stale visitors from the map and implements LRU eviction if needed.
+// aggressive parameter controls whether to use more aggressive cleanup thresholds
+func (m *rateLimiterMiddleware) cleanup(aggressive bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	now := time.Now()
+	keysToDelete := make([]string, 0, len(m.visitors)/4) // Pre-allocate for efficiency
+
+	// Determine cleanup threshold based on mode
+	cleanupThreshold := cleanupInterval
+	if aggressive {
+		cleanupThreshold = cleanupInterval / 2 // More aggressive: cleanup visitors idle for 15 minutes
+	}
+
+	// First pass: collect stale visitors
 	for key, v := range m.visitors {
-		if now.Sub(v.getLastSeen()) > cleanupInterval {
-			delete(m.visitors, key)
+		if now.Sub(v.getLastSeen()) > cleanupThreshold {
+			keysToDelete = append(keysToDelete, key)
 		}
 	}
+
+	// Delete stale visitors
+	for _, key := range keysToDelete {
+		delete(m.visitors, key)
+		atomic.AddInt64(&m.visitorCount, -1)
+	}
+
+	// Second pass: if still over limit, implement LRU eviction
+	evictionTarget := maxVisitors
+	if aggressive {
+		evictionTarget = memoryPressureThreshold // More aggressive target
+	}
+
+	if len(m.visitors) > evictionTarget {
+		m.evictLRU(len(m.visitors) - evictionTarget)
+	}
+
+	// Sync the atomic counter with actual map size to prevent drift
+	atomic.StoreInt64(&m.visitorCount, int64(len(m.visitors)))
+}
+
+// evictLRU removes the least recently used visitors to stay under memory limits.
+// Must be called with write lock held.
+func (m *rateLimiterMiddleware) evictLRU(numToEvict int) {
+	if numToEvict <= 0 || len(m.visitors) == 0 {
+		return
+	}
+
+	type keyTime struct {
+		key      string
+		lastSeen time.Time
+	}
+
+	// Collect all visitors with their last seen times
+	visitors := make([]keyTime, 0, len(m.visitors))
+	for key, v := range m.visitors {
+		visitors = append(visitors, keyTime{
+			key:      key,
+			lastSeen: v.getLastSeen(),
+		})
+	}
+
+	// Sort by last seen time (oldest first) - Use Go's efficient sort
+	sort.Slice(visitors, func(i, j int) bool {
+		return visitors[i].lastSeen.Before(visitors[j].lastSeen)
+	})
+
+	// Remove the oldest entries
+	evicted := 0
+	for i := 0; i < len(visitors) && evicted < numToEvict; i++ {
+		delete(m.visitors, visitors[i].key)
+		evicted++
+	}
+
+	// Update counter
+	atomic.AddInt64(&m.visitorCount, int64(-evicted))
 }
 
 // middleware is the actual rate limiting middleware function.
 func (m *rateLimiterMiddleware) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Check if the path should be rate limited
-		if !m.shouldRateLimit(r) {
+		// Get the appropriate config for this request
+		cfg := m.getConfigForPath(r.URL.Path)
+		if cfg == nil {
+			// No rate limiting config applies to this path
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check if the path should be rate limited according to the config
+		if !m.shouldRateLimit(r, *cfg) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		// Get the rate limiting key from the request
-		key := m.cfg.KeyFunc(r)
+		key := cfg.KeyFunc(r)
+		if key == "" {
+			// If we can't determine a key, allow the request
+			next.ServeHTTP(w, r)
+			return
+		}
 
-		// Get or create rate limiter for this visitor
-		limiter := m.getLimiter(key)
+		// Get or create rate limiter for this visitor using the specific config
+		limiter := m.getLimiter(key, *cfg)
+		if limiter == nil {
+			// Failed to create limiter due to memory constraints
+			w.Header().Set("Retry-After", "60")
+			C(w, r).Error(fmt.Errorf("rate limit exceeded"), http.StatusServiceUnavailable, "service temporarily unavailable")
+			return
+		}
 
 		// Check if this request exceeds the rate limit
 		if !limiter.Allow() {
 			// Rate limit exceeded
 			w.Header().Set("Retry-After", "60") // Suggest retry after 1 minute
-			C(w, r).Error(fmt.Errorf("rate limit exceeded"), m.cfg.StatusCode, m.cfg.Message)
+			C(w, r).Error(fmt.Errorf("rate limit exceeded"), cfg.StatusCode, cfg.Message)
 			return
 		}
 
@@ -138,13 +355,35 @@ func (m *rateLimiterMiddleware) middleware(next http.Handler) http.Handler {
 	})
 }
 
+// getConfigForPath returns the rate limit config that applies to the given path.
+// Returns nil if no config matches the path.
+func (m *rateLimiterMiddleware) getConfigForPath(path string) *RateLimitConfig {
+	// If using single config mode (backward compatibility)
+	if len(m.locationConfigs) == 0 {
+		return &m.cfg
+	}
+
+	// Check location-based configs in order
+	for _, locCfg := range m.locationConfigs {
+		for _, pattern := range locCfg.PathPatterns {
+			if matchPath(path, []string{}, []string{pattern}, true) {
+				return &locCfg.Config
+			}
+		}
+	}
+
+	// No config matches this path
+	return nil
+}
+
 // shouldRateLimit determines if the request should be rate limited based on the path.
-func (m *rateLimiterMiddleware) shouldRateLimit(r *http.Request) bool {
-	return matchPath(r.URL.Path, m.cfg.ExcludePaths, m.cfg.IncludePaths, false)
+func (m *rateLimiterMiddleware) shouldRateLimit(r *http.Request, cfg RateLimitConfig) bool {
+	return matchPath(r.URL.Path, cfg.ExcludePaths, cfg.IncludePaths, false)
 }
 
 // getLimiter retrieves or creates a rate limiter for a visitor.
-func (m *rateLimiterMiddleware) getLimiter(key string) *rate.Limiter {
+// Returns nil if memory limits are exceeded.
+func (m *rateLimiterMiddleware) getLimiter(key string, cfg RateLimitConfig) *rate.Limiter {
 	// First try with read lock for better performance
 	m.mu.RLock()
 	if v, exists := m.visitors[key]; exists {
@@ -156,6 +395,17 @@ func (m *rateLimiterMiddleware) getLimiter(key string) *rate.Limiter {
 	}
 	m.mu.RUnlock()
 
+	// Check if we're at memory limit before creating new visitor
+	currentCount := atomic.LoadInt64(&m.visitorCount)
+	if currentCount >= maxVisitors {
+		// Trigger emergency cleanup and reject request
+		select {
+		case m.emergencyCleanup <- struct{}{}:
+		default: // Don't block if channel is full
+		}
+		return nil // Reject request to prevent memory exhaustion
+	}
+
 	// If not found, acquire write lock and create new limiter
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -166,15 +416,25 @@ func (m *rateLimiterMiddleware) getLimiter(key string) *rate.Limiter {
 		return v.limiter
 	}
 
+	// Final check with actual map size to handle any counter drift
+	if len(m.visitors) >= maxVisitors {
+		return nil
+	}
+
+	// Create new rate limiter with the specific config
 	limiter := rate.NewLimiter(
-		rate.Limit(float64(m.cfg.RequestsPerInterval)/m.cfg.Interval.Seconds()),
-		m.cfg.BurstSize,
+		rate.Limit(float64(cfg.RequestsPerInterval)/cfg.Interval.Seconds()),
+		cfg.BurstSize,
 	)
 
+	// Create and store the visitor
 	m.visitors[key] = &visitor{
 		limiter:  limiter,
 		lastSeen: time.Now().Unix(),
 	}
+
+	// Update atomic counter
+	atomic.AddInt64(&m.visitorCount, 1)
 
 	return limiter
 }
@@ -197,22 +457,23 @@ func getUsernameKeyFuncWithProxies(trustedProxies []string) func(r *http.Request
 				var req struct {
 					Username string `json:"username"`
 				}
-				if json.Unmarshal(body, &req) == nil && req.Username != "" {
-					return req.Username
+				if stdjson.Unmarshal(body, &req) == nil && req.Username != "" {
+					return "user:" + req.Username // Prefix to distinguish from IP-based keys
 				}
 			}
 		}
 		// Fall back to IP-based limiting
-		return ipKeyFunc(r)
+		return "ip:" + ipKeyFunc(r) // Prefix to distinguish key types
 	}
 }
 
 // getIPKeyFuncWithProxies returns a key function that uses the client's IP address as the rate limit key.
 // It only trusts proxy headers (X-Forwarded-For, X-Real-IP) when the request comes from a trusted proxy.
 func getIPKeyFuncWithProxies(trustedProxies []string) func(r *http.Request) string {
-	// Parse trusted proxy networks once
+	// Parse trusted proxy networks once for efficiency
 	var trustedNets []*net.IPNet
 	if len(trustedProxies) > 0 {
+		trustedNets = make([]*net.IPNet, 0, len(trustedProxies))
 		for _, proxy := range trustedProxies {
 			// Handle both single IPs and CIDR ranges
 			if !strings.Contains(proxy, "/") {

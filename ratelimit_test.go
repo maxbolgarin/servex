@@ -119,8 +119,8 @@ func TestRateLimitMiddleware_Disabled(t *testing.T) {
 		t.Errorf("Rate limiting should be disabled, but middleware was registered")
 	}
 
-	if cleanup != nil {
-		t.Errorf("Expected cleanup function to be nil for disabled rate limiting")
+	if cleanup == nil {
+		t.Errorf("Expected cleanup function to be non-nil (should return no-op function for consistency)")
 	}
 }
 
@@ -715,7 +715,7 @@ func TestUsernameRateLimiting(t *testing.T) {
 			method:      http.MethodPost,
 			path:        "/login",
 			requestBody: `{"username":"testuser","password":"testpass"}`,
-			expectedKey: "testuser",
+			expectedKey: "user:testuser",
 			description: "Should extract username from login request body",
 		},
 		{
@@ -723,7 +723,7 @@ func TestUsernameRateLimiting(t *testing.T) {
 			method:      http.MethodPost,
 			path:        "/register",
 			requestBody: `{"username":"newuser","password":"newpass","email":"test@example.com"}`,
-			expectedKey: "newuser",
+			expectedKey: "user:newuser",
 			description: "Should extract username from register request body",
 		},
 		{
@@ -732,7 +732,7 @@ func TestUsernameRateLimiting(t *testing.T) {
 			path:        "/login",
 			requestBody: `{"username":"","password":"testpass"}`,
 			remoteAddr:  "192.168.1.100:12345",
-			expectedKey: "192.168.1.100",
+			expectedKey: "ip:192.168.1.100",
 			description: "Should fall back to IP when username is empty",
 		},
 		{
@@ -741,7 +741,7 @@ func TestUsernameRateLimiting(t *testing.T) {
 			path:        "/login",
 			requestBody: `{"password":"testpass"}`,
 			remoteAddr:  "192.168.1.100:12345",
-			expectedKey: "192.168.1.100",
+			expectedKey: "ip:192.168.1.100",
 			description: "Should fall back to IP when username field is missing",
 		},
 		{
@@ -750,7 +750,7 @@ func TestUsernameRateLimiting(t *testing.T) {
 			path:        "/login",
 			requestBody: `{invalid-json}`,
 			remoteAddr:  "192.168.1.100:12345",
-			expectedKey: "192.168.1.100",
+			expectedKey: "ip:192.168.1.100",
 			description: "Should fall back to IP when JSON is invalid",
 		},
 		{
@@ -759,7 +759,7 @@ func TestUsernameRateLimiting(t *testing.T) {
 			path:        "/login",
 			requestBody: "",
 			remoteAddr:  "192.168.1.100:12345",
-			expectedKey: "192.168.1.100",
+			expectedKey: "ip:192.168.1.100",
 			description: "Should fall back to IP when body is empty",
 		},
 		{
@@ -768,7 +768,7 @@ func TestUsernameRateLimiting(t *testing.T) {
 			path:        "/api/data",
 			requestBody: `{"username":"testuser","data":"some data"}`,
 			remoteAddr:  "192.168.1.100:12345",
-			expectedKey: "192.168.1.100",
+			expectedKey: "ip:192.168.1.100",
 			description: "Should use IP for non-auth endpoints even with username in body",
 		},
 		{
@@ -777,7 +777,7 @@ func TestUsernameRateLimiting(t *testing.T) {
 			path:        "/login",
 			requestBody: `{"username":"testuser","password":"testpass"}`,
 			remoteAddr:  "192.168.1.100:12345",
-			expectedKey: "192.168.1.100",
+			expectedKey: "ip:192.168.1.100",
 			description: "Should use IP for non-POST requests to auth endpoints",
 		},
 		{
@@ -788,7 +788,7 @@ func TestUsernameRateLimiting(t *testing.T) {
 			trustedProxies: []string{"10.0.0.0/24"},
 			remoteAddr:     "10.0.0.5:12345",
 			headers:        map[string]string{"X-Real-IP": "203.0.113.1"},
-			expectedKey:    "proxyuser",
+			expectedKey:    "user:proxyuser",
 			description:    "Should extract username even when request comes through trusted proxy",
 		},
 		{
@@ -799,7 +799,7 @@ func TestUsernameRateLimiting(t *testing.T) {
 			trustedProxies: []string{"10.0.0.0/24"},
 			remoteAddr:     "10.0.0.5:12345",
 			headers:        map[string]string{"X-Real-IP": "203.0.113.1"},
-			expectedKey:    "203.0.113.1",
+			expectedKey:    "ip:203.0.113.1",
 			description:    "Should use real IP from trusted proxy for non-auth endpoints",
 		},
 	}
@@ -845,9 +845,9 @@ func TestUsernameRateLimitingBodyPreservation(t *testing.T) {
 	// Extract the key (this should preserve the body)
 	actualKey := keyFunc(req)
 
-	// Verify the key is the username
-	if actualKey != "testuser" {
-		t.Errorf("expected key to be 'testuser', got %q", actualKey)
+	// Verify the key is the username with prefix
+	if actualKey != "user:testuser" {
+		t.Errorf("expected key to be 'user:testuser', got %q", actualKey)
 	}
 
 	// Verify the body is still readable
@@ -981,5 +981,197 @@ func TestUsernameRateLimitingFallbackToIP(t *testing.T) {
 	router.ServeHTTP(handler, w3, baseReq())
 	if w3.Code != http.StatusTooManyRequests {
 		t.Errorf("third request should be rate limited, got status %d", w3.Code)
+	}
+}
+
+func TestLocationBasedRateLimitMiddleware(t *testing.T) {
+	// Create a test router
+	router := &TestRouter{}
+
+	// Set up location-based rate limiting configs
+	locationConfigs := []LocationRateLimitConfig{
+		{
+			PathPatterns: []string{"/api/*"},
+			Config: RateLimitConfig{
+				Enabled:             true,
+				RequestsPerInterval: 2,
+				Interval:            time.Second,
+				BurstSize:           2, // Allow 2 immediate requests
+				StatusCode:          http.StatusTooManyRequests,
+				Message:             "API rate limit exceeded",
+			},
+		},
+		{
+			PathPatterns: []string{"/auth/login", "/auth/register"},
+			Config: RateLimitConfig{
+				Enabled:             true,
+				RequestsPerInterval: 1,
+				Interval:            time.Second,
+				BurstSize:           1,
+				StatusCode:          http.StatusTooManyRequests,
+				Message:             "Auth rate limit exceeded",
+			},
+		},
+	}
+
+	// Register the middleware
+	cleanup := RegisterLocationBasedRateLimitMiddleware(router, locationConfigs)
+	defer func() {
+		if cleanup != nil {
+			cleanup()
+		}
+	}()
+
+	testCases := []struct {
+		name           string
+		path           string
+		clientIP       string
+		expectedStatus int
+		expectedMsg    string
+	}{
+		{
+			name:           "API endpoint - first request should pass",
+			path:           "/api/users",
+			clientIP:       "192.168.1.100:12345",
+			expectedStatus: http.StatusOK,
+			expectedMsg:    "",
+		},
+		{
+			name:           "API endpoint - second request should pass (within burst)",
+			path:           "/api/users",
+			clientIP:       "192.168.1.100:12345",
+			expectedStatus: http.StatusOK,
+			expectedMsg:    "",
+		},
+		{
+			name:           "API endpoint - third request should be rate limited",
+			path:           "/api/users",
+			clientIP:       "192.168.1.100:12345",
+			expectedStatus: http.StatusTooManyRequests,
+			expectedMsg:    "API rate limit exceeded",
+		},
+		{
+			name:           "Auth endpoint - first request should pass",
+			path:           "/auth/login",
+			clientIP:       "192.168.1.101:12345", // Different IP
+			expectedStatus: http.StatusOK,
+			expectedMsg:    "",
+		},
+		{
+			name:           "Auth endpoint - second request should be rate limited",
+			path:           "/auth/login",
+			clientIP:       "192.168.1.101:12345", // Same IP as previous
+			expectedStatus: http.StatusTooManyRequests,
+			expectedMsg:    "Auth rate limit exceeded",
+		},
+		{
+			name:           "Public endpoint - should not be rate limited",
+			path:           "/public",
+			clientIP:       "192.168.1.102:12345", // Different IP
+			expectedStatus: http.StatusOK,
+			expectedMsg:    "",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create request
+			req := httptest.NewRequest("GET", tc.path, nil)
+			req.RemoteAddr = tc.clientIP
+
+			// Create response recorder
+			rr := httptest.NewRecorder()
+
+			// Create a test handler that just returns 200 OK
+			handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("OK"))
+			})
+
+			// Apply middleware using TestRouter's ServeHTTP method
+			router.ServeHTTP(handler, rr, req)
+
+			// Check status code
+			if rr.Code != tc.expectedStatus {
+				t.Errorf("Expected status %d, got %d", tc.expectedStatus, rr.Code)
+			}
+
+			// Check message if rate limited
+			if tc.expectedStatus == http.StatusTooManyRequests {
+				body := strings.TrimSpace(rr.Body.String())
+				if !strings.Contains(body, tc.expectedMsg) {
+					t.Errorf("Expected message to contain '%s', got '%s'", tc.expectedMsg, body)
+				}
+			}
+		})
+	}
+}
+
+func TestLocationBasedRateLimitMiddleware_NoMatchingConfig(t *testing.T) {
+	router := &TestRouter{}
+
+	// Set up config that doesn't match any paths
+	locationConfigs := []LocationRateLimitConfig{
+		{
+			PathPatterns: []string{"/admin/*"},
+			Config: RateLimitConfig{
+				Enabled:             true,
+				RequestsPerInterval: 1,
+				Interval:            time.Second,
+				BurstSize:           1,
+			},
+		},
+	}
+
+	cleanup := RegisterLocationBasedRateLimitMiddleware(router, locationConfigs)
+	defer func() {
+		if cleanup != nil {
+			cleanup()
+		}
+	}()
+
+	// Test a path that doesn't match any config
+	req := httptest.NewRequest("GET", "/public/test", nil)
+	req.RemoteAddr = "192.168.1.100:12345"
+	rr := httptest.NewRecorder()
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("OK"))
+	})
+
+	// Apply middleware using TestRouter's ServeHTTP method
+	router.ServeHTTP(handler, rr, req)
+
+	// Should pass through without rate limiting
+	if rr.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, rr.Code)
+	}
+}
+
+func TestLocationBasedRateLimitMiddleware_EmptyConfigs(t *testing.T) {
+	router := &TestRouter{}
+
+	// Test with empty configs - should return no-op cleanup function
+	cleanup := RegisterLocationBasedRateLimitMiddleware(router, []LocationRateLimitConfig{})
+	if cleanup == nil {
+		t.Error("Expected non-nil cleanup function for empty configs (should be no-op)")
+	}
+
+	// Test with disabled configs - should return no-op cleanup function
+	locationConfigs := []LocationRateLimitConfig{
+		{
+			PathPatterns: []string{"/api/*"},
+			Config: RateLimitConfig{
+				Enabled:             false,
+				RequestsPerInterval: 10,
+				Interval:            time.Second,
+			},
+		},
+	}
+
+	cleanup = RegisterLocationBasedRateLimitMiddleware(router, locationConfigs)
+	if cleanup == nil {
+		t.Error("Expected non-nil cleanup function for disabled configs (should be no-op)")
 	}
 }
