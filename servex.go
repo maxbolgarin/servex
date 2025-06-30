@@ -43,7 +43,10 @@ func NewWithOptions(opts Options) (*Server, error) {
 		}))
 	}
 	if opts.RequestLogger == nil && !opts.DisableRequestLogging {
-		opts.RequestLogger = &BaseRequestLogger{opts.Logger}
+		opts.RequestLogger = &BaseRequestLogger{
+			Logger:          opts.Logger,
+			FieldsToInclude: opts.LogFields,
+		}
 	}
 	if opts.DisableRequestLogging {
 		opts.RequestLogger = &noopRequestLogger{}

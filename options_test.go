@@ -178,6 +178,24 @@ func TestWithDisableRequestLogging(t *testing.T) {
 	options.RequestLogger.Log(bundle) // Should do nothing
 }
 
+// TestWithLogFields verifies that WithLogFields sets the LogFields correctly.
+func TestWithLogFields(t *testing.T) {
+	fields := []string{servex.MethodLogField, servex.StatusLogField, servex.DurationLogField}
+	option := servex.WithLogFields(fields...)
+	options := servex.Options{}
+	option(&options)
+
+	if len(options.LogFields) != len(fields) {
+		t.Errorf("expected %d log fields, got %d", len(fields), len(options.LogFields))
+	}
+
+	for i, expectedField := range fields {
+		if i >= len(options.LogFields) || options.LogFields[i] != expectedField {
+			t.Errorf("expected log field %q at index %d, got %q", expectedField, i, options.LogFields[i])
+		}
+	}
+}
+
 func TestBaseConfigValidate(t *testing.T) {
 	tests := []struct {
 		config   servex.BaseConfig

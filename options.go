@@ -166,6 +166,29 @@ type Options struct {
 	//   - Improve log readability in production
 	NoLogClientErrors bool
 
+	// LogFields specifies which fields to include in request logs.
+	// If empty, all available fields will be logged (default behavior).
+	// Set via WithLogFields().
+	//
+	// Available fields (use exported constants):
+	//   - servex.RequestIDLogField: Request ID
+	//   - servex.IPLogField: Client IP address
+	//   - servex.UserAgentLogField: User-Agent header
+	//   - servex.URLLogField: Request URL
+	//   - servex.MethodLogField: HTTP method (GET, POST, etc.)
+	//   - servex.ProtoLogField: HTTP protocol version
+	//   - servex.ErrorLogField: Error information
+	//   - servex.ErrorMessageLogField: Error message
+	//   - servex.StatusLogField: HTTP status code
+	//   - servex.DurationLogField: Request duration in milliseconds
+	//
+	// Use to:
+	//   - Reduce log verbosity
+	//   - Focus on specific metrics
+	//   - Comply with privacy requirements
+	//   - Optimize log storage costs
+	LogFields []string
+
 	// SendErrorToClient configures the server to include detailed error information
 	// in HTTP responses when errors occur. This includes Go error messages and stack traces.
 	// Set to true via WithSendErrorToClient().
@@ -1843,6 +1866,52 @@ func WithNoLogClientErrors() Option {
 func WithSendErrorToClient() Option {
 	return func(op *Options) {
 		op.SendErrorToClient = true
+	}
+}
+
+// WithLogFields specifies which fields to include in request logs.
+// If not set, all available fields will be logged (default behavior).
+//
+// Example:
+//
+//	// Log only essential fields
+//	server := servex.New(servex.WithLogFields(
+//		servex.MethodLogField,
+//		servex.URLLogField,
+//		servex.StatusLogField,
+//		servex.DurationLogField,
+//	))
+//
+//	// Log minimal fields for privacy compliance
+//	server := servex.New(servex.WithLogFields(
+//		servex.MethodLogField,
+//		servex.StatusLogField,
+//		servex.DurationLogField,
+//	))
+//
+// Available fields:
+//   - RequestIDLogField: Request ID
+//   - IPLogField: Client IP address
+//   - UserAgentLogField: User-Agent header
+//   - URLLogField: Request URL
+//   - MethodLogField: HTTP method (GET, POST, etc.)
+//   - ProtoLogField: HTTP protocol version
+//   - ErrorLogField: Error information
+//   - ErrorMessageLogField: Error message
+//   - StatusLogField: HTTP status code
+//   - DurationLogField: Request duration in milliseconds
+//
+// Use this to:
+//   - Reduce log verbosity and storage costs
+//   - Focus on specific metrics or debugging needs
+//   - Comply with privacy regulations (e.g., exclude IP addresses)
+//   - Optimize performance by logging fewer fields
+//
+// Note: This only affects the default BaseRequestLogger. Custom RequestLogger
+// implementations are not affected by this setting.
+func WithLogFields(fields ...string) Option {
+	return func(op *Options) {
+		op.LogFields = fields
 	}
 }
 
