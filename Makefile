@@ -1,5 +1,5 @@
 # Servex Enterprise Makefile
-.PHONY: help build test lint fmt vet security audit deps clean docker run-dev run-prod benchmark coverage docs
+.PHONY: help build test fmt vet security audit deps clean docker run-dev run-prod benchmark coverage docs
 
 # Variables
 BINARY_NAME=servex
@@ -40,16 +40,6 @@ fmt: ## Format Go code
 	@echo "$(YELLOW)Formatting code...$(NC)"
 	gofmt -w .
 	@echo "$(GREEN)Code formatted!$(NC)"
-
-lint: ## Run linters
-	@echo "$(YELLOW)Running linters...$(NC)"
-	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
-	else \
-		echo "$(RED)golangci-lint not installed. Run: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest$(NC)"; \
-		exit 1; \
-	fi
-	@echo "$(GREEN)Linting complete!$(NC)"
 
 vet: ## Run go vet
 	@echo "$(YELLOW)Running go vet...$(NC)"
