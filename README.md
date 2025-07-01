@@ -82,7 +82,7 @@ Less code, more focus on business logic. Implement in your handler just by calli
 To install the package, use the following `go get` command:
 
 ```shell
-go get -u github.com/maxbolgarin/servex
+go get -u github.com/maxbolgarin/servex/v2
 ```
 
 
@@ -535,9 +535,9 @@ If you'd like to contribute to **servex**, submit a pull request or open an issu
 Servex is licensed under the MIT License. See the [LICENSE](LICENSE) file for more information.
 
 [version-img]: https://img.shields.io/badge/Go-%3E%3D%201.24-%23007d9c
-[doc-img]: https://pkg.go.dev/badge/github.com/maxbolgarin/servex
-[doc]: https://pkg.go.dev/github.com/maxbolgarin/servex
-[ci-img]: https://github.com/maxbolgarin/servex/actions/workflows/go.yml/badge.svg
-[ci]: https://github.com/maxbolgarin/servex/actions
-[report-img]: https://goreportcard.com/badge/github.com/maxbolgarin/servex
-[report]: https://goreportcard.com/report/github.com/maxbolgarin/servex
+[doc-img]: https://pkg.go.dev/badge/github.com/maxbolgarin/servex/v2
+[doc]: https://pkg.go.dev/github.com/maxbolgarin/servex/v2
+[ci-img]: https://github.com/maxbolgarin/servex/v2/actions/workflows/go.yml/badge.svg
+[ci]: https://github.com/maxbolgarin/servex/v2/actions
+[report-img]: https://goreportcard.com/badge/github.com/maxbolgarin/servex/v2
+[report]: https://goreportcard.com/report/github.com/maxbolgarin/servex/v2

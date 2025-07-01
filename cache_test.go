@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/gorilla/mux"
-	"github.com/maxbolgarin/servex"
+	"github.com/maxbolgarin/servex/v2"
 )
 
 // TestCacheControlPathMatching tests the path matching logic for cache headers through the middleware.

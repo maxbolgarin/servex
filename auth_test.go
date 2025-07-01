@@ -19,7 +19,7 @@ import (
 	"github.com/golang-jwt/jwt/v4"
 	"github.com/gorilla/mux"
 	"github.com/maxbolgarin/lang"
-	"github.com/maxbolgarin/servex"
+	"github.com/maxbolgarin/servex/v2"
 	"golang.org/x/crypto/bcrypt"
 )
 

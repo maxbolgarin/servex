@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"github.com/gorilla/mux"
-	"github.com/maxbolgarin/servex"
+	"github.com/maxbolgarin/servex/v2"
 )
 
 // TestSecurityHeadersMiddleware tests the security headers middleware functionality.

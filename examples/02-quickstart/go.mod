@@ -2,7 +2,7 @@ module quickstart
 
 go 1.24
 
-require github.com/maxbolgarin/servex v0.0.0
+require github.com/maxbolgarin/servex/v2 v0.0.0
 
 require (
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
@@ -16,4 +16,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/maxbolgarin/servex => ../../
+replace github.com/maxbolgarin/servex/v2 => ../../

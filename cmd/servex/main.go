@@ -10,7 +10,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/maxbolgarin/servex"
+	"github.com/maxbolgarin/servex/v2"
 )
 
 // Version information (set during build)
@@ -140,7 +140,7 @@ func showHelp() {
 	fmt.Printf("  All configuration options can be set via environment variables.\n")
 	fmt.Printf("  See documentation for complete list of SERVEX_* variables.\n\n")
 	fmt.Printf("CONFIGURATION:\n")
-	fmt.Printf("  Example configuration file: https://github.com/maxbolgarin/servex/tree/main/examples/server.yaml\n")
+	fmt.Printf("  Example configuration file: https://github.com/maxbolgarin/servex/v2/tree/main/examples/server.yaml\n")
 }
 
 var startTime = time.Now()

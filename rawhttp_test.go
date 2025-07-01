@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/maxbolgarin/servex"
+	"github.com/maxbolgarin/servex/v2"
 )
 
 func TestMakeRawRequest(t *testing.T) {

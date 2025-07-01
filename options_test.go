@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/maxbolgarin/servex"
+	"github.com/maxbolgarin/servex/v2"
 )
 
 // TestWithCertificate tests whether the WithCertificate option sets the TLS certificate correctly.

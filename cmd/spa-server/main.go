@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/maxbolgarin/servex"
+	"github.com/maxbolgarin/servex/v2"
 )
 
 var (

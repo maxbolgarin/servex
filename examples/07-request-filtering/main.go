@@ -5,7 +5,7 @@ import (
 	"log"
 	"net/http"
 
-	"github.com/maxbolgarin/servex"
+	"github.com/maxbolgarin/servex/v2"
 )
 
 func main() {

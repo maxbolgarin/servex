@@ -2,6 +2,6 @@ module rate-limiting
 
 go 1.24
 
-require github.com/maxbolgarin/servex v0.0.0
+require github.com/maxbolgarin/servex/v2 v0.0.0
 
-replace github.com/maxbolgarin/servex => ../../ 
+replace github.com/maxbolgarin/servex/v2 => ../../ 
