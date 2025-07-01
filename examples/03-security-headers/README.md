@@ -1,6 +1,6 @@
-# Servex Security Headers Examples
+# 03 - Security Headers
 
-This directory contains comprehensive examples demonstrating Servex's security header features for protecting web applications.
+Protect your web application from common attacks with HTTP security headers. In this tutorial, you'll learn how to secure your server against XSS, clickjacking, and other web vulnerabilities.
 
 ## Examples Included
 

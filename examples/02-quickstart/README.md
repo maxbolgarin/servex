@@ -1,6 +1,6 @@
-# Servex Quickstart Examples
+# 02 - Quickstart with Presets
 
-This directory contains comprehensive quickstart examples demonstrating different Servex server configurations using presets.
+Now that you've mastered the basics, let's explore Servex **presets** - pre-configured server setups for common use cases.
 
 ## Examples Included
 
@@ -132,10 +132,15 @@ Each example shows how to:
 - Go 1.24+
 - Servex framework (automatically resolved via go.mod)
 
+## What You've Learned
+
+- How to use Servex presets for quick server setup
+- Different server configurations for different use cases
+- Production-ready features like graceful shutdown
+- Authentication and security basics
+
 ## Next Steps
 
-After trying these examples:
-1. Check other example directories for specific features
-2. Read the [Configuration Guide](../configuration-guide/)
-3. Explore [Security Examples](../security/)
-4. Try [Proxy Examples](../proxy-simple/) 
+🎯 **Continue the tutorial:** → [03-security-headers](../03-security-headers/)
+
+In the next tutorial, you'll learn how to secure your server with proper security headers. 

@@ -1,8 +1,8 @@
-module servex-proxy-simple-example
+module security-headers
 
 go 1.24
 
-require github.com/maxbolgarin/servex v0.0.0-20240101000000-000000000000
+require github.com/maxbolgarin/servex v0.0.0
 
 require (
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect

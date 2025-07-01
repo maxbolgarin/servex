@@ -1,6 +1,6 @@
-# Servex Cache Control Examples
+# 04 - Cache Control
 
-This directory contains comprehensive examples demonstrating Servex's cache control features, from basic to advanced configurations.
+Learn how to optimize your web application performance with HTTP caching. This tutorial covers ETags, cache headers, and conditional requests to make your server lightning fast.
 
 ## Examples Included
 

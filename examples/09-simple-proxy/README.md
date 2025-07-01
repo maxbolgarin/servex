@@ -1,6 +1,6 @@
-# Servex Simple Proxy Example
+# 09 - Simple Proxy
 
-This directory contains a simple reverse proxy example demonstrating load balancing, health checking, and traffic monitoring with Servex.
+Learn how to create reverse proxies and load balancers with Servex. This tutorial covers load balancing strategies, health checking, traffic monitoring, and fault tolerance for distributed systems.
 
 ## Features Demonstrated
 
@@ -256,10 +256,16 @@ When running this example, these files/directories are created:
 - Servex framework (automatically resolved via go.mod)
 - Backend services on ports 8081, 8082, 8083
 
-## Next Steps
+## What You've Learned
 
-After trying this simple proxy:
-1. Check [Proxy Gateway Example](../proxy-gateway/) for advanced configuration
-2. Explore [Security Examples](../security/) for secure proxying
-3. Try [Cache Examples](../cache/) for caching proxy responses
-4. Read the [Configuration Guide](../configuration-guide/) for detailed setup 
+- How to configure reverse proxy with load balancing
+- Weighted round-robin load balancing strategy
+- Backend health checking and fault tolerance
+- Traffic monitoring and debugging techniques
+- Integration with rate limiting and metrics
+
+## What's Next?
+
+🎯 **Continue the tutorial:** → [10-advanced-proxy](../10-advanced-proxy/)
+
+In the next tutorial, you'll learn advanced proxy features like complex routing, multiple strategies, and gateway patterns. 

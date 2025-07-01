@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -67,16 +66,12 @@ func main() {
 
 	fmt.Printf("🚀 Starting Servex Server v%s\n", Version)
 	if httpAddress := config.Server.HTTP; httpAddress != "" {
-		fmt.Printf("   HTTP:  %s\n", httpAddress)
+		fmt.Printf("\tHTTP:  %s\n", httpAddress)
 	}
 	if httpsAddress := config.Server.HTTPS; httpsAddress != "" {
-		fmt.Printf("   HTTPS: %s\n", httpsAddress)
+		fmt.Printf("\tHTTPS: %s\n", httpsAddress)
 	}
-	fmt.Printf("   Config: %s\n", *configFile)
-	fmt.Println()
-
-	// Register default routes for standalone mode
-	registerStandaloneRoutes(server)
+	fmt.Printf("\tConfig: %s\n\n", *configFile)
 
 	// Start server with graceful shutdown
 	if err := server.StartWithShutdown(ctx, config.Server.HTTP, config.Server.HTTPS); err != nil {
@@ -104,80 +99,6 @@ func loadConfiguration(configFile string) (*servex.Config, error) {
 
 	fmt.Printf("✓ Loaded configuration from '%s'\n", configFile)
 	return config, nil
-}
-
-// registerStandaloneRoutes registers default routes for standalone deployment
-func registerStandaloneRoutes(server *servex.Server) {
-	// Default API info endpoint
-	server.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
-		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]interface{}{
-			"service":    "servex",
-			"version":    Version,
-			"build_time": BuildTime,
-			"git_commit": GitCommit,
-			"timestamp":  time.Now().UTC().Format(time.RFC3339),
-		})
-	}).Methods("GET")
-
-	// Status endpoint
-	server.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
-		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]interface{}{
-			"status":    "healthy",
-			"timestamp": time.Now().UTC().Format(time.RFC3339),
-			"uptime":    time.Since(startTime).String(),
-		})
-	}).Methods("GET")
-
-	// Configuration info (non-sensitive)
-	server.HandleFunc("/api/config", func(w http.ResponseWriter, r *http.Request) {
-		ctx := servex.C(w, r)
-
-		// Only show non-sensitive configuration info
-		info := map[string]interface{}{
-			"version": Version,
-			"features": map[string]bool{
-				"auth_enabled":    server.IsAuthEnabled(),
-				"tls_enabled":     server.IsTLS(),
-				"health_endpoint": true,
-			},
-		}
-
-		ctx.Response(200, info)
-	}).Methods("GET")
-
-	// File upload test endpoint (if no other handlers registered)
-	server.HandleFunc("/api/test/upload", func(w http.ResponseWriter, r *http.Request) {
-		ctx := servex.C(w, r)
-
-		if r.Method != "POST" {
-			ctx.Error(fmt.Errorf("method not allowed"), 405, "Only POST method allowed")
-			return
-		}
-
-		// Parse multipart form
-		if err := r.ParseMultipartForm(10 << 20); err != nil { // 10MB max
-			ctx.Error(err, 400, "Failed to parse multipart form")
-			return
-		}
-
-		files := r.MultipartForm.File["file"]
-		if len(files) == 0 {
-			ctx.Error(fmt.Errorf("no file provided"), 400, "No file in 'file' field")
-			return
-		}
-
-		ctx.Response(200, map[string]interface{}{
-			"message":        "File upload test successful",
-			"files_received": len(files),
-			"first_file": map[string]interface{}{
-				"filename": files[0].Filename,
-				"size":     files[0].Size,
-				"headers":  files[0].Header,
-			},
-		})
-	})
 }
 
 // handleShutdownSignals handles graceful shutdown
