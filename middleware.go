@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
 	"runtime/debug"
@@ -820,4 +821,129 @@ func matchPath(path string, excludePaths, includePaths []string, useWildcards bo
 
 	// By default, process all paths not explicitly excluded
 	return true
+}
+
+// RegisterHTTPSRedirectMiddleware adds HTTP to HTTPS redirection middleware to the router.
+// This middleware automatically redirects all HTTP requests to their HTTPS equivalent
+// to enforce secure connections across the entire application.
+// If the config is disabled, no middleware will be registered.
+func RegisterHTTPSRedirectMiddleware(router MiddlewareRouter, cfg HTTPSRedirectConfig) {
+	if !cfg.Enabled {
+		return // Don't register HTTPS redirect middleware if disabled
+	}
+
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Check if the path should be redirected to HTTPS
+			if !shouldRedirectToHTTPS(r, cfg) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Check if the request is already HTTPS
+			if isHTTPSRequest(r, cfg.TrustedProxies) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Perform HTTP to HTTPS redirect
+			httpsURL := "https://" + r.Host + r.RequestURI
+
+			// Choose redirect status code
+			statusCode := http.StatusMovedPermanently // 301
+			if !cfg.Permanent {
+				statusCode = http.StatusFound // 302
+			}
+
+			w.Header().Set("Location", httpsURL)
+			w.WriteHeader(statusCode)
+		})
+	})
+}
+
+// shouldRedirectToHTTPS determines if a request path should be redirected to HTTPS
+// based on the configuration's include and exclude paths.
+func shouldRedirectToHTTPS(r *http.Request, cfg HTTPSRedirectConfig) bool {
+	return matchPath(r.URL.Path, cfg.ExcludePaths, cfg.IncludePaths, true)
+}
+
+// isHTTPSRequest checks if the current request is already using HTTPS.
+// It considers both direct TLS connections and proxy headers for load balancer scenarios.
+func isHTTPSRequest(r *http.Request, trustedProxies []string) bool {
+	// Direct TLS connection
+	if r.TLS != nil {
+		return true
+	}
+
+	// Check proxy headers only if the request comes from a trusted proxy
+	if len(trustedProxies) > 0 {
+		remoteAddr := r.RemoteAddr
+		if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+			remoteAddr = host
+		}
+
+		// Check if request comes from trusted proxy
+		if isFromTrustedHTTPSProxy(remoteAddr, trustedProxies) {
+			return isHTTPSFromProxyHeaders(r)
+		}
+	}
+
+	return false
+}
+
+// isFromTrustedHTTPSProxy checks if the remote address is from a trusted proxy for HTTPS redirection.
+func isFromTrustedHTTPSProxy(remoteAddr string, trustedProxies []string) bool {
+	remoteIP := net.ParseIP(remoteAddr)
+	if remoteIP == nil {
+		return false
+	}
+
+	for _, proxy := range trustedProxies {
+		// Try parsing as CIDR
+		_, network, err := net.ParseCIDR(proxy)
+		if err == nil {
+			if network.Contains(remoteIP) {
+				return true
+			}
+			continue
+		}
+
+		// Try parsing as single IP
+		proxyIP := net.ParseIP(proxy)
+		if proxyIP != nil && proxyIP.Equal(remoteIP) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// isHTTPSFromProxyHeaders checks standard proxy headers to determine if the original request was HTTPS.
+func isHTTPSFromProxyHeaders(r *http.Request) bool {
+	// Check X-Forwarded-Proto header (most common)
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		return strings.ToLower(proto) == "https"
+	}
+
+	// Check X-Forwarded-Ssl header (some load balancers)
+	if ssl := r.Header.Get("X-Forwarded-Ssl"); ssl != "" {
+		return strings.ToLower(ssl) == "on"
+	}
+
+	// Check X-Url-Scheme header (some proxies)
+	if scheme := r.Header.Get("X-Url-Scheme"); scheme != "" {
+		return strings.ToLower(scheme) == "https"
+	}
+
+	// Check Front-End-Https header (Microsoft IIS)
+	if frontEnd := r.Header.Get("Front-End-Https"); frontEnd != "" {
+		return strings.ToLower(frontEnd) == "on"
+	}
+
+	// Check X-Forwarded-Port header (if it's the standard HTTPS port)
+	if port := r.Header.Get("X-Forwarded-Port"); port == "443" {
+		return true
+	}
+
+	return false
 }

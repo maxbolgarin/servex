@@ -443,6 +443,10 @@ type Options struct {
 	// EnableDefaultMetrics enables the default metrics endpoint.
 	EnableDefaultMetrics bool
 
+	// HTTPSRedirect is the HTTPS redirection configuration.
+	// When true, all HTTP requests will be automatically redirected to HTTPS.
+	HTTPSRedirect HTTPSRedirectConfig
+
 	// Proxy is the reverse proxy configuration
 	Proxy ProxyConfiguration
 }
@@ -1833,6 +1837,92 @@ type StaticFileConfig struct {
 	CacheRules map[string]int
 }
 
+// HTTPSRedirectConfig holds configuration for automatic HTTP to HTTPS redirection.
+// This enables server-level enforcement of HTTPS connections by automatically
+// redirecting all HTTP requests to their HTTPS equivalent.
+//
+// Security benefits:
+//   - Enforces encrypted connections
+//   - Prevents accidental plain-text transmission
+//   - Improves SEO rankings (search engines prefer HTTPS)
+//   - Required for modern web features (Service Workers, Geolocation, etc.)
+//
+// Example configuration:
+//
+//	httpsRedirect := HTTPSRedirectConfig{
+//		Enabled: true,
+//		Permanent: true,
+//		TrustedProxies: []string{"10.0.0.0/8", "172.16.0.0/12"},
+//		ExcludePaths: []string{"/health", "/.well-known/*"},
+//	}
+type HTTPSRedirectConfig struct {
+	// Enabled determines whether HTTP to HTTPS redirection is active.
+	// Must be set to true for automatic HTTPS redirection to work.
+	// Set via WithHTTPSRedirect() or WithHTTPSRedirectPermanent().
+	Enabled bool
+
+	// Permanent determines the type of redirect to use.
+	// If true, uses HTTP 301 (permanent redirect) for better SEO.
+	// If false, uses HTTP 302 (temporary redirect) for testing/development.
+	// Set via WithHTTPSRedirect() or WithHTTPSRedirectPermanent().
+	//
+	// Recommended values:
+	//   - Production: true (301 permanent redirect)
+	//   - Development/Testing: false (302 temporary redirect)
+	//
+	// Default: true (permanent redirect)
+	Permanent bool
+
+	// TrustedProxies is a list of trusted proxy IP addresses or CIDR ranges
+	// for accurate HTTP/HTTPS detection when behind load balancers or proxies.
+	// Set via WithHTTPSRedirectTrustedProxies().
+	//
+	// When behind proxies, the server cannot detect HTTPS from r.TLS alone.
+	// This setting allows checking X-Forwarded-Proto and similar headers
+	// only when the request comes from trusted proxy IPs.
+	//
+	// Common proxy ranges:
+	//   - AWS ALB: Check AWS documentation for current ranges
+	//   - Cloudflare: Use Cloudflare's published IP ranges
+	//   - Internal load balancers: Your internal network ranges
+	//   - Docker networks: 172.16.0.0/12, 10.0.0.0/8
+	//
+	// Security note: Only list IPs you actually trust. Malicious clients
+	// can spoof X-Forwarded-Proto headers if the proxy IP is trusted.
+	TrustedProxies []string
+
+	// ExcludePaths are paths that should be excluded from HTTPS redirection.
+	// Requests to these paths will not be redirected to HTTPS.
+	// Set via WithHTTPSRedirectExcludePaths().
+	//
+	// Common exclusions:
+	//   - Health checks: "/health", "/ping" (for load balancers that use HTTP)
+	//   - Let's Encrypt challenges: "/.well-known/acme-challenge/*"
+	//   - Development endpoints: "/debug/*"
+	//   - Legacy integrations that require HTTP: "/legacy/*"
+	//
+	// Path matching supports wildcards (*) for pattern matching.
+	// Use sparingly - most paths should use HTTPS for security.
+	ExcludePaths []string
+
+	// IncludePaths are paths that should be included in HTTPS redirection.
+	// If set, only requests to these paths will be redirected to HTTPS.
+	// Set via WithHTTPSRedirectIncludePaths().
+	//
+	// If both IncludePaths and ExcludePaths are set:
+	//   1. Paths must match IncludePaths to be considered for redirection
+	//   2. Paths in ExcludePaths are then excluded from redirection
+	//
+	// Use cases:
+	//   - Gradual HTTPS migration: Start with specific paths
+	//   - Mixed HTTP/HTTPS applications: Only secure sensitive areas
+	//   - Testing HTTPS setup: Limit scope during testing
+	//
+	// Path matching supports wildcards (*) for pattern matching.
+	// Leave empty to redirect all paths (recommended for production).
+	IncludePaths []string
+}
+
 // WithCertificate sets the TLS certificate for the server from a pre-loaded tls.Certificate.
 // This enables HTTPS support on the server. You must start the server with an HTTPS address
 // for the certificate to be used.
@@ -2137,6 +2227,142 @@ func WithNoLogClientErrors() Option {
 func WithSendErrorToClient() Option {
 	return func(op *Options) {
 		op.SendErrorToClient = true
+	}
+}
+
+// WithHTTPSRedirect configures the server to automatically redirect HTTP requests to HTTPS.
+// This is a convenience method for the most common HTTPS redirect scenario.
+func WithHTTPSRedirect() Option {
+	return func(op *Options) {
+		op.HTTPSRedirect.Enabled = true
+		op.HTTPSRedirect.Permanent = true
+	}
+}
+
+// WithHTTPSRedirectTemporary enables automatic HTTP to HTTPS redirection using temporary redirects (302).
+// This is useful during development and testing when you don't want browsers to cache the redirects.
+//
+// Example:
+//
+//	// Enable temporary HTTPS redirection for development
+//	server := servex.New(servex.WithHTTPSRedirectTemporary())
+//
+// For production use, prefer WithHTTPSRedirect() which uses permanent redirects (301)
+// for better SEO and performance.
+func WithHTTPSRedirectTemporary() Option {
+	return func(op *Options) {
+		op.HTTPSRedirect.Enabled = true
+		op.HTTPSRedirect.Permanent = false
+	}
+}
+
+// WithHTTPSRedirectConfig sets the complete HTTPS redirection configuration.
+// This allows fine-grained control over all HTTPS redirection settings.
+//
+// Example:
+//
+//	httpsConfig := servex.HTTPSRedirectConfig{
+//		Enabled: true,
+//		Permanent: true,
+//		TrustedProxies: []string{"10.0.0.0/8", "172.16.0.0/12"},
+//		ExcludePaths: []string{"/health", "/.well-known/*"},
+//	}
+//
+//	server := servex.New(servex.WithHTTPSRedirectConfig(httpsConfig))
+//
+// Use this when you need to configure multiple HTTPS redirect settings at once
+// or when loading configuration from files or environment variables.
+func WithHTTPSRedirectConfig(config HTTPSRedirectConfig) Option {
+	return func(op *Options) {
+		op.HTTPSRedirect = config
+	}
+}
+
+// WithHTTPSRedirectTrustedProxies sets the trusted proxy IP addresses or CIDR ranges
+// for accurate HTTP/HTTPS detection when behind load balancers or proxies.
+//
+// When behind proxies, the server cannot detect HTTPS from r.TLS alone.
+// This setting allows checking X-Forwarded-Proto and similar headers
+// only when the request comes from trusted proxy IPs.
+//
+// Example:
+//
+//	// Trust common internal networks
+//	server := servex.New(
+//		servex.WithHTTPSRedirect(),
+//		servex.WithHTTPSRedirectTrustedProxies("10.0.0.0/8", "172.16.0.0/12"),
+//	)
+//
+//	// Trust specific load balancer IPs
+//	server := servex.New(
+//		servex.WithHTTPSRedirect(),
+//		servex.WithHTTPSRedirectTrustedProxies("192.168.1.100", "192.168.1.101"),
+//	)
+//
+// Security note: Only list IPs you actually trust. Malicious clients
+// can spoof X-Forwarded-Proto headers if the proxy IP is trusted.
+func WithHTTPSRedirectTrustedProxies(proxies ...string) Option {
+	return func(op *Options) {
+		op.HTTPSRedirect.TrustedProxies = proxies
+	}
+}
+
+// WithHTTPSRedirectExcludePaths sets paths that should be excluded from HTTPS redirection.
+// Requests to these paths will not be redirected to HTTPS.
+//
+// Common exclusions:
+//   - Health checks: "/health", "/ping" (for load balancers that use HTTP)
+//   - Let's Encrypt challenges: "/.well-known/acme-challenge/*"
+//   - Development endpoints: "/debug/*"
+//   - Legacy integrations that require HTTP: "/legacy/*"
+//
+// Example:
+//
+//	// Exclude health checks and Let's Encrypt challenges
+//	server := servex.New(
+//		servex.WithHTTPSRedirect(),
+//		servex.WithHTTPSRedirectExcludePaths("/health", "/.well-known/*"),
+//	)
+//
+// Path matching supports wildcards (*) for pattern matching.
+// Use sparingly - most paths should use HTTPS for security.
+func WithHTTPSRedirectExcludePaths(paths ...string) Option {
+	return func(op *Options) {
+		op.HTTPSRedirect.ExcludePaths = paths
+	}
+}
+
+// WithHTTPSRedirectIncludePaths sets paths that should be included in HTTPS redirection.
+// If set, only requests to these paths will be redirected to HTTPS.
+//
+// If both IncludePaths and ExcludePaths are set:
+//   1. Paths must match IncludePaths to be considered for redirection
+//   2. Paths in ExcludePaths are then excluded from redirection
+//
+// Example:
+//
+//	// Only redirect specific sensitive areas
+//	server := servex.New(
+//		servex.WithHTTPSRedirect(),
+//		servex.WithHTTPSRedirectIncludePaths("/admin/*", "/user/*", "/api/private/*"),
+//	)
+//
+//	// Gradual HTTPS migration
+//	server := servex.New(
+//		servex.WithHTTPSRedirect(),
+//		servex.WithHTTPSRedirectIncludePaths("/secure/*"),
+//	)
+//
+// Use cases:
+//   - Gradual HTTPS migration: Start with specific paths
+//   - Mixed HTTP/HTTPS applications: Only secure sensitive areas
+//   - Testing HTTPS setup: Limit scope during testing
+//
+// Path matching supports wildcards (*) for pattern matching.
+// Leave empty to redirect all paths (recommended for production).
+func WithHTTPSRedirectIncludePaths(paths ...string) Option {
+	return func(op *Options) {
+		op.HTTPSRedirect.IncludePaths = paths
 	}
 }
 

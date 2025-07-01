@@ -186,6 +186,10 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 	}
 	s.filter = filter
 
+	if opts.HTTPSRedirect.Enabled {
+		RegisterHTTPSRedirectMiddleware(s.router, opts.HTTPSRedirect)
+	}
+
 	RegisterSecurityHeadersMiddleware(s.router, opts.Security)
 	RegisterCacheControlMiddleware(s.router, opts.Cache)
 	if len(opts.CustomHeaders) > 0 {

@@ -1137,6 +1137,186 @@ func (ctx *Context) ServiceUnavailable(err error, msg string, fields ...any) {
 	ctx.Error(err, http.StatusServiceUnavailable, msg, fields...)
 }
 
+// Redirect performs an HTTP redirect to the specified URL with the given status code.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - url: The URL to redirect to
+//   - code: HTTP status code (301, 302, 303, 307, 308)
+//
+// Example:
+//
+//	// Temporary redirect
+//	ctx.Redirect("/login", 302)
+//
+//	// Permanent redirect
+//	ctx.Redirect("https://example.com/new-path", 301)
+func (ctx *Context) Redirect(url string, code int) {
+	ctx.SetHeader("Location", url)
+	ctx.w.WriteHeader(code)
+}
+
+// RedirectPermanent performs a permanent redirect (HTTP 301) to the specified URL.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - url: The URL to redirect to
+//
+// Example:
+//
+//	ctx.RedirectPermanent("https://example.com/new-path")
+func (ctx *Context) RedirectPermanent(url string) {
+	ctx.Redirect(url, http.StatusMovedPermanently)
+}
+
+// RedirectTemporary performs a temporary redirect (HTTP 302) to the specified URL.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - url: The URL to redirect to
+//
+// Example:
+//
+//	ctx.RedirectTemporary("/login")
+func (ctx *Context) RedirectTemporary(url string) {
+	ctx.Redirect(url, http.StatusFound)
+}
+
+// RedirectSeeOther performs a "See Other" redirect (HTTP 303) to the specified URL.
+// This is typically used after a POST request to redirect to a GET endpoint.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - url: The URL to redirect to
+//
+// Example:
+//
+//	// After processing a form submission
+//	ctx.RedirectSeeOther("/success")
+func (ctx *Context) RedirectSeeOther(url string) {
+	ctx.Redirect(url, http.StatusSeeOther)
+}
+
+// RedirectNotModified performs a "Not Modified" redirect (HTTP 304) to indicate
+// that the resource has not been modified since the last request.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// This is typically used with conditional requests (If-Modified-Since, If-None-Match).
+//
+// Example:
+//
+//	if !isModified {
+//		ctx.RedirectNotModified()
+//		return
+//	}
+func (ctx *Context) RedirectNotModified() {
+	ctx.w.WriteHeader(http.StatusNotModified)
+}
+
+// RedirectTemporaryPreserveMethod performs a temporary redirect (HTTP 307) to the specified URL.
+// Unlike 302, this guarantees that the request method and body will be preserved.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - url: The URL to redirect to
+//
+// Example:
+//
+//	ctx.RedirectTemporaryPreserveMethod("/api/v2/users")
+func (ctx *Context) RedirectTemporaryPreserveMethod(url string) {
+	ctx.Redirect(url, http.StatusTemporaryRedirect)
+}
+
+// RedirectPermanentPreserveMethod performs a permanent redirect (HTTP 308) to the specified URL.
+// Unlike 301, this guarantees that the request method and body will be preserved.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - url: The URL to redirect to
+//
+// Example:
+//
+//	ctx.RedirectPermanentPreserveMethod("https://example.com/api/v2/users")
+func (ctx *Context) RedirectPermanentPreserveMethod(url string) {
+	ctx.Redirect(url, http.StatusPermanentRedirect)
+}
+
+// RedirectToHTTPS redirects the current HTTP request to its HTTPS equivalent.
+// This method preserves the host, path, and query parameters while changing the scheme to HTTPS.
+// It uses a permanent redirect (HTTP 301) by default to encourage browsers and search engines
+// to update their links to use HTTPS.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - permanent: If true, uses HTTP 301 (permanent redirect). If false, uses HTTP 302 (temporary redirect)
+//
+// Example:
+//
+//	// In a middleware or handler
+//	if ctx.r.TLS == nil && ctx.r.Header.Get("X-Forwarded-Proto") != "https" {
+//		ctx.RedirectToHTTPS(true) // Permanent redirect
+//		return
+//	}
+//
+//	// Temporary redirect (useful during testing)
+//	ctx.RedirectToHTTPS(false)
+func (ctx *Context) RedirectToHTTPS(permanent ...bool) {
+	isPermanent := len(permanent) == 0 || permanent[0] // Default to permanent redirect
+
+	// Build HTTPS URL from current request
+	httpsURL := "https://" + ctx.r.Host + ctx.r.RequestURI
+
+	// Choose redirect status code
+	statusCode := http.StatusMovedPermanently // 301
+	if !isPermanent {
+		statusCode = http.StatusFound // 302
+	}
+
+	ctx.Redirect(httpsURL, statusCode)
+}
+
+// RedirectToHTTPSPermanent redirects the current HTTP request to its HTTPS equivalent
+// using a permanent redirect (HTTP 301). This is a convenience method for the most
+// common HTTPS redirect scenario.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// Example:
+//
+//	// In a middleware
+//	if ctx.r.TLS == nil {
+//		ctx.RedirectToHTTPSPermanent()
+//		return
+//	}
+func (ctx *Context) RedirectToHTTPSPermanent() {
+	ctx.RedirectToHTTPS(true)
+}
+
+// RedirectToHTTPSTemporary redirects the current HTTP request to its HTTPS equivalent
+// using a temporary redirect (HTTP 302). This is useful during development or testing
+// when you don't want browsers to cache the redirect.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// Example:
+//
+//	// During development/testing
+//	if ctx.r.TLS == nil {
+//		ctx.RedirectToHTTPSTemporary()
+//		return
+//	}
+func (ctx *Context) RedirectToHTTPSTemporary() {
+	ctx.RedirectToHTTPS(false)
+}
+
 // Error handles errors by sending standardized HTTP error responses.
 //
 // This method provides consistent error handling across your application
