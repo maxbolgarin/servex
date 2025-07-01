@@ -47,7 +47,8 @@ func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, me
 
 			next.ServeHTTP(lrw, r)
 
-			noLog := getValueFromContext[bool](r, noLogKey{})
+			// Check for NoLog flag from both context and loggingResponseWriter
+			noLog := getValueFromContext[bool](r, noLogKey{}) || lrw.noLog
 			if noLog {
 				return
 			}

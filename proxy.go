@@ -17,8 +17,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/gorilla/mux"
 )
 
 // LoadBalancingStrategy defines the load balancing algorithm
@@ -320,7 +318,7 @@ func (pm *ProxyManager) createErrorHandler(backend *Backend) func(http.ResponseW
 }
 
 // RegisterProxyMiddleware registers the proxy middleware
-func RegisterProxyMiddleware(router *mux.Router, config ProxyConfiguration, logger Logger) (*ProxyManager, error) {
+func RegisterProxyMiddleware(router MiddlewareRouter, config ProxyConfiguration, logger Logger) (*ProxyManager, error) {
 	if !config.Enabled {
 		return nil, nil
 	}
