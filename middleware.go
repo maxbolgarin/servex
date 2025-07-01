@@ -50,12 +50,13 @@ func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, me
 				return
 			}
 
-			logBundle := RequestLogBundle{
-				Request:           r,
-				RequestID:         getOrSetRequestID(r),
-				StartTime:         start,
-				NoLogClientErrors: getValueFromContext[bool](r, noLogClientErrorsKey{}),
-			}
+			logBundle := getRequestLogBundle()
+			defer putRequestLogBundle(logBundle)
+
+			logBundle.Request = r
+			logBundle.RequestID = getOrSetRequestID(r)
+			logBundle.StartTime = start
+			logBundle.NoLogClientErrors = getValueFromContext[bool](r, noLogClientErrorsKey{})
 			if len(noLogClientErrors) > 0 {
 				logBundle.NoLogClientErrors = noLogClientErrors[0]
 			}
@@ -73,7 +74,7 @@ func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, me
 				logBundle.StatusCode = getValueFromContext[int](r, codeKey{})
 			}
 
-			logger.Log(logBundle)
+			logger.Log(*logBundle)
 		})
 	})
 }

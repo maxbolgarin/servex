@@ -99,8 +99,7 @@ type (
 )
 
 // NewAuthManager creates a new [AuthManager] with the provided configuration.
-// It initializes default values for configuration fields if they are not provided
-// and generates random secrets if JWT secrets are empty.
+// It initializes default values for configuration fields if they are not provided.
 func NewAuthManager(cfg AuthConfig) (*AuthManager, error) {
 	cfg.RefreshTokenCookieName = lang.Check(cfg.RefreshTokenCookieName, refreshTokenCookieName)
 	cfg.AuthBasePath = lang.Check(cfg.AuthBasePath, authBasePath)
@@ -109,11 +108,11 @@ func NewAuthManager(cfg AuthConfig) (*AuthManager, error) {
 	cfg.IssuerNameInJWT = lang.Check(cfg.IssuerNameInJWT, "testing")
 
 	if cfg.JWTAccessSecret == "" {
-		cfg.JWTAccessSecret = hex.EncodeToString(getRandomBytes(32))
+		return nil, errors.New("JWT access secret is required")
 	}
 
 	if cfg.JWTRefreshSecret == "" {
-		cfg.JWTRefreshSecret = hex.EncodeToString(getRandomBytes(32))
+		return nil, errors.New("JWT refresh secret is required")
 	}
 
 	accessSecret, err := hex.DecodeString(cfg.JWTAccessSecret)

@@ -53,6 +53,11 @@ var (
 			return make([]any, 0, 24) // Capacity for ~12 key-value pairs
 		},
 	}
+	requestLogBundlePool = sync.Pool{
+		New: func() any {
+			return &RequestLogBundle{}
+		},
+	}
 )
 
 // getLogFields retrieves a field slice from the pool.
@@ -113,6 +118,18 @@ type RequestLogBundle struct {
 	NoLogClientErrors bool
 }
 
+// getRequestLogBundle gets a RequestLogBundle from the pool
+func getRequestLogBundle() *RequestLogBundle {
+	return requestLogBundlePool.Get().(*RequestLogBundle)
+}
+
+// putRequestLogBundle returns a RequestLogBundle to the pool after resetting it
+func putRequestLogBundle(bundle *RequestLogBundle) {
+	// Reset the bundle
+	*bundle = RequestLogBundle{}
+	requestLogBundlePool.Put(bundle)
+}
+
 // LogFields returns a slice of fields to set to logger using With method.
 // You can add fieldsToInclude to set exact fields that you need.
 // By default it returns all fields.
@@ -169,15 +186,51 @@ type BaseRequestLogger struct {
 }
 
 func (l *BaseRequestLogger) Log(r RequestLogBundle) {
+	duration := time.Since(r.StartTime)
+	statusCode := r.StatusCode
+	if statusCode == 0 {
+		statusCode = 200 // Default status code
+	}
+
+	// Don't log successful requests at error level
+	isError := r.Error != nil || statusCode >= 500
+	isClientError := statusCode >= 400 && statusCode < 500
+
+	// Skip logging client errors if configured
+	if isClientError && r.NoLogClientErrors {
+		return
+	}
+
+	// Get log fields from pool
 	fields := getLogFields()
 	defer putLogFields(fields)
 
-	// If specific fields are configured, use selective inclusion
-	if len(l.FieldsToInclude) > 0 {
-		fields = l.addSelectiveFields(fields, r)
-	} else {
-		// Default behavior: add all fields (backwards compatibility)
-		fields = l.addAllFields(fields, r)
+	// Always include basic fields
+	fields = append(fields, "method", r.Request.Method)
+	fields = append(fields, "url", r.Request.URL.String())
+	fields = append(fields, "status", statusCode)
+	fields = append(fields, "duration_ms", duration.Milliseconds())
+
+	// Add optional fields based on configuration
+	if l.shouldIncludeField(RequestIDLogField) {
+		fields = append(fields, "request_id", r.RequestID)
+	}
+	if l.shouldIncludeField(IPLogField) {
+		fields = append(fields, "ip", r.Request.RemoteAddr)
+	}
+	if l.shouldIncludeField(UserAgentLogField) {
+		fields = append(fields, "user_agent", r.Request.UserAgent())
+	}
+	if l.shouldIncludeField(ProtoLogField) {
+		fields = append(fields, "proto", r.Request.Proto)
+	}
+
+	// Add error information if present
+	if r.Error != nil && l.shouldIncludeField(ErrorLogField) {
+		fields = append(fields, "error", r.Error.Error())
+	}
+	if r.ErrorMessage != "" && l.shouldIncludeField(ErrorMessageLogField) {
+		fields = append(fields, "error_message", r.ErrorMessage)
 	}
 
 	// Use pre-allocated message constants
@@ -186,98 +239,27 @@ func (l *BaseRequestLogger) Log(r RequestLogBundle) {
 		msg = httpsMsg
 	}
 
-	if r.Error == nil {
+	// Log at appropriate level
+	if isError {
+		l.Logger.Error(msg, fields...)
+	} else if isClientError {
+		l.Logger.Info(msg, fields...)
+	} else {
 		l.Logger.Debug(msg, fields...)
-		return
 	}
-
-	if r.NoLogClientErrors && r.StatusCode >= 400 && r.StatusCode < 500 {
-		l.Logger.Debug(msg, fields...)
-		return
-	}
-
-	l.Logger.Error(msg, fields...)
 }
 
-// addSelectiveFields adds only the fields specified in FieldsToInclude
-func (l *BaseRequestLogger) addSelectiveFields(fields []any, r RequestLogBundle) []any {
-	for _, field := range l.FieldsToInclude {
-		switch field {
-		case RequestIDLogField:
-			if r.RequestID != "" {
-				fields = appendFieldPair(fields, requestIDFieldKey, r.RequestID)
-			}
-		case IPLogField:
-			if r.Request != nil {
-				fields = appendFieldPair(fields, ipFieldKey, r.Request.RemoteAddr)
-			}
-		case UserAgentLogField:
-			if r.Request != nil {
-				fields = appendFieldPair(fields, userAgentFieldKey, r.Request.UserAgent())
-			}
-		case URLLogField:
-			if r.Request != nil {
-				fields = appendFieldPair(fields, urlFieldKey, r.Request.URL.String())
-			}
-		case MethodLogField:
-			if r.Request != nil {
-				fields = appendFieldPair(fields, methodFieldKey, r.Request.Method)
-			}
-		case ProtoLogField:
-			if r.Request != nil {
-				fields = appendFieldPair(fields, protoFieldKey, r.Request.Proto)
-			}
-		// Meta fields that are always available
-		case ErrorLogField:
-			if r.Error != nil {
-				fields = appendFieldPair(fields, errorFieldKey, r.Error)
-			}
-		case ErrorMessageLogField:
-			if r.ErrorMessage != "" {
-				fields = appendFieldPair(fields, errorMsgFieldKey, r.ErrorMessage)
-			}
-		case StatusLogField:
-			if r.StatusCode != 0 {
-				fields = appendFieldPair(fields, statusFieldKey, r.StatusCode)
-			}
-		case DurationLogField:
-			if !r.StartTime.IsZero() {
-				fields = appendFieldPair(fields, durationFieldKey, time.Since(r.StartTime).Milliseconds())
-			}
+// shouldIncludeField checks if a field should be included in logs
+func (l *BaseRequestLogger) shouldIncludeField(field string) bool {
+	if len(l.FieldsToInclude) == 0 {
+		return true // Include all fields if none specified
+	}
+	for _, f := range l.FieldsToInclude {
+		if f == field {
+			return true
 		}
 	}
-	return fields
-}
-
-// addAllFields adds all available fields (original behavior)
-func (l *BaseRequestLogger) addAllFields(fields []any, r RequestLogBundle) []any {
-	// Build fields efficiently using the pooled slice and pre-allocated constants
-	if r.Error != nil {
-		fields = appendFieldPair(fields, errorFieldKey, r.Error)
-	}
-	if r.ErrorMessage != "" {
-		fields = appendFieldPair(fields, errorMsgFieldKey, r.ErrorMessage)
-	}
-	if r.RequestID != "" {
-		fields = appendFieldPair(fields, requestIDFieldKey, r.RequestID)
-	}
-	if r.StatusCode != 0 {
-		fields = appendFieldPair(fields, statusFieldKey, r.StatusCode)
-	}
-	if !r.StartTime.IsZero() {
-		fields = appendFieldPair(fields, durationFieldKey, time.Since(r.StartTime).Milliseconds())
-	}
-	if r.Request != nil {
-		// Add all request fields in one operation for better performance
-		fields = append(fields,
-			ipFieldKey, r.Request.RemoteAddr,
-			userAgentFieldKey, r.Request.UserAgent(),
-			urlFieldKey, r.Request.URL.String(),
-			methodFieldKey, r.Request.Method,
-			protoFieldKey, r.Request.Proto,
-		)
-	}
-	return fields
+	return false
 }
 
 type noopRequestLogger struct{}

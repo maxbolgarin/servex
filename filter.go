@@ -60,6 +60,67 @@ type Filter struct {
 	locationFilters map[int]*Filter
 }
 
+const (
+	// Maximum size limits to prevent unbounded memory growth
+	maxFilterSliceSize = 10000 // Maximum number of entries in filter slices
+	maxSliceCapacity   = 1000  // Threshold for slice capacity management
+)
+
+// Helper functions for memory-efficient slice operations
+
+// safeRemoveString removes an element from a string slice without memory leaks.
+// It returns the new slice and whether the element was found and removed.
+func safeRemoveString(slice []string, target string) ([]string, bool) {
+	for i, item := range slice {
+		if item == target {
+			// Copy the element to be removed to avoid reference retention
+			copy(slice[i:], slice[i+1:])
+			// Clear the last element to prevent memory leak
+			slice[len(slice)-1] = ""
+			// Return the shortened slice
+			newSlice := slice[:len(slice)-1]
+
+			// If capacity is getting too large compared to length, recreate slice
+			if cap(newSlice) > maxSliceCapacity && len(newSlice) < cap(newSlice)/4 {
+				compactSlice := make([]string, len(newSlice))
+				copy(compactSlice, newSlice)
+				return compactSlice, true
+			}
+
+			return newSlice, true
+		}
+	}
+	return slice, false
+}
+
+// safeAppendString appends to a string slice with capacity management.
+// It returns an error if the slice would exceed the maximum size limit.
+func safeAppendString(slice []string, item string) ([]string, error) {
+	if len(slice) >= maxFilterSliceSize {
+		return slice, fmt.Errorf("filter list size limit exceeded (%d items)", maxFilterSliceSize)
+	}
+
+	// Check for duplicates to prevent unnecessary growth
+	for _, existing := range slice {
+		if existing == item {
+			return slice, nil // Item already exists, no need to add
+		}
+	}
+
+	return append(slice, item), nil
+}
+
+// clearCompiledSlices safely clears compiled slice data to prevent memory leaks.
+func clearCompiledSlices(nets []*net.IPNet, regexes []*regexp.Regexp) {
+	// Clear slice elements to help garbage collection
+	for i := range nets {
+		nets[i] = nil
+	}
+	for i := range regexes {
+		regexes[i] = nil
+	}
+}
+
 // DynamicFilterMethods provides methods to modify filter rules at runtime.
 // These methods are thread-safe and allow dynamic adaptation of filtering rules.
 type DynamicFilterMethods interface {
@@ -715,17 +776,23 @@ func (f *Filter) AddBlockedIP(ip string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Add to config for persistence
-	f.config.BlockedIPs = append(f.config.BlockedIPs, ip)
-
-	// Recompile blocked IP networks
-	nets, err := f.compileIPNets(f.config.BlockedIPs)
+	// Use safe append with capacity management
+	newSlice, err := safeAppendString(f.config.BlockedIPs, ip)
 	if err != nil {
-		// Remove from config if compilation failed
-		f.config.BlockedIPs = f.config.BlockedIPs[:len(f.config.BlockedIPs)-1]
 		return fmt.Errorf("add blocked IP %s: %w", ip, err)
 	}
 
+	// Validate IP format before committing changes
+	nets, err := f.compileIPNets(newSlice)
+	if err != nil {
+		return fmt.Errorf("add blocked IP %s: %w", ip, err)
+	}
+
+	// Clear old compiled data to prevent memory leaks
+	clearCompiledSlices(f.blockedIPNets, nil)
+
+	// Commit changes
+	f.config.BlockedIPs = newSlice
 	f.blockedIPNets = nets
 	return nil
 }
@@ -736,20 +803,23 @@ func (f *Filter) RemoveBlockedIP(ip string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Remove from config
-	for i, blockedIP := range f.config.BlockedIPs {
-		if blockedIP == ip {
-			f.config.BlockedIPs = append(f.config.BlockedIPs[:i], f.config.BlockedIPs[i+1:]...)
-			break
-		}
+	// Use safe removal to prevent memory leaks
+	newSlice, found := safeRemoveString(f.config.BlockedIPs, ip)
+	if !found {
+		return fmt.Errorf("IP %s not found in blocked list", ip)
 	}
 
 	// Recompile blocked IP networks
-	nets, err := f.compileIPNets(f.config.BlockedIPs)
+	nets, err := f.compileIPNets(newSlice)
 	if err != nil {
 		return fmt.Errorf("recompile blocked IPs after removing %s: %w", ip, err)
 	}
 
+	// Clear old compiled data to prevent memory leaks
+	clearCompiledSlices(f.blockedIPNets, nil)
+
+	// Commit changes
+	f.config.BlockedIPs = newSlice
 	f.blockedIPNets = nets
 	return nil
 }
@@ -760,17 +830,23 @@ func (f *Filter) AddAllowedIP(ip string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Add to config for persistence
-	f.config.AllowedIPs = append(f.config.AllowedIPs, ip)
-
-	// Recompile allowed IP networks
-	nets, err := f.compileIPNets(f.config.AllowedIPs)
+	// Use safe append with capacity management
+	newSlice, err := safeAppendString(f.config.AllowedIPs, ip)
 	if err != nil {
-		// Remove from config if compilation failed
-		f.config.AllowedIPs = f.config.AllowedIPs[:len(f.config.AllowedIPs)-1]
 		return fmt.Errorf("add allowed IP %s: %w", ip, err)
 	}
 
+	// Validate IP format before committing changes
+	nets, err := f.compileIPNets(newSlice)
+	if err != nil {
+		return fmt.Errorf("add allowed IP %s: %w", ip, err)
+	}
+
+	// Clear old compiled data to prevent memory leaks
+	clearCompiledSlices(f.allowedIPNets, nil)
+
+	// Commit changes
+	f.config.AllowedIPs = newSlice
 	f.allowedIPNets = nets
 	return nil
 }
@@ -781,20 +857,23 @@ func (f *Filter) RemoveAllowedIP(ip string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Remove from config
-	for i, allowedIP := range f.config.AllowedIPs {
-		if allowedIP == ip {
-			f.config.AllowedIPs = append(f.config.AllowedIPs[:i], f.config.AllowedIPs[i+1:]...)
-			break
-		}
+	// Use safe removal to prevent memory leaks
+	newSlice, found := safeRemoveString(f.config.AllowedIPs, ip)
+	if !found {
+		return fmt.Errorf("IP %s not found in allowed list", ip)
 	}
 
 	// Recompile allowed IP networks
-	nets, err := f.compileIPNets(f.config.AllowedIPs)
+	nets, err := f.compileIPNets(newSlice)
 	if err != nil {
 		return fmt.Errorf("recompile allowed IPs after removing %s: %w", ip, err)
 	}
 
+	// Clear old compiled data to prevent memory leaks
+	clearCompiledSlices(f.allowedIPNets, nil)
+
+	// Commit changes
+	f.config.AllowedIPs = newSlice
 	f.allowedIPNets = nets
 	return nil
 }
@@ -855,8 +934,14 @@ func (f *Filter) AddBlockedUserAgent(userAgent string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Add to config for persistence
-	f.config.BlockedUserAgents = append(f.config.BlockedUserAgents, userAgent)
+	// Use safe append with capacity management
+	newSlice, err := safeAppendString(f.config.BlockedUserAgents, userAgent)
+	if err != nil {
+		return fmt.Errorf("add blocked user agent %s: %w", userAgent, err)
+	}
+
+	// Commit changes
+	f.config.BlockedUserAgents = newSlice
 
 	// Recompile exact patterns
 	f.blockedUAExact = f.compileExactPatterns(f.config.BlockedUserAgents)
@@ -869,13 +954,14 @@ func (f *Filter) RemoveBlockedUserAgent(userAgent string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Remove from config
-	for i, blockedUA := range f.config.BlockedUserAgents {
-		if blockedUA == userAgent {
-			f.config.BlockedUserAgents = append(f.config.BlockedUserAgents[:i], f.config.BlockedUserAgents[i+1:]...)
-			break
-		}
+	// Use safe removal to prevent memory leaks
+	newSlice, found := safeRemoveString(f.config.BlockedUserAgents, userAgent)
+	if !found {
+		return fmt.Errorf("user agent %s not found in blocked list", userAgent)
 	}
+
+	// Commit changes
+	f.config.BlockedUserAgents = newSlice
 
 	// Recompile exact patterns
 	f.blockedUAExact = f.compileExactPatterns(f.config.BlockedUserAgents)
@@ -888,8 +974,14 @@ func (f *Filter) AddAllowedUserAgent(userAgent string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Add to config for persistence
-	f.config.AllowedUserAgents = append(f.config.AllowedUserAgents, userAgent)
+	// Use safe append with capacity management
+	newSlice, err := safeAppendString(f.config.AllowedUserAgents, userAgent)
+	if err != nil {
+		return fmt.Errorf("add allowed user agent %s: %w", userAgent, err)
+	}
+
+	// Commit changes
+	f.config.AllowedUserAgents = newSlice
 
 	// Recompile exact patterns
 	f.allowedUAExact = f.compileExactPatterns(f.config.AllowedUserAgents)
@@ -902,13 +994,14 @@ func (f *Filter) RemoveAllowedUserAgent(userAgent string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
-	// Remove from config
-	for i, allowedUA := range f.config.AllowedUserAgents {
-		if allowedUA == userAgent {
-			f.config.AllowedUserAgents = append(f.config.AllowedUserAgents[:i], f.config.AllowedUserAgents[i+1:]...)
-			break
-		}
+	// Use safe removal to prevent memory leaks
+	newSlice, found := safeRemoveString(f.config.AllowedUserAgents, userAgent)
+	if !found {
+		return fmt.Errorf("user agent %s not found in allowed list", userAgent)
 	}
+
+	// Commit changes
+	f.config.AllowedUserAgents = newSlice
 
 	// Recompile exact patterns
 	f.allowedUAExact = f.compileExactPatterns(f.config.AllowedUserAgents)
@@ -966,6 +1059,10 @@ func (f *Filter) ClearAllBlockedIPs() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	// Clear old compiled data to prevent memory leaks
+	clearCompiledSlices(f.blockedIPNets, nil)
+
+	// Clear configuration and compiled data
 	f.config.BlockedIPs = nil
 	f.blockedIPNets = nil
 	return nil
@@ -977,6 +1074,10 @@ func (f *Filter) ClearAllAllowedIPs() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	// Clear old compiled data to prevent memory leaks
+	clearCompiledSlices(f.allowedIPNets, nil)
+
+	// Clear configuration and compiled data
 	f.config.AllowedIPs = nil
 	f.allowedIPNets = nil
 	return nil
@@ -988,8 +1089,13 @@ func (f *Filter) ClearAllBlockedUserAgents() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	// Clear old compiled regex data to prevent memory leaks
+	clearCompiledSlices(nil, f.blockedUARegex)
+
+	// Clear configuration and compiled data
 	f.config.BlockedUserAgents = nil
 	f.blockedUAExact = make(map[string]bool)
+	f.blockedUARegex = nil
 	return nil
 }
 
@@ -999,7 +1105,12 @@ func (f *Filter) ClearAllAllowedUserAgents() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 
+	// Clear old compiled regex data to prevent memory leaks
+	clearCompiledSlices(nil, f.allowedUARegex)
+
+	// Clear configuration and compiled data
 	f.config.AllowedUserAgents = nil
 	f.allowedUAExact = make(map[string]bool)
+	f.allowedUARegex = nil
 	return nil
 }

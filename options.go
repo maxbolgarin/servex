@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/maxbolgarin/lang"
@@ -5058,6 +5059,76 @@ func WithStaticFileExclusions(paths ...string) Option {
 		}
 		o.StaticFiles.ExcludePaths = append(o.StaticFiles.ExcludePaths, paths...)
 	}
+}
+
+// Validate checks the options for consistency and common configuration errors.
+// It returns an error if any configuration is invalid or potentially problematic.
+func (opts *Options) Validate() error {
+	var errors []string
+
+	// Certificate validation
+	if opts.Certificate != nil && (opts.CertFilePath != "" || opts.KeyFilePath != "") {
+		errors = append(errors, "cannot specify both Certificate and CertFilePath/KeyFilePath")
+	}
+
+	// Auth validation
+	if opts.Auth.Enabled {
+		if opts.Auth.Database == nil {
+			errors = append(errors, "auth database is required when auth is enabled")
+		}
+		if opts.Auth.AccessTokenDuration <= 0 {
+			errors = append(errors, "access token duration must be positive")
+		}
+		if opts.Auth.RefreshTokenDuration <= 0 {
+			errors = append(errors, "refresh token duration must be positive")
+		}
+		if opts.Auth.AccessTokenDuration >= opts.Auth.RefreshTokenDuration {
+			errors = append(errors, "refresh token duration should be longer than access token duration")
+		}
+	}
+
+	// Rate limit validation
+	if opts.RateLimit.Enabled {
+		if opts.RateLimit.RequestsPerInterval <= 0 {
+			errors = append(errors, "requests per interval must be positive when rate limiting is enabled")
+		}
+		if opts.RateLimit.Interval <= 0 {
+			errors = append(errors, "rate limit interval must be positive")
+		}
+		if opts.RateLimit.BurstSize < opts.RateLimit.RequestsPerInterval {
+			errors = append(errors, "burst size should not be smaller than requests per interval")
+		}
+	}
+
+	// Size limit validation
+	if opts.EnableRequestSizeLimits {
+		if opts.MaxRequestBodySize <= 0 {
+			errors = append(errors, "max request body size must be positive when size limits are enabled")
+		}
+		if opts.MaxJSONBodySize > opts.MaxRequestBodySize {
+			errors = append(errors, "max JSON body size cannot exceed max request body size")
+		}
+		if opts.MaxFileUploadSize > opts.MaxRequestBodySize {
+			errors = append(errors, "max file upload size cannot exceed max request body size")
+		}
+	}
+
+	// Security validation
+	if opts.Security.Enabled {
+		if opts.Security.ContentSecurityPolicy != "" {
+			// Basic CSP validation - could be more comprehensive
+			if !strings.Contains(opts.Security.ContentSecurityPolicy, "default-src") &&
+				!strings.Contains(opts.Security.ContentSecurityPolicy, "script-src") {
+				errors = append(errors, "CSP should include at least default-src or script-src directive")
+			}
+		}
+	}
+
+	if len(errors) > 0 {
+		return fmt.Errorf("configuration validation failed: %s", strings.Join(errors, "; "))
+	}
+
+	return nil
 }
 
 const (

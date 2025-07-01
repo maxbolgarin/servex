@@ -38,6 +38,11 @@ func New(ops ...Option) (*Server, error) {
 
 // NewWithOptions creates a new instance of the [Server] with the provided [Options].
 func NewWithOptions(opts Options) (*Server, error) {
+	// Validate configuration before proceeding
+	if err := opts.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
 			Level: slog.LevelDebug,
