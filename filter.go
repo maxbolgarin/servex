@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/maxbolgarin/lang"
 )
 
 // LocationFilterConfig defines a filter configuration for specific locations.
@@ -38,6 +41,7 @@ type Filter struct {
 
 	config          FilterConfig
 	locationConfigs []LocationFilterConfig
+	auditLogger     AuditLogger
 
 	// compiled regex patterns and IP networks
 	allowedIPNets      []*net.IPNet
@@ -65,6 +69,13 @@ const (
 	maxFilterSliceSize = 10000 // Maximum number of entries in filter slices
 	maxSliceCapacity   = 1000  // Threshold for slice capacity management
 )
+
+// FilterBlockReason represents the reason why a request was blocked
+type FilterBlockReason struct {
+	Type  AuditEventType // The audit event type for this block
+	Value string         // The specific value that caused the block
+	Rule  string         // The rule that caused the block
+}
 
 // Helper functions for memory-efficient slice operations
 
@@ -152,12 +163,12 @@ type DynamicFilterMethods interface {
 // RegisterFilterMiddleware adds request filtering middleware to the router.
 // If the config has no filters configured, no middleware will be registered.
 // Returns the created filter instance for dynamic modification, or nil if no filter was created.
-func RegisterFilterMiddleware(router MiddlewareRouter, cfg FilterConfig) (*Filter, error) {
+func RegisterFilterMiddleware(router MiddlewareRouter, cfg FilterConfig, auditLogger ...AuditLogger) (*Filter, error) {
 	if !cfg.isEnabled() {
 		return nil, nil
 	}
 
-	filter, err := newFilter(cfg)
+	filter, err := newFilter(cfg, lang.First(auditLogger))
 	if err != nil {
 		return nil, err
 	}
@@ -196,8 +207,8 @@ func RegisterFilterMiddleware(router MiddlewareRouter, cfg FilterConfig) (*Filte
 //	      Message:    "Admin access denied",
 //	    },
 //	  },
-//	})
-func RegisterLocationBasedFilterMiddleware(router MiddlewareRouter, locationConfigs []LocationFilterConfig) (*Filter, error) {
+//	}, auditLogger)
+func RegisterLocationBasedFilterMiddleware(router MiddlewareRouter, locationConfigs []LocationFilterConfig, auditLogger ...AuditLogger) (*Filter, error) {
 	if len(locationConfigs) == 0 {
 		return nil, nil
 	}
@@ -224,7 +235,7 @@ func RegisterLocationBasedFilterMiddleware(router MiddlewareRouter, locationConf
 		return nil, errors.New("no valid location configs")
 	}
 
-	filter, err := newLocationBasedFilter(validConfigs)
+	filter, err := newLocationBasedFilter(validConfigs, lang.First(auditLogger))
 	if err != nil {
 		return nil, err
 	}
@@ -235,15 +246,20 @@ func RegisterLocationBasedFilterMiddleware(router MiddlewareRouter, locationConf
 }
 
 // newLocationBasedFilter creates a new Filter for location-based filtering.
-func newLocationBasedFilter(locationConfigs []LocationFilterConfig) (*Filter, error) {
+func newLocationBasedFilter(locationConfigs []LocationFilterConfig, auditLogger AuditLogger) (*Filter, error) {
 	filter := &Filter{
 		locationConfigs: locationConfigs,
 		locationFilters: make(map[int]*Filter),
+		auditLogger:     auditLogger,
+	}
+
+	if filter.auditLogger == nil {
+		filter.auditLogger = &NoopAuditLogger{}
 	}
 
 	// Compile each location-specific filter
 	for i, locCfg := range locationConfigs {
-		locFilter, err := newFilter(locCfg.Config)
+		locFilter, err := newFilter(locCfg.Config, auditLogger)
 		if err != nil {
 			return nil, fmt.Errorf("compile filter for location config %d: %w", i, err)
 		}
@@ -272,9 +288,14 @@ func (cfg *FilterConfig) isEnabled() bool {
 }
 
 // newFilter creates a new Filter from the given configuration.
-func newFilter(cfg FilterConfig) (*Filter, error) {
+func newFilter(cfg FilterConfig, auditLogger AuditLogger) (*Filter, error) {
 	filter := &Filter{
-		config: cfg,
+		config:      cfg,
+		auditLogger: auditLogger,
+	}
+
+	if filter.auditLogger == nil {
+		filter.auditLogger = &NoopAuditLogger{}
 	}
 
 	if err := filter.compile(); err != nil {
@@ -445,26 +466,26 @@ func (f *Filter) middleware(next http.Handler) http.Handler {
 		}
 
 		// Check IP filtering
-		if !filter.checkIP(r) {
-			filter.blockRequest(w, r, "IP address blocked")
+		if allowed, reason := filter.checkIP(r); !allowed {
+			filter.blockRequestWithAudit(w, r, reason)
 			return
 		}
 
 		// Check User-Agent filtering
-		if !filter.checkUserAgent(r) {
-			filter.blockRequest(w, r, "User-Agent blocked")
+		if allowed, reason := filter.checkUserAgent(r); !allowed {
+			filter.blockRequestWithAudit(w, r, reason)
 			return
 		}
 
 		// Check header filtering
-		if !filter.checkHeaders(r) {
-			filter.blockRequest(w, r, "Request headers blocked")
+		if allowed, reason := filter.checkHeaders(r); !allowed {
+			filter.blockRequestWithAudit(w, r, reason)
 			return
 		}
 
 		// Check query parameter filtering
-		if !filter.checkQueryParams(r) {
-			filter.blockRequest(w, r, "Query parameters blocked")
+		if allowed, reason := filter.checkQueryParams(r); !allowed {
+			filter.blockRequestWithAudit(w, r, reason)
 			return
 		}
 
@@ -533,20 +554,28 @@ func (f *Filter) getClientIP(r *http.Request) string {
 }
 
 // checkIP checks if the client IP is allowed.
-func (f *Filter) checkIP(r *http.Request) bool {
+func (f *Filter) checkIP(r *http.Request) (bool, *FilterBlockReason) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
 	clientIP := f.getClientIP(r)
 	ip := net.ParseIP(clientIP)
 	if ip == nil {
-		return false // Invalid IP
+		return false, &FilterBlockReason{
+			Type:  AuditEventFilterIPBlocked,
+			Value: clientIP,
+			Rule:  "invalid IP format",
+		}
 	}
 
 	// Check blocked IPs first (takes precedence)
 	for _, blockedNet := range f.blockedIPNets {
 		if blockedNet.Contains(ip) {
-			return false
+			return false, &FilterBlockReason{
+				Type:  AuditEventFilterIPBlocked,
+				Value: clientIP,
+				Rule:  fmt.Sprintf("blocked IP range: %s", blockedNet.String()),
+			}
 		}
 	}
 
@@ -554,17 +583,21 @@ func (f *Filter) checkIP(r *http.Request) bool {
 	if len(f.allowedIPNets) > 0 {
 		for _, allowedNet := range f.allowedIPNets {
 			if allowedNet.Contains(ip) {
-				return true
+				return true, nil
 			}
 		}
-		return false // IP not in allowed list
+		return false, &FilterBlockReason{
+			Type:  AuditEventFilterIPBlocked,
+			Value: clientIP,
+			Rule:  "IP not in allowed list",
+		}
 	}
 
-	return true // No IP restrictions or IP not blocked
+	return true, nil // No IP restrictions or IP not blocked
 }
 
 // checkUserAgent checks if the User-Agent is allowed.
-func (f *Filter) checkUserAgent(r *http.Request) bool {
+func (f *Filter) checkUserAgent(r *http.Request) (bool, *FilterBlockReason) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
@@ -572,12 +605,20 @@ func (f *Filter) checkUserAgent(r *http.Request) bool {
 
 	// Check blocked User-Agents first (takes precedence)
 	if f.blockedUAExact[userAgent] {
-		return false
+		return false, &FilterBlockReason{
+			Type:  AuditEventFilterUABlocked,
+			Value: userAgent,
+			Rule:  "exact match in blocked user agents",
+		}
 	}
 
 	for _, regex := range f.blockedUARegex {
 		if regex.MatchString(userAgent) {
-			return false
+			return false, &FilterBlockReason{
+				Type:  AuditEventFilterUABlocked,
+				Value: userAgent,
+				Rule:  fmt.Sprintf("regex match: %s", regex.String()),
+			}
 		}
 	}
 
@@ -585,23 +626,27 @@ func (f *Filter) checkUserAgent(r *http.Request) bool {
 	if len(f.allowedUAExact) > 0 || len(f.allowedUARegex) > 0 {
 		// Check exact matches first
 		if f.allowedUAExact[userAgent] {
-			return true
+			return true, nil
 		}
 
 		// Check regex patterns
 		for _, regex := range f.allowedUARegex {
 			if regex.MatchString(userAgent) {
-				return true
+				return true, nil
 			}
 		}
-		return false // User-Agent not in allowed list
+		return false, &FilterBlockReason{
+			Type:  AuditEventFilterUABlocked,
+			Value: userAgent,
+			Rule:  "user agent not in allowed list",
+		}
 	}
 
-	return true // No User-Agent restrictions or not blocked
+	return true, nil // No User-Agent restrictions or not blocked
 }
 
 // checkHeaders checks if request headers are allowed.
-func (f *Filter) checkHeaders(r *http.Request) bool {
+func (f *Filter) checkHeaders(r *http.Request) (bool, *FilterBlockReason) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	// Check blocked headers first
@@ -609,7 +654,11 @@ func (f *Filter) checkHeaders(r *http.Request) bool {
 		if values, exists := r.Header[http.CanonicalHeaderKey(headerName)]; exists {
 			for _, value := range values {
 				if exactMap[value] {
-					return false
+					return false, &FilterBlockReason{
+						Type:  AuditEventFilterHeaderBlocked,
+						Value: fmt.Sprintf("%s: %s", headerName, value),
+						Rule:  "exact match in blocked headers",
+					}
 				}
 			}
 		}
@@ -620,7 +669,11 @@ func (f *Filter) checkHeaders(r *http.Request) bool {
 			for _, value := range values {
 				for _, regex := range regexes {
 					if regex.MatchString(value) {
-						return false
+						return false, &FilterBlockReason{
+							Type:  AuditEventFilterHeaderBlocked,
+							Value: fmt.Sprintf("%s: %s", headerName, value),
+							Rule:  fmt.Sprintf("regex match: %s", regex.String()),
+						}
 					}
 				}
 			}
@@ -638,10 +691,18 @@ func (f *Filter) checkHeaders(r *http.Request) bool {
 				}
 			}
 			if !hasMatch {
-				return false // Header value not in allowed list
+				return false, &FilterBlockReason{
+					Type:  AuditEventFilterHeaderBlocked,
+					Value: fmt.Sprintf("%s: %v", headerName, values),
+					Rule:  "header value not in allowed list",
+				}
 			}
 		} else if len(exactMap) > 0 {
-			return false // Required header missing
+			return false, &FilterBlockReason{
+				Type:  AuditEventFilterHeaderBlocked,
+				Value: headerName,
+				Rule:  "required header missing",
+			}
 		}
 	}
 
@@ -660,18 +721,26 @@ func (f *Filter) checkHeaders(r *http.Request) bool {
 				}
 			}
 			if !hasMatch {
-				return false // Header value not in allowed list
+				return false, &FilterBlockReason{
+					Type:  AuditEventFilterHeaderBlocked,
+					Value: fmt.Sprintf("%s: %v", headerName, values),
+					Rule:  "header value not in allowed regex patterns",
+				}
 			}
 		} else if len(regexes) > 0 {
-			return false // Required header missing
+			return false, &FilterBlockReason{
+				Type:  AuditEventFilterHeaderBlocked,
+				Value: headerName,
+				Rule:  "required header missing",
+			}
 		}
 	}
 
-	return true
+	return true, nil
 }
 
 // checkQueryParams checks if query parameters are allowed.
-func (f *Filter) checkQueryParams(r *http.Request) bool {
+func (f *Filter) checkQueryParams(r *http.Request) (bool, *FilterBlockReason) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 
@@ -682,7 +751,11 @@ func (f *Filter) checkQueryParams(r *http.Request) bool {
 		if values, exists := queryParams[paramName]; exists {
 			for _, value := range values {
 				if exactMap[value] {
-					return false
+					return false, &FilterBlockReason{
+						Type:  AuditEventFilterQueryBlocked,
+						Value: fmt.Sprintf("%s=%s", paramName, value),
+						Rule:  "exact match in blocked query parameters",
+					}
 				}
 			}
 		}
@@ -693,7 +766,11 @@ func (f *Filter) checkQueryParams(r *http.Request) bool {
 			for _, value := range values {
 				for _, regex := range regexes {
 					if regex.MatchString(value) {
-						return false
+						return false, &FilterBlockReason{
+							Type:  AuditEventFilterQueryBlocked,
+							Value: fmt.Sprintf("%s=%s", paramName, value),
+							Rule:  fmt.Sprintf("regex match: %s", regex.String()),
+						}
 					}
 				}
 			}
@@ -711,10 +788,18 @@ func (f *Filter) checkQueryParams(r *http.Request) bool {
 				}
 			}
 			if !hasMatch {
-				return false // Parameter value not in allowed list
+				return false, &FilterBlockReason{
+					Type:  AuditEventFilterQueryBlocked,
+					Value: fmt.Sprintf("%s=%v", paramName, values),
+					Rule:  "parameter value not in allowed list",
+				}
 			}
 		} else if len(exactMap) > 0 {
-			return false // Required parameter missing
+			return false, &FilterBlockReason{
+				Type:  AuditEventFilterQueryBlocked,
+				Value: paramName,
+				Rule:  "required parameter missing",
+			}
 		}
 	}
 
@@ -733,14 +818,48 @@ func (f *Filter) checkQueryParams(r *http.Request) bool {
 				}
 			}
 			if !hasMatch {
-				return false // Parameter value not in allowed list
+				return false, &FilterBlockReason{
+					Type:  AuditEventFilterQueryBlocked,
+					Value: fmt.Sprintf("%s=%v", paramName, values),
+					Rule:  "parameter value not in allowed regex patterns",
+				}
 			}
 		} else if len(regexes) > 0 {
-			return false // Required parameter missing
+			return false, &FilterBlockReason{
+				Type:  AuditEventFilterQueryBlocked,
+				Value: paramName,
+				Rule:  "required parameter missing",
+			}
 		}
 	}
 
-	return true
+	return true, nil
+}
+
+// blockRequestWithAudit logs the audit event and sends a blocked response.
+func (f *Filter) blockRequestWithAudit(w http.ResponseWriter, r *http.Request, reason *FilterBlockReason) {
+	// Log the audit event if audit logger is available
+	if f.auditLogger != nil {
+		// Determine filter type based on the audit event type
+		var filterType string
+		switch reason.Type {
+		case AuditEventFilterIPBlocked:
+			filterType = "IP"
+		case AuditEventFilterUABlocked:
+			filterType = "User-Agent"
+		case AuditEventFilterHeaderBlocked:
+			filterType = "Header"
+		case AuditEventFilterQueryBlocked:
+			filterType = "Query Parameter"
+		default:
+			filterType = "Unknown"
+		}
+
+		f.auditLogger.LogFilterEvent(reason.Type, r, filterType, reason.Value, reason.Rule)
+	}
+
+	// Block the request
+	f.blockRequest(w, r, reason.Rule)
 }
 
 // blockRequest sends a blocked response.
@@ -794,6 +913,19 @@ func (f *Filter) AddBlockedIP(ip string) error {
 	// Commit changes
 	f.config.BlockedIPs = newSlice
 	f.blockedIPNets = nets
+
+	// Log audit event if audit logger is available
+	if f.auditLogger != nil {
+		// Create a dummy request for audit logging (since this is a management operation)
+		dummyReq := &http.Request{
+			Method:     "ADMIN",
+			URL:        &url.URL{Path: "/filter/add_blocked_ip"},
+			RemoteAddr: "127.0.0.1:0",
+			Header:     make(http.Header),
+		}
+		f.auditLogger.LogFilterEvent(AuditEventFilterRuleAdded, dummyReq, "IP", ip, "dynamically added to blocked list")
+	}
+
 	return nil
 }
 
@@ -821,6 +953,19 @@ func (f *Filter) RemoveBlockedIP(ip string) error {
 	// Commit changes
 	f.config.BlockedIPs = newSlice
 	f.blockedIPNets = nets
+
+	// Log audit event if audit logger is available
+	if f.auditLogger != nil {
+		// Create a dummy request for audit logging (since this is a management operation)
+		dummyReq := &http.Request{
+			Method:     "ADMIN",
+			URL:        &url.URL{Path: "/filter/remove_blocked_ip"},
+			RemoteAddr: "127.0.0.1:0",
+			Header:     make(http.Header),
+		}
+		f.auditLogger.LogFilterEvent(AuditEventFilterRuleRemoved, dummyReq, "IP", ip, "dynamically removed from blocked list")
+	}
+
 	return nil
 }
 
@@ -945,6 +1090,19 @@ func (f *Filter) AddBlockedUserAgent(userAgent string) error {
 
 	// Recompile exact patterns
 	f.blockedUAExact = f.compileExactPatterns(f.config.BlockedUserAgents)
+
+	// Log audit event if audit logger is available
+	if f.auditLogger != nil {
+		// Create a dummy request for audit logging (since this is a management operation)
+		dummyReq := &http.Request{
+			Method:     "ADMIN",
+			URL:        &url.URL{Path: "/filter/add_blocked_useragent"},
+			RemoteAddr: "127.0.0.1:0",
+			Header:     make(http.Header),
+		}
+		f.auditLogger.LogFilterEvent(AuditEventFilterRuleAdded, dummyReq, "User-Agent", userAgent, "dynamically added to blocked list")
+	}
+
 	return nil
 }
 
@@ -965,6 +1123,19 @@ func (f *Filter) RemoveBlockedUserAgent(userAgent string) error {
 
 	// Recompile exact patterns
 	f.blockedUAExact = f.compileExactPatterns(f.config.BlockedUserAgents)
+
+	// Log audit event if audit logger is available
+	if f.auditLogger != nil {
+		// Create a dummy request for audit logging (since this is a management operation)
+		dummyReq := &http.Request{
+			Method:     "ADMIN",
+			URL:        &url.URL{Path: "/filter/remove_blocked_useragent"},
+			RemoteAddr: "127.0.0.1:0",
+			Header:     make(http.Header),
+		}
+		f.auditLogger.LogFilterEvent(AuditEventFilterRuleRemoved, dummyReq, "User-Agent", userAgent, "dynamically removed from blocked list")
+	}
+
 	return nil
 }
 

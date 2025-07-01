@@ -90,7 +90,8 @@ type UserLoginResponse struct {
 
 // AuthManager handles authentication and authorization logic.
 type AuthManager struct {
-	service *service
+	service     *service
+	auditLogger AuditLogger
 }
 
 type (
@@ -100,7 +101,7 @@ type (
 
 // NewAuthManager creates a new [AuthManager] with the provided configuration.
 // It initializes default values for configuration fields if they are not provided.
-func NewAuthManager(cfg AuthConfig) (*AuthManager, error) {
+func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, error) {
 	cfg.RefreshTokenCookieName = lang.Check(cfg.RefreshTokenCookieName, refreshTokenCookieName)
 	cfg.AuthBasePath = lang.Check(cfg.AuthBasePath, authBasePath)
 	cfg.AccessTokenDuration = lang.Check(cfg.AccessTokenDuration, accessTokenDuration)
@@ -127,8 +128,15 @@ func NewAuthManager(cfg AuthConfig) (*AuthManager, error) {
 	}
 	cfg.refreshSecret = refreshSecret
 
+	// Get audit logger (optional parameter)
+	var audit AuditLogger = &NoopAuditLogger{}
+	if len(auditLogger) > 0 && auditLogger[0] != nil {
+		audit = auditLogger[0]
+	}
+
 	authManager := &AuthManager{
-		service: newService(cfg),
+		service:     newService(cfg),
+		auditLogger: audit,
 	}
 
 	return authManager, nil
@@ -162,17 +170,41 @@ func (m *AuthManager) WithAuth(next http.HandlerFunc, roles ...UserRole) http.Ha
 		// Extract token from Authorization header
 		tokenString := extractToken(r)
 		if tokenString == "" {
+			// Log unauthorized access attempt
+			if m.auditLogger != nil {
+				details := map[string]any{
+					"reason": "missing_token",
+				}
+				m.auditLogger.LogAuthenticationEvent(AuditEventAuthUnauthorized, r, "", false, details)
+			}
 			ctx.Unauthorized(errUnauthorized, "missing or invalid authorization token")
 			return
 		}
 
 		claims, err := m.service.validateAccessToken(tokenString)
 		if err != nil {
+			// Log invalid token attempt
+			if m.auditLogger != nil {
+				details := map[string]any{
+					"reason": "invalid_token",
+					"error":  err.Error(),
+				}
+				m.auditLogger.LogAuthenticationEvent(AuditEventAuthTokenInvalid, r, "", false, details)
+			}
 			ctx.Unauthorized(err, "invalid token")
 			return
 		}
 
 		if !hasPermission(claims.Roles, roles) {
+			// Log insufficient permissions
+			if m.auditLogger != nil {
+				details := map[string]any{
+					"reason":         "insufficient_permissions",
+					"user_roles":     claims.Roles,
+					"required_roles": roles,
+				}
+				m.auditLogger.LogAuthenticationEvent(AuditEventAuthForbidden, r, claims.UserID, false, details)
+			}
 			ctx.Forbidden(errInsufficientPermissions, "insufficient permissions")
 			return
 		}
@@ -223,6 +255,15 @@ func (h *AuthManager) LoginHandler(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.service.login(r.Context(), req)
 	if err != nil {
+		// Log failed login attempt
+		if h.auditLogger != nil {
+			details := map[string]any{
+				"username": req.Username,
+				"error":    err.Error(),
+			}
+			h.auditLogger.LogAuthenticationEvent(AuditEventAuthLoginFailure, r, req.Username, false, details)
+		}
+
 		switch err {
 		case errInvalidCredentials:
 			ctx.Unauthorized(err, "invalid email or password")
@@ -230,6 +271,16 @@ func (h *AuthManager) LoginHandler(w http.ResponseWriter, r *http.Request) {
 			ctx.InternalServerError(err, "failed to login user")
 		}
 		return
+	}
+
+	// Log successful login
+	if h.auditLogger != nil {
+		details := map[string]any{
+			"username": result.Username,
+			"user_id":  result.ID,
+			"roles":    result.Roles,
+		}
+		h.auditLogger.LogAuthenticationEvent(AuditEventAuthLoginSuccess, r, result.ID, true, details)
 	}
 
 	h.setAuthCookie(ctx, result.RefreshToken, result.RefreshTokenExpiresAt)
@@ -264,7 +315,24 @@ func (h *AuthManager) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(w, r)
 
 	refreshToken, _ := ctx.Cookie(h.service.cfg.RefreshTokenCookieName)
+
+	// Try to get user info before logout for audit logging
+	var userID string
+	if refreshToken != nil {
+		if user, err := h.service.validateRefreshToken(ctx, refreshToken.Value); err == nil {
+			userID = user.ID
+		}
+	}
+
 	h.service.logout(ctx, lang.Deref(refreshToken).Value)
+
+	// Log logout event
+	if h.auditLogger != nil {
+		details := map[string]any{
+			"session_terminated": true,
+		}
+		h.auditLogger.LogAuthenticationEvent(AuditEventAuthLogout, r, userID, true, details)
+	}
 
 	h.setLogoutCookie(ctx)
 

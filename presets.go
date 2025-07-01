@@ -28,15 +28,16 @@ func DevelopmentPreset() []Option {
 }
 
 // ProductionPreset returns options suitable for production environment.
-// Features: security headers, rate limiting, request logging, health endpoints.
+// Features: security headers, CSRF protection, rate limiting, request logging, health endpoints.
 func ProductionPreset() []Option {
 	return []Option{
 		WithReadTimeout(10 * time.Second),
 		WithReadHeaderTimeout(5 * time.Second),
 		WithIdleTimeout(120 * time.Second),
 
-		// Security
+		// Security with CSRF protection
 		WithStrictSecurityHeaders(),
+		WithCSRFProtection(),
 		WithRemoveHeaders("Server", "X-Powered-By"),
 
 		// Rate limiting - conservative defaults
@@ -81,14 +82,16 @@ func APIServerPreset() []Option {
 }
 
 // WebAppPreset returns options for serving web applications.
-// Features: web security headers, content protection, static file friendly.
+// Features: web security headers, CSRF protection, content protection, static file friendly.
 func WebAppPreset() []Option {
 	return []Option{
 		WithReadTimeout(30 * time.Second),
 		WithIdleTimeout(180 * time.Second),
 
-		// Web security headers
+		// Web security headers with CSRF protection
 		WithStrictSecurityHeaders(),
+		WithCSRFProtection(),
+		WithCSRFTokenEndpoint("/csrf-token"), // Enable token endpoint for SPAs
 		WithContentSecurityPolicy(
 			"default-src 'self'; " +
 				"script-src 'self' 'unsafe-inline'; " +
@@ -105,8 +108,8 @@ func WebAppPreset() []Option {
 		WithHealthEndpoint(),
 
 		// Exclude common web assets from restrictions
-		WithSecurityExcludePaths("/health", "/favicon.ico", "/robots.txt", "/.well-known/"),
-		WithRateLimitExcludePaths("/health", "/favicon.ico", "/robots.txt", "/static/"),
+		WithSecurityExcludePaths("/health", "/favicon.ico", "/robots.txt", "/.well-known/", "/csrf-token"),
+		WithRateLimitExcludePaths("/health", "/favicon.ico", "/robots.txt", "/static/", "/csrf-token"),
 	}
 }
 
@@ -136,15 +139,18 @@ func MicroservicePreset() []Option {
 }
 
 // HighSecurityPreset returns options for high-security applications.
-// Features: strict security headers, request filtering, comprehensive rate limiting.
+// Features: strict security headers, CSRF protection, request filtering, comprehensive rate limiting.
 func HighSecurityPreset() []Option {
 	return []Option{
 		WithReadTimeout(10 * time.Second),
 		WithReadHeaderTimeout(3 * time.Second),
 		WithIdleTimeout(60 * time.Second),
 
-		// Strict security
+		// Strict security with CSRF protection
 		WithStrictSecurityHeaders(),
+		WithCSRFProtection(),
+		WithCSRFCookieHttpOnly(true),         // Maximum security for CSRF cookies
+		WithCSRFCookieSameSite("Strict"),     // Strictest SameSite policy
 		WithHSTSHeader(31536000, true, true), // 1 year HSTS with preload
 		WithRemoveHeaders("Server", "X-Powered-By", "X-AspNet-Version"),
 

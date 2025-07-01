@@ -529,6 +529,7 @@ func TestRequestSizeLimitMiddleware(t *testing.T) {
 		{
 			name: "JSON request within JSON limit",
 			options: []Option{
+				WithMaxRequestBodySize(100),
 				WithMaxJSONBodySize(100),
 				WithEnableRequestSizeLimits(true),
 			},
@@ -539,6 +540,7 @@ func TestRequestSizeLimitMiddleware(t *testing.T) {
 		{
 			name: "JSON request exceeds JSON limit",
 			options: []Option{
+				WithMaxRequestBodySize(100),
 				WithMaxJSONBodySize(20),
 				WithEnableRequestSizeLimits(true),
 			},
@@ -677,7 +679,7 @@ func TestRequestSizeLimitMiddlewareWithStrictLimits(t *testing.T) {
 		},
 		{
 			name:           "Large general request - should fail with strict limits",
-			requestBody:    strings.Repeat("large message ", 400000), // ~5.6MB, larger than 5MB limit
+			requestBody:    strings.Repeat("large message ", 800000), // ~11.2MB, larger than 10MB limit
 			contentType:    "text/plain",
 			expectedStatus: http.StatusRequestEntityTooLarge,
 		},
@@ -829,14 +831,14 @@ func TestRequestSizeLimitWithDefaultOptions(t *testing.T) {
 			expectedStatus: http.StatusRequestEntityTooLarge,
 		},
 		{
-			name:           "10MB general request - should pass (under 32MB general limit)",
+			name:           "10MB general request - should pass (under 100MB general limit)",
 			bodySize:       10 * 1024 * 1024,
 			contentType:    "text/plain",
 			expectedStatus: http.StatusOK,
 		},
 		{
-			name:           "50MB general request - should fail (exceeds 32MB general limit)",
-			bodySize:       50 * 1024 * 1024,
+			name:           "120MB general request - should fail (exceeds 100MB general limit)",
+			bodySize:       120 * 1024 * 1024,
 			contentType:    "text/plain",
 			expectedStatus: http.StatusRequestEntityTooLarge,
 		},

@@ -187,6 +187,7 @@ func C(w http.ResponseWriter, r *http.Request, opts ...Options) *Context {
 
 // NewContext returns a new context for the provided request.
 // You can provide options to configure the context.
+// The returned context should be returned to the pool using putContext() when done.
 func NewContext(w http.ResponseWriter, r *http.Request, optsRaw ...Options) *Context {
 	opts := lang.First(optsRaw)
 
@@ -199,6 +200,7 @@ func NewContext(w http.ResponseWriter, r *http.Request, optsRaw ...Options) *Con
 		maxFileUploadSize:   lang.Check(opts.MaxFileUploadSize, defaultMaxFileUploadSize),
 		maxMultipartMemory:  lang.Check(opts.MaxMultipartMemory, defaultMaxMemoryMultipartForm),
 	}
+
 	if r != nil {
 		ctx.Context = r.Context()
 	}
@@ -834,23 +836,25 @@ func formatContentDisposition(filename string) string {
 	return fmt.Sprintf("attachment; filename=\"%s\"", sanitized)
 }
 
+// Pre-allocated proxy headers slice to avoid allocations on each call
+var proxyHeaders = [8]string{
+	"CF-Connecting-IP",    // Cloudflare
+	"True-Client-IP",      // Akamai, Cloudflare
+	"X-Real-IP",           // nginx
+	"X-Forwarded-For",     // Standard proxy header (first IP)
+	"X-Client-IP",         // Some proxies
+	"X-Forwarded",         // RFC 7239
+	"X-Cluster-Client-IP", // GCP, Azure
+	"Forwarded",           // RFC 7239 (parse for= parameter)
+}
+
 // extractClientIP extracts the real client IP from request headers.
 // It checks common proxy headers in order of preference and validates IP addresses.
 // Falls back to RemoteAddr if no valid IP is found in headers.
 func extractClientIP(r *http.Request) string {
-	// Check headers in order of preference
-	headers := []string{
-		"CF-Connecting-IP",    // Cloudflare
-		"True-Client-IP",      // Akamai, Cloudflare
-		"X-Real-IP",           // nginx
-		"X-Forwarded-For",     // Standard proxy header (first IP)
-		"X-Client-IP",         // Some proxies
-		"X-Forwarded",         // RFC 7239
-		"X-Cluster-Client-IP", // GCP, Azure
-		"Forwarded",           // RFC 7239 (parse for= parameter)
-	}
-
-	for _, header := range headers {
+	// Check headers in order of preference using pre-allocated slice
+	for i := range proxyHeaders {
+		header := proxyHeaders[i]
 		if value := r.Header.Get(header); value != "" {
 			// Handle special parsing for different headers
 			switch header {

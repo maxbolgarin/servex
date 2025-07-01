@@ -446,7 +446,6 @@ func secureStaticExample(dir string) {
 	log.Printf("Test security with these URLs:")
 	log.Printf("  http://localhost:8085/index.html - Legitimate file")
 	log.Printf("  http://localhost:8085/../../../etc/passwd - Blocked (directory traversal)")
-	log.Printf("  http://localhost:8085/%2E%2E/secret.txt - Blocked (encoded traversal)")
 
 	if err := server.Start(":8085", ""); err != nil {
 		log.Fatal("Failed to start server:", err)

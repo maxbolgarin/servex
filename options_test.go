@@ -1838,8 +1838,8 @@ func TestWithRequestSizeLimits(t *testing.T) {
 	options := servex.Options{}
 	option(&options)
 
-	if options.MaxRequestBodySize != 32<<20 {
-		t.Errorf("expected MaxRequestBodySize to be %d, got %d", 32<<20, options.MaxRequestBodySize)
+	if options.MaxRequestBodySize != 100<<20 {
+		t.Errorf("expected MaxRequestBodySize to be %d, got %d", 100<<20, options.MaxRequestBodySize)
 	}
 	if options.MaxJSONBodySize != 1<<20 {
 		t.Errorf("expected MaxJSONBodySize to be %d, got %d", 1<<20, options.MaxJSONBodySize)
@@ -1861,8 +1861,8 @@ func TestWithStrictRequestSizeLimits(t *testing.T) {
 	options := servex.Options{}
 	option(&options)
 
-	if options.MaxRequestBodySize != 5<<20 {
-		t.Errorf("expected MaxRequestBodySize to be %d, got %d", 5<<20, options.MaxRequestBodySize)
+	if options.MaxRequestBodySize != 10<<20 {
+		t.Errorf("expected MaxRequestBodySize to be %d, got %d", 10<<20, options.MaxRequestBodySize)
 	}
 	if options.MaxJSONBodySize != 512<<10 {
 		t.Errorf("expected MaxJSONBodySize to be %d, got %d", 512<<10, options.MaxJSONBodySize)

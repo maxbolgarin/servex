@@ -1071,7 +1071,7 @@ func (t *testValidationStruct) Validate() error {
 
 // TestContextReadAndValidateWithConfiguredLimits tests ReadAndValidate with configured limits.
 func TestContextReadAndValidateWithConfiguredLimits(t *testing.T) {
-	server, err := New(WithMaxJSONBodySize(100)) // Very small limit for testing
+	server, err := New(WithMaxRequestBodySize(1000), WithMaxJSONBodySize(100)) // Very small limit for testing
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

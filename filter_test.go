@@ -1132,7 +1132,7 @@ func TestDynamicFilterMethods(t *testing.T) {
 		BlockedUserAgents: []string{"InitialBot/1.0"},
 	}
 
-	filter, err := newFilter(config)
+	filter, err := newFilter(config, nil)
 	if err != nil {
 		t.Fatalf("Failed to create filter: %v", err)
 	}
@@ -1296,7 +1296,7 @@ func TestDynamicFilterMethods(t *testing.T) {
 // TestDynamicFilterConcurrency tests thread safety of dynamic filter methods.
 func TestDynamicFilterConcurrency(t *testing.T) {
 	config := FilterConfig{}
-	filter, err := newFilter(config)
+	filter, err := newFilter(config, nil)
 	if err != nil {
 		t.Fatalf("Failed to create filter: %v", err)
 	}

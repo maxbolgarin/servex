@@ -7,7 +7,7 @@ import (
 	"github.com/maxbolgarin/servex"
 )
 
-func main() {
+func mainFilters() {
 	// Example 1: Basic IP filtering
 	basicIPFiltering()
 

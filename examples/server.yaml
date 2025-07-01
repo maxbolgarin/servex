@@ -7,13 +7,13 @@ server:
   http: ":8080"
   
   # HTTPS server address (optional, can be overridden by SERVEX_SERVER_HTTPS)
-  https: ":8443"
+  # https: ":8443"
   
   # TLS certificate file path (required for HTTPS)
-  cert_file: "/etc/ssl/certs/server.crt"
+  # cert_file: "/etc/ssl/certs/server.crt"
   
   # TLS private key file path (required for HTTPS)
-  key_file: "/etc/ssl/private/server.key"
+  # key_file: "/etc/ssl/private/server.key"
   
   # Request timeout settings
   read_timeout: "30s"
@@ -21,16 +21,20 @@ server:
   idle_timeout: "120s"
   
   # Simple bearer token authentication
-  auth_token: "secret-api-key-change-in-production"
+  # auth_token: "secret-api-key-change-in-production"
   
   # Health endpoint configuration
   enable_health_endpoint: true
   health_path: "/health"
   
+  # Metrics endpoint configuration
+  enable_default_metrics: true
+  metrics_path: "/metrics"
+
   # Request size limits
   max_request_body_size: 33554432    # 32MB
   max_json_body_size: 1048576        # 1MB
-  max_file_upload_size: 104857600    # 100MB
+  max_file_upload_size: 1048576      # 1MB
   max_multipart_memory: 10485760     # 10MB
   enable_request_size_limits: true
   
@@ -39,18 +43,18 @@ server:
 
 # JWT-based authentication with user management
 auth:
-  enabled: true
+  enabled: false
   
   # Use in-memory database (for development/testing only)
   use_memory_database: true
   
   # JWT signing secrets (use environment variables in production)
-  jwt_access_secret: "your-32-byte-hex-encoded-access-key"
-  jwt_refresh_secret: "your-32-byte-hex-encoded-refresh-key"
+  # jwt_access_secret: "your-32-byte-hex-encoded-access-key"
+  # jwt_refresh_secret: "your-32-byte-hex-encoded-refresh-key"
   
   # Token durations
   access_token_duration: "15m"
-  refresh_token_duration: "7d"
+  refresh_token_duration: "24h"
   
   # JWT issuer name
   issuer: "my-application"
@@ -152,11 +156,24 @@ filter:
     - "10.0.0.0/8"
     - "172.16.0.0/12"
 
-# Security headers configuration
+# Security headers and CSRF protection configuration
 security:
   enabled: true
   
-  # Content Security Policy
+  # CSRF (Cross-Site Request Forgery) Protection
+  csrf_enabled: true                           # Enable CSRF protection
+  csrf_token_name: "X-CSRF-Token"            # Header name for CSRF token
+  csrf_cookie_name: "csrf_token"              # Cookie name for CSRF token
+  csrf_cookie_http_only: true                 # HttpOnly cookie for security
+  csrf_cookie_same_site: "Lax"               # SameSite policy (Strict/Lax/None)
+  csrf_cookie_secure: false                   # Secure cookie (true for HTTPS)
+  csrf_cookie_path: "/"                       # Cookie path
+  csrf_cookie_max_age: 3600                   # Cookie lifetime in seconds (1 hour)
+  csrf_token_endpoint: "/api/csrf-token"      # Endpoint to get CSRF tokens (for SPAs)
+  csrf_error_message: "CSRF token validation failed. Please refresh and try again."
+  csrf_safe_methods: ["GET", "HEAD", "OPTIONS", "TRACE"]  # Methods that bypass CSRF
+  
+  # Security Headers
   content_security_policy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
   
   # Clickjacking protection
@@ -185,10 +202,13 @@ security:
   cross_origin_opener_policy: "same-origin"
   cross_origin_resource_policy: "same-site"
   
-  # Paths to exclude from security headers
+  # Paths to exclude from security headers and CSRF protection
   exclude_paths:
-    - "/api/*"                      # APIs might need different policies
-    - "/webhooks/*"                 # Webhooks might need different policies
+    - "/health"                     # Health checks
+    - "/metrics"                    # Metrics endpoint
+    - "/api/csrf-token"            # CSRF token endpoint
+    - "/api/public/*"              # Public APIs that don't need CSRF
+    - "/webhooks/*"                # External webhooks
   
   # Paths to include in security headers (if empty, all paths are included)
   include_paths: []

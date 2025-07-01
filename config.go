@@ -100,6 +100,8 @@ type ServerConfig struct {
 	AuthToken               string        `yaml:"auth_token" json:"auth_token" env:"SERVEX_SERVER_AUTH_TOKEN"`
 	EnableHealthEndpoint    bool          `yaml:"enable_health_endpoint" json:"enable_health_endpoint" env:"SERVEX_SERVER_ENABLE_HEALTH_ENDPOINT"`
 	HealthPath              string        `yaml:"health_path" json:"health_path" env:"SERVEX_SERVER_HEALTH_PATH"`
+	MetricsPath             string        `yaml:"metrics_path" json:"metrics_path" env:"SERVEX_SERVER_METRICS_PATH"`
+	EnableDefaultMetrics    bool          `yaml:"enable_default_metrics" json:"enable_default_metrics" env:"SERVEX_SERVER_ENABLE_DEFAULT_METRICS"`
 	MaxRequestBodySize      int64         `yaml:"max_request_body_size" json:"max_request_body_size" env:"SERVEX_SERVER_MAX_REQUEST_BODY_SIZE"`
 	MaxJSONBodySize         int64         `yaml:"max_json_body_size" json:"max_json_body_size" env:"SERVEX_SERVER_MAX_JSON_BODY_SIZE"`
 	MaxFileUploadSize       int64         `yaml:"max_file_upload_size" json:"max_file_upload_size" env:"SERVEX_SERVER_MAX_FILE_UPLOAD_SIZE"`
@@ -161,7 +163,22 @@ type FilterConfiguration struct {
 
 // SecurityConfiguration represents security headers configuration
 type SecurityConfiguration struct {
-	Enabled                       bool     `yaml:"enabled" json:"enabled" env:"SERVEX_SECURITY_ENABLED"`
+	Enabled bool `yaml:"enabled" json:"enabled" env:"SERVEX_SECURITY_ENABLED"`
+
+	// CSRF Protection Configuration
+	CSRFEnabled        bool     `yaml:"csrf_enabled" json:"csrf_enabled" env:"SERVEX_SECURITY_CSRF_ENABLED"`
+	CSRFTokenName      string   `yaml:"csrf_token_name" json:"csrf_token_name" env:"SERVEX_SECURITY_CSRF_TOKEN_NAME"`
+	CSRFCookieName     string   `yaml:"csrf_cookie_name" json:"csrf_cookie_name" env:"SERVEX_SECURITY_CSRF_COOKIE_NAME"`
+	CSRFCookieHttpOnly bool     `yaml:"csrf_cookie_http_only" json:"csrf_cookie_http_only" env:"SERVEX_SECURITY_CSRF_COOKIE_HTTP_ONLY"`
+	CSRFCookieSameSite string   `yaml:"csrf_cookie_same_site" json:"csrf_cookie_same_site" env:"SERVEX_SECURITY_CSRF_COOKIE_SAME_SITE"`
+	CSRFCookieSecure   bool     `yaml:"csrf_cookie_secure" json:"csrf_cookie_secure" env:"SERVEX_SECURITY_CSRF_COOKIE_SECURE"`
+	CSRFCookiePath     string   `yaml:"csrf_cookie_path" json:"csrf_cookie_path" env:"SERVEX_SECURITY_CSRF_COOKIE_PATH"`
+	CSRFCookieMaxAge   int      `yaml:"csrf_cookie_max_age" json:"csrf_cookie_max_age" env:"SERVEX_SECURITY_CSRF_COOKIE_MAX_AGE"`
+	CSRFTokenEndpoint  string   `yaml:"csrf_token_endpoint" json:"csrf_token_endpoint" env:"SERVEX_SECURITY_CSRF_TOKEN_ENDPOINT"`
+	CSRFErrorMessage   string   `yaml:"csrf_error_message" json:"csrf_error_message" env:"SERVEX_SECURITY_CSRF_ERROR_MESSAGE"`
+	CSRFSafeMethods    []string `yaml:"csrf_safe_methods" json:"csrf_safe_methods" env:"SERVEX_SECURITY_CSRF_SAFE_METHODS"`
+
+	// Security Headers Configuration
 	ContentSecurityPolicy         string   `yaml:"content_security_policy" json:"content_security_policy" env:"SERVEX_SECURITY_CONTENT_SECURITY_POLICY"`
 	XContentTypeOptions           string   `yaml:"x_content_type_options" json:"x_content_type_options" env:"SERVEX_SECURITY_X_CONTENT_TYPE_OPTIONS"`
 	XFrameOptions                 string   `yaml:"x_frame_options" json:"x_frame_options" env:"SERVEX_SECURITY_X_FRAME_OPTIONS"`
@@ -275,6 +292,9 @@ func (c *Config) ToOptions() ([]Option, error) {
 			opts = append(opts, WithHealthPath(c.Server.HealthPath))
 		}
 	}
+	if c.Server.EnableDefaultMetrics {
+		opts = append(opts, WithDefaultMetrics(c.Server.MetricsPath))
+	}
 	if c.Server.MaxRequestBodySize > 0 {
 		opts = append(opts, WithMaxRequestBodySize(c.Server.MaxRequestBodySize))
 	}
@@ -375,7 +395,22 @@ func (c *Config) ToOptions() ([]Option, error) {
 	// Security configuration
 	if c.Security.Enabled {
 		securityConfig := SecurityConfig{
-			Enabled:                       true,
+			Enabled: true,
+
+			// CSRF Protection Configuration
+			CSRFEnabled:        c.Security.CSRFEnabled,
+			CSRFTokenName:      c.Security.CSRFTokenName,
+			CSRFCookieName:     c.Security.CSRFCookieName,
+			CSRFCookieHttpOnly: c.Security.CSRFCookieHttpOnly,
+			CSRFCookieSameSite: c.Security.CSRFCookieSameSite,
+			CSRFCookieSecure:   c.Security.CSRFCookieSecure,
+			CSRFCookiePath:     c.Security.CSRFCookiePath,
+			CSRFCookieMaxAge:   c.Security.CSRFCookieMaxAge,
+			CSRFTokenEndpoint:  c.Security.CSRFTokenEndpoint,
+			CSRFErrorMessage:   c.Security.CSRFErrorMessage,
+			CSRFSafeMethods:    c.Security.CSRFSafeMethods,
+
+			// Security Headers Configuration
 			ContentSecurityPolicy:         c.Security.ContentSecurityPolicy,
 			XContentTypeOptions:           c.Security.XContentTypeOptions,
 			XFrameOptions:                 c.Security.XFrameOptions,

@@ -111,17 +111,6 @@ type Options struct {
 	// use the Auth field instead.
 	AuthToken string
 
-	// Metrics is a custom metrics collector that will be called on each HTTP request.
-	// The metrics handler receives the http.Request for each incoming request.
-	// Set via WithMetrics().
-	//
-	// Use for:
-	//   - Prometheus metrics collection
-	//   - Custom analytics
-	//   - Request counting and monitoring
-	//   - Performance tracking
-	Metrics Metrics
-
 	// Logger is a custom logger for server events, errors, and panics.
 	// The logger must implement the servex.Logger interface. Set via WithLogger().
 	//
@@ -275,6 +264,21 @@ type Options struct {
 	//   - Application-specific headers
 	CustomHeaders map[string]string
 
+	// AuditLogger is the security audit logger for logging security events.
+	// Set via WithAuditLogger() or WithDefaultAuditLogger().
+	//
+	// Use for:
+	//   - Security event logging and monitoring
+	//   - Compliance requirements (SOX, GDPR, HIPAA)
+	//   - Threat detection and analysis
+	//   - Forensic investigation
+	//   - Regulatory audit trails
+	AuditLogger AuditLogger
+
+	// EnableDefaultAuditLogger indicates that default audit logging was requested
+	// even if the logger wasn't available when WithDefaultAuditLogger() was called
+	EnableDefaultAuditLogger bool
+
 	// HeadersToRemove specifies headers to remove from responses.
 	// This is useful for removing server identification headers or other unwanted headers.
 	// Set via WithRemoveHeaders().
@@ -419,6 +423,32 @@ type Options struct {
 	//
 	// Default: "/health" if EnableHealthEndpoint is true and this is empty.
 	HealthPath string
+
+	// Metrics is a custom metrics collector that will be called on each HTTP request.
+	// The metrics handler receives the http.Request for each incoming request.
+	// Set via WithMetrics().
+	//
+	// Use for:
+	//   - Prometheus metrics collection
+	//   - Custom analytics
+	//   - Request counting and monitoring
+	//   - Performance tracking
+	Metrics Metrics
+
+	// MetricsPath is the path for the default metrics endpoint.
+	// Only used when EnableDefaultMetrics is true. Set via WithDefaultMetrics().
+	//
+	// Common metrics paths:
+	//   - "/metrics" (default, Prometheus style)
+	//   - "/stats"
+	//   - "/status/metrics"
+	//   - "/monitoring/metrics"
+	//
+	// Default: "/metrics" if EnableDefaultMetrics is true and this is empty.
+	MetricsPath string
+
+	// EnableDefaultMetrics enables the default metrics endpoint.
+	EnableDefaultMetrics bool
 }
 
 // AuthConfig holds the JWT-based authentication configuration with user management, roles, and JWT tokens.
@@ -1197,6 +1227,153 @@ type SecurityConfig struct {
 	// even if individual header values are configured.
 	Enabled bool
 
+	// CSRF Protection Configuration
+	// CSRF protection helps prevent Cross-Site Request Forgery attacks by requiring
+	// a secret token to be included with state-changing requests.
+
+	// CSRFEnabled determines whether CSRF protection is active.
+	// When enabled, CSRF tokens are required for POST, PUT, PATCH, DELETE requests.
+	// Set via WithCSRFProtection(), WithStrictSecurityHeaders(), or WithSecurityConfig().
+	//
+	// CSRF protection works by:
+	//   1. Generating a secure random token for each session
+	//   2. Setting the token in a cookie and/or providing it via an endpoint
+	//   3. Requiring the token in a header or form field for state-changing requests
+	//   4. Validating that the token matches the expected value
+	//
+	// Use cases:
+	//   - Web applications with forms and AJAX requests
+	//   - APIs that accept requests from browsers
+	//   - Any application vulnerable to CSRF attacks
+	CSRFEnabled bool
+
+	// CSRFTokenName is the name of the CSRF token in headers and form fields.
+	// Set via WithCSRFTokenName() or WithSecurityConfig().
+	//
+	// Common names:
+	//   - "X-CSRF-Token" (default, Rails/Django style)
+	//   - "X-XSRF-TOKEN" (Angular style)
+	//   - "csrf_token" (for form fields)
+	//   - "_token" (Laravel style)
+	//
+	// The middleware will look for the token in:
+	//   1. Request header with this name
+	//   2. Form field with this name (for multipart/form-data and application/x-www-form-urlencoded)
+	//   3. URL query parameter with this name (as fallback)
+	CSRFTokenName string
+
+	// CSRFCookieName is the name of the cookie that stores the CSRF token.
+	// Set via WithCSRFCookieName() or WithSecurityConfig().
+	//
+	// Common names:
+	//   - "csrf_token" (default)
+	//   - "XSRF-TOKEN" (Angular style, readable by JavaScript)
+	//   - "_csrf" (Express.js style)
+	//
+	// The cookie is used to store the expected CSRF token value.
+	// For maximum security, set CSRFCookieHttpOnly to true.
+	CSRFCookieName string
+
+	// CSRFCookieHttpOnly determines if the CSRF cookie is HTTP-only.
+	// Set via WithCSRFCookieHttpOnly() or WithSecurityConfig().
+	//
+	// Security trade-offs:
+	//   - true (recommended): More secure, prevents XSS token theft, but requires server-side token injection
+	//   - false: Allows JavaScript access, enables SPA token retrieval, but vulnerable to XSS
+	//
+	// When true:
+	//   - Use CSRFTokenEndpoint to provide tokens to JavaScript
+	//   - Inject tokens into HTML templates server-side
+	//
+	// When false:
+	//   - JavaScript can read document.cookie to get the token
+	//   - Useful for SPAs and AJAX-heavy applications
+	CSRFCookieHttpOnly bool
+
+	// CSRFCookieSameSite sets the SameSite attribute for the CSRF cookie.
+	// Set via WithCSRFCookieSameSite() or WithSecurityConfig().
+	//
+	// Options:
+	//   - "Strict": Maximum protection, may break some legitimate cross-site usage
+	//   - "Lax" (recommended): Good protection with better usability
+	//   - "None": Least protection, requires Secure=true, allows cross-site requests
+	//
+	// "Lax" provides good CSRF protection while maintaining usability.
+	CSRFCookieSameSite string
+
+	// CSRFCookieSecure determines if the CSRF cookie requires HTTPS.
+	// Set via WithCSRFCookieSecure() or WithSecurityConfig().
+	//
+	// Recommendations:
+	//   - true: Required for production HTTPS sites
+	//   - false: Only for development with HTTP
+	//
+	// Automatically set to true when SameSite=None.
+	CSRFCookieSecure bool
+
+	// CSRFCookiePath sets the path attribute for the CSRF cookie.
+	// Set via WithCSRFCookiePath() or WithSecurityConfig().
+	//
+	// Common values:
+	//   - "/" (default): Cookie available for entire site
+	//   - "/app": Cookie only for application section
+	//   - "/api": Cookie only for API endpoints
+	//
+	// Use specific paths to limit cookie scope and improve security.
+	CSRFCookiePath string
+
+	// CSRFCookieMaxAge sets the maximum age for the CSRF cookie in seconds.
+	// Set via WithCSRFCookieMaxAge() or WithSecurityConfig().
+	//
+	// Common values:
+	//   - 3600: 1 hour (short-lived, more secure)
+	//   - 86400: 1 day (balance of security and usability)
+	//   - 604800: 1 week (longer sessions)
+	//   - 0: Session cookie (expires when browser closes)
+	//
+	// Shorter durations improve security but may affect user experience.
+	CSRFCookieMaxAge int
+
+	// CSRFTokenEndpoint enables an endpoint to retrieve CSRF tokens via AJAX.
+	// Set via WithCSRFTokenEndpoint() or WithSecurityConfig().
+	//
+	// When set, creates an endpoint (e.g., "/csrf-token") that returns:
+	//   {"csrf_token": "abc123..."}
+	//
+	// Use cases:
+	//   - SPAs that need to fetch tokens dynamically
+	//   - AJAX applications with HttpOnly cookies
+	//   - Mobile apps that need CSRF tokens
+	//
+	// The endpoint:
+	//   - Uses GET method
+	//   - Returns JSON with the token
+	//   - Sets the CSRF cookie
+	//   - Bypasses CSRF validation (safe since it's read-only)
+	CSRFTokenEndpoint string
+
+	// CSRFErrorMessage is the message returned when CSRF validation fails.
+	// Set via WithCSRFErrorMessage() or WithSecurityConfig().
+	//
+	// Default: "CSRF token validation failed"
+	//
+	// Best practices:
+	//   - Keep messages generic to avoid information disclosure
+	//   - Include guidance for legitimate users
+	//   - Consider localization for international applications
+	CSRFErrorMessage string
+
+	// CSRFSafeMethods lists HTTP methods that bypass CSRF validation.
+	// Set via WithCSRFSafeMethods() or WithSecurityConfig().
+	//
+	// Default: ["GET", "HEAD", "OPTIONS", "TRACE"]
+	//
+	// These methods are considered safe because they shouldn't have side effects.
+	// POST, PUT, PATCH, DELETE require CSRF tokens by default.
+	//
+	// Only modify this if you have specific requirements.
+	CSRFSafeMethods []string
+
 	// ContentSecurityPolicy sets the Content-Security-Policy header for XSS protection.
 	// This header controls which resources the browser is allowed to load.
 	// Set via WithContentSecurityPolicy() or WithStrictSecurityHeaders().
@@ -1842,36 +2019,6 @@ func WithAuthToken(t string) Option {
 	}
 }
 
-// WithMetrics sets a custom metrics collector that will be called on each HTTP request.
-// The metrics handler receives the http.Request for each incoming request.
-//
-// Example:
-//
-//	type MyMetrics struct {
-//		requestCount int64
-//	}
-//
-//	func (m *MyMetrics) HandleRequest(r *http.Request) {
-//		atomic.AddInt64(&m.requestCount, 1)
-//		// Log request details, update counters, etc.
-//	}
-//
-//	metrics := &MyMetrics{}
-//	server := servex.New(servex.WithMetrics(metrics))
-//
-// Use this for:
-//   - Prometheus metrics collection
-//   - Custom analytics
-//   - Request counting and monitoring
-//   - Performance tracking
-//
-// The metrics handler is called for every request, so ensure it's fast and non-blocking.
-func WithMetrics(m Metrics) Option {
-	return func(op *Options) {
-		op.Metrics = m
-	}
-}
-
 // WithLogger sets a custom logger for server events, errors, and panics.
 // The logger must implement the [Logger] interface. Set via WithLogger().
 //
@@ -2040,6 +2187,95 @@ func WithSendErrorToClient() Option {
 func WithLogFields(fields ...string) Option {
 	return func(op *Options) {
 		op.LogFields = fields
+	}
+}
+
+// WithAuditLogger sets a custom audit logger for security events.
+// The audit logger is used to log authentication events, rate limiting violations,
+// filter blocks, CSRF attacks, and other security-related events.
+//
+// Example:
+//
+//	// Custom audit logger that sends to external SIEM
+//	type SIEMAuditLogger struct {
+//		client *siem.Client
+//	}
+//
+//	func (s *SIEMAuditLogger) LogSecurityEvent(event servex.AuditEvent) {
+//		s.client.SendEvent(event)
+//	}
+//
+//	server := servex.New(
+//		servex.WithAuditLogger(&SIEMAuditLogger{client: siemClient}),
+//	)
+//
+// Use for:
+//   - Integration with Security Information and Event Management (SIEM) systems
+//   - Custom audit log formatting and routing
+//   - Compliance with specific regulatory requirements
+//   - Integration with threat intelligence platforms
+func WithAuditLogger(logger AuditLogger) Option {
+	return func(op *Options) {
+		op.AuditLogger = logger
+	}
+}
+
+// WithDefaultAuditLogger enables default audit logging using the server's logger.
+// This creates a DefaultAuditLogger that logs security events using structured logging.
+//
+// Example:
+//
+//	// Enable basic audit logging
+//	server := servex.New(
+//		servex.WithDefaultAuditLogger(),
+//	)
+//
+//	// Enable audit logging with headers included (be careful with sensitive data)
+//	server := servex.New(
+//		servex.WithDefaultAuditLogger(),
+//		servex.WithAuditLogHeaders(true),
+//	)
+//
+// The default audit logger will:
+//   - Log authentication events (login, logout, token validation)
+//   - Log rate limiting violations
+//   - Log request filtering blocks (IP, User-Agent, etc.)
+//   - Log CSRF protection events
+//   - Log suspicious activities
+//
+// All events are logged with structured fields for easy parsing and analysis.
+func WithDefaultAuditLogger() Option {
+	return func(op *Options) {
+		op.EnableDefaultAuditLogger = true
+		if op.Logger != nil {
+			op.AuditLogger = NewDefaultAuditLogger(op.Logger)
+		}
+		// If no logger is set yet, the audit logger will be created in NewWithOptions
+	}
+}
+
+// WithAuditLogHeaders configures whether to include HTTP headers in audit logs.
+// This should be used carefully as headers may contain sensitive information.
+//
+// Example:
+//
+//	// Include headers in audit logs (for detailed security analysis)
+//	server := servex.New(
+//		servex.WithDefaultAuditLogger(),
+//		servex.WithAuditLogHeaders(true),
+//	)
+//
+// When enabled, the audit logger will include non-sensitive headers in security events.
+// Sensitive headers like Authorization, Cookie, X-API-Key are always excluded.
+func WithAuditLogHeaders(include bool) Option {
+	return func(op *Options) {
+		if op.AuditLogger == nil {
+			// Enable default audit logging with headers setting
+			op.EnableDefaultAuditLogger = true
+			op.AuditLogger = &DefaultAuditLogger{IncludeHeaders: include}
+		} else if dal, ok := op.AuditLogger.(*DefaultAuditLogger); ok {
+			dal.IncludeHeaders = include
+		}
 	}
 }
 
@@ -3558,6 +3794,49 @@ func WithHealthPath(path string) Option {
 	}
 }
 
+// WithMetrics sets a custom metrics collector that will be called on each HTTP request.
+// The metrics handler receives the http.Request for each incoming request.
+//
+// Example:
+//
+//	type MyMetrics struct {
+//		requestCount int64
+//	}
+//
+//	func (m *MyMetrics) HandleRequest(r *http.Request) {
+//		atomic.AddInt64(&m.requestCount, 1)
+//		// Log request details, update counters, etc.
+//	}
+//
+//	metrics := &MyMetrics{}
+//	server := servex.New(servex.WithMetrics(metrics))
+//
+// Use this for:
+//   - Prometheus metrics collection
+//   - Custom analytics
+//   - Request counting and monitoring
+//   - Performance tracking
+//
+// The metrics handler is called for every request, so ensure it's fast and non-blocking.
+func WithMetrics(m Metrics) Option {
+	return func(op *Options) {
+		op.Metrics = m
+		op.EnableDefaultMetrics = false
+		op.MetricsPath = ""
+	}
+}
+
+// WithDefaultMetrics enables the default metrics endpoint.
+func WithDefaultMetrics(path ...string) Option {
+	return func(op *Options) {
+		op.EnableDefaultMetrics = true
+		op.Metrics = NewBuiltinMetrics()
+		if len(path) > 0 {
+			op.MetricsPath = path[0]
+		}
+	}
+}
+
 // WithSecurityConfig sets the complete security headers configuration at once.
 // This allows fine-grained control over all security headers applied to responses.
 //
@@ -3830,6 +4109,407 @@ func WithSecurityIncludePaths(paths ...string) Option {
 	}
 }
 
+// WithCSRFProtection enables CSRF (Cross-Site Request Forgery) protection with default settings.
+// This provides protection against CSRF attacks for web applications.
+//
+// Example:
+//
+//	// Enable CSRF protection with defaults
+//	server := servex.New(servex.WithCSRFProtection())
+//
+//	// Combined with other security features
+//	server := servex.New(
+//		servex.WithStrictSecurityHeaders(),
+//		servex.WithCSRFProtection(),
+//	)
+//
+// Default settings:
+//   - Token name: "X-CSRF-Token"
+//   - Cookie name: "csrf_token"
+//   - Cookie HttpOnly: true (recommended for security)
+//   - Cookie SameSite: "Lax"
+//   - Safe methods: GET, HEAD, OPTIONS, TRACE
+//
+// Use cases:
+//   - Web applications with forms
+//   - Single Page Applications (SPAs)
+//   - Any application accepting requests from browsers
+//   - APIs that need CSRF protection
+//
+// For custom CSRF settings, use WithCSRFConfig() instead.
+func WithCSRFProtection() Option {
+	return func(op *Options) {
+		op.Security.Enabled = true
+		op.Security.CSRFEnabled = true
+		op.Security.CSRFTokenName = "X-CSRF-Token"
+		op.Security.CSRFCookieName = "csrf_token"
+		op.Security.CSRFCookieHttpOnly = true
+		op.Security.CSRFCookieSameSite = "Lax"
+		op.Security.CSRFCookiePath = "/"
+		op.Security.CSRFCookieMaxAge = 86400 // 24 hours
+		op.Security.CSRFErrorMessage = "CSRF token validation failed"
+		op.Security.CSRFSafeMethods = []string{"GET", "HEAD", "OPTIONS", "TRACE"}
+	}
+}
+
+// WithCSRFTokenName sets the name for the CSRF token in headers and form fields.
+//
+// Example:
+//
+//	// Use Rails/Django style token name
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFTokenName("X-CSRF-Token"),
+//	)
+//
+//	// Use Angular style token name
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFTokenName("X-XSRF-TOKEN"),
+//	)
+//
+//	// Use form field name
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFTokenName("csrf_token"),
+//	)
+//
+// Common token names:
+//   - "X-CSRF-Token": Rails, Django, standard header
+//   - "X-XSRF-TOKEN": Angular default
+//   - "csrf_token": Common form field name
+//   - "_token": Laravel style
+//
+// The middleware will look for the token in:
+//  1. Request header with this name
+//  2. Form field with this name
+//  3. URL query parameter with this name (fallback)
+func WithCSRFTokenName(tokenName string) Option {
+	return func(op *Options) {
+		op.Security.CSRFTokenName = tokenName
+	}
+}
+
+// WithCSRFCookieName sets the name for the CSRF cookie.
+//
+// Example:
+//
+//	// Use standard cookie name
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieName("csrf_token"),
+//	)
+//
+//	// Use Angular style (readable by JavaScript)
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieName("XSRF-TOKEN"),
+//		servex.WithCSRFCookieHttpOnly(false),
+//	)
+//
+//	// Use Express.js style
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieName("_csrf"),
+//	)
+//
+// Common cookie names:
+//   - "csrf_token": Standard, secure
+//   - "XSRF-TOKEN": Angular compatible
+//   - "_csrf": Express.js style
+//   - "csrftoken": Django style
+//
+// Choose names that don't conflict with your application's other cookies.
+func WithCSRFCookieName(cookieName string) Option {
+	return func(op *Options) {
+		op.Security.CSRFCookieName = cookieName
+	}
+}
+
+// WithCSRFCookieHttpOnly sets whether the CSRF cookie is HTTP-only.
+//
+// Example:
+//
+//	// Maximum security (recommended for server-side apps)
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieHttpOnly(true),
+//		servex.WithCSRFTokenEndpoint("/csrf-token"),
+//	)
+//
+//	// JavaScript accessible (for SPAs)
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieHttpOnly(false),
+//	)
+//
+// Security considerations:
+//   - true: More secure, prevents XSS token theft, requires server-side token injection
+//   - false: JavaScript can read the token, but vulnerable to XSS attacks
+//
+// When HttpOnly is true:
+//   - Use WithCSRFTokenEndpoint() to provide tokens to JavaScript
+//   - Inject tokens into HTML templates server-side
+//   - Maximum protection against XSS token theft
+//
+// When HttpOnly is false:
+//   - JavaScript can read document.cookie to get the token
+//   - Useful for SPAs and AJAX-heavy applications
+//   - Consider additional XSS protections
+func WithCSRFCookieHttpOnly(httpOnly bool) Option {
+	return func(op *Options) {
+		op.Security.CSRFCookieHttpOnly = httpOnly
+	}
+}
+
+// WithCSRFCookieSameSite sets the SameSite attribute for the CSRF cookie.
+//
+// Example:
+//
+//	// Maximum protection (may break some legitimate usage)
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieSameSite("Strict"),
+//	)
+//
+//	// Balanced protection (recommended)
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieSameSite("Lax"),
+//	)
+//
+//	// Cross-site requests allowed (requires Secure=true)
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieSameSite("None"),
+//		servex.WithCSRFCookieSecure(true),
+//	)
+//
+// SameSite options:
+//   - "Strict": Maximum protection, blocks all cross-site requests
+//   - "Lax": Good protection with better usability (recommended)
+//   - "None": Allows cross-site requests, requires Secure=true
+//
+// "Lax" provides good CSRF protection while maintaining usability for most applications.
+func WithCSRFCookieSameSite(sameSite string) Option {
+	return func(op *Options) {
+		op.Security.CSRFCookieSameSite = sameSite
+		// Automatically set Secure=true when SameSite=None
+		if sameSite == "None" {
+			op.Security.CSRFCookieSecure = true
+		}
+	}
+}
+
+// WithCSRFCookieSecure sets whether the CSRF cookie requires HTTPS.
+//
+// Example:
+//
+//	// Production HTTPS setup
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieSecure(true),
+//	)
+//
+//	// Development HTTP setup
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieSecure(false),
+//	)
+//
+// Security recommendations:
+//   - true: Required for production HTTPS sites
+//   - false: Only for development with HTTP
+//
+// The Secure flag is automatically set to true when SameSite="None".
+// For production applications, always use HTTPS and set this to true.
+func WithCSRFCookieSecure(secure bool) Option {
+	return func(op *Options) {
+		op.Security.CSRFCookieSecure = secure
+	}
+}
+
+// WithCSRFCookiePath sets the path attribute for the CSRF cookie.
+//
+// Example:
+//
+//	// Cookie available for entire site
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookiePath("/"),
+//	)
+//
+//	// Cookie only for application section
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookiePath("/app"),
+//	)
+//
+//	// Cookie only for API endpoints
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookiePath("/api"),
+//	)
+//
+// Common paths:
+//   - "/": Cookie available for entire site (default)
+//   - "/app": Cookie only for application section
+//   - "/api": Cookie only for API endpoints
+//
+// Use specific paths to limit cookie scope and improve security.
+// The cookie will only be sent for requests under the specified path.
+func WithCSRFCookiePath(path string) Option {
+	return func(op *Options) {
+		op.Security.CSRFCookiePath = path
+	}
+}
+
+// WithCSRFCookieMaxAge sets the maximum age for the CSRF cookie in seconds.
+//
+// Example:
+//
+//	// Short-lived session (1 hour)
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieMaxAge(3600),
+//	)
+//
+//	// Daily session (24 hours)
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieMaxAge(86400),
+//	)
+//
+//	// Session cookie (expires when browser closes)
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieMaxAge(0),
+//	)
+//
+// Common values:
+//   - 3600: 1 hour (short-lived, more secure)
+//   - 86400: 1 day (balance of security and usability)
+//   - 604800: 1 week (longer sessions)
+//   - 0: Session cookie (expires when browser closes)
+//
+// Shorter durations improve security but may affect user experience.
+// Choose based on your application's session management requirements.
+func WithCSRFCookieMaxAge(maxAge int) Option {
+	return func(op *Options) {
+		op.Security.CSRFCookieMaxAge = maxAge
+	}
+}
+
+// WithCSRFTokenEndpoint enables an endpoint to retrieve CSRF tokens via AJAX.
+//
+// Example:
+//
+//	// Standard CSRF token endpoint
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFTokenEndpoint("/csrf-token"),
+//	)
+//
+//	// Custom endpoint path
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFTokenEndpoint("/api/csrf"),
+//	)
+//
+//	// For SPAs with HttpOnly cookies
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFCookieHttpOnly(true),
+//		servex.WithCSRFTokenEndpoint("/api/v1/csrf-token"),
+//	)
+//
+// The endpoint will:
+//   - Use GET method
+//   - Return JSON: {"csrf_token": "abc123..."}
+//   - Set the CSRF cookie
+//   - Bypass CSRF validation (safe since it's read-only)
+//
+// Use cases:
+//   - SPAs that need to fetch tokens dynamically
+//   - AJAX applications with HttpOnly cookies
+//   - Mobile apps that need CSRF tokens
+//   - Dynamic forms that load after page load
+func WithCSRFTokenEndpoint(endpoint string) Option {
+	return func(op *Options) {
+		op.Security.CSRFTokenEndpoint = endpoint
+	}
+}
+
+// WithCSRFErrorMessage sets the message returned when CSRF validation fails.
+//
+// Example:
+//
+//	// Generic message (recommended for security)
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFErrorMessage("Invalid request. Please refresh and try again."),
+//	)
+//
+//	// More specific message
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFErrorMessage("CSRF token missing or invalid"),
+//	)
+//
+//	// User-friendly message
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFErrorMessage("Security validation failed. Please reload the page."),
+//	)
+//
+// Best practices:
+//   - Keep messages generic to avoid information disclosure
+//   - Include guidance for legitimate users
+//   - Consider localization for international applications
+//   - Avoid revealing technical implementation details
+//
+// The message is returned as plain text in the response body with a 403 Forbidden status.
+func WithCSRFErrorMessage(message string) Option {
+	return func(op *Options) {
+		op.Security.CSRFErrorMessage = message
+	}
+}
+
+// WithCSRFSafeMethods sets the HTTP methods that bypass CSRF validation.
+//
+// Example:
+//
+//	// Default safe methods (recommended)
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFSafeMethods("GET", "HEAD", "OPTIONS", "TRACE"),
+//	)
+//
+//	// More restrictive (only GET and HEAD)
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFSafeMethods("GET", "HEAD"),
+//	)
+//
+//	// Allow additional methods (use with caution)
+//	server := servex.New(
+//		servex.WithCSRFProtection(),
+//		servex.WithCSRFSafeMethods("GET", "HEAD", "OPTIONS", "TRACE", "PROPFIND"),
+//	)
+//
+// Default safe methods: GET, HEAD, OPTIONS, TRACE
+//
+// These methods are considered safe because they shouldn't have side effects.
+// All other methods (POST, PUT, PATCH, DELETE) will require CSRF tokens.
+//
+// Only modify this if you have specific requirements or use non-standard HTTP methods.
+// Adding methods like POST to safe methods defeats the purpose of CSRF protection.
+func WithCSRFSafeMethods(methods ...string) Option {
+	return func(op *Options) {
+		op.Security.CSRFSafeMethods = methods
+	}
+}
+
 // WithCustomHeaders sets custom HTTP headers that will be added to all responses.
 // These headers are applied after security headers and can override them.
 //
@@ -4091,7 +4771,8 @@ func WithCacheLastModified(lastModified string) Option {
 //   - "Authorization": Different responses for authenticated users
 //   - "Accept-Language": Different languages
 //
-// Important: Only include headers that actually affect the response to avoid cache fragmentation.
+// Important: Only include headers that actually affect the response
+// to avoid cache fragmentation.
 func WithCacheVary(vary string) Option {
 	return func(op *Options) {
 		op.Cache.Enabled = true
@@ -4553,7 +5234,7 @@ func WithEnableRequestSizeLimits(enable bool) Option {
 // This is a convenience function that sets up reasonable defaults for most applications.
 //
 // Default limits set:
-//   - MaxRequestBodySize: 32 MB
+//   - MaxRequestBodySize: 100 MB
 //   - MaxJSONBodySize: 1 MB
 //   - MaxFileUploadSize: 100 MB
 //   - MaxMultipartMemory: 10 MB
@@ -4562,31 +5243,23 @@ func WithEnableRequestSizeLimits(enable bool) Option {
 // Use individual WithMax* functions for custom limits.
 func WithRequestSizeLimits() Option {
 	return func(opts *Options) {
-		opts.MaxRequestBodySize = 32 << 20 // 32 MB
-		opts.MaxJSONBodySize = 1 << 20     // 1 MB
-		opts.MaxFileUploadSize = 100 << 20 // 100 MB
-		opts.MaxMultipartMemory = 10 << 20 // 10 MB
+		opts.MaxRequestBodySize = 100 << 20 // 100 MB
+		opts.MaxJSONBodySize = 1 << 20      // 1 MB
+		opts.MaxFileUploadSize = 100 << 20  // 100 MB (same as MaxRequestBodySize)
+		opts.MaxMultipartMemory = 10 << 20  // 10 MB
 		opts.EnableRequestSizeLimits = true
 	}
 }
 
-// WithStrictRequestSizeLimits configures strict request size limits for security-sensitive applications.
-// This sets more restrictive limits than the default WithRequestSizeLimits().
-//
-// Strict limits set:
-//   - MaxRequestBodySize: 5 MB
-//   - MaxJSONBodySize: 512 KB
-//   - MaxFileUploadSize: 10 MB
-//   - MaxMultipartMemory: 5 MB
-//   - EnableRequestSizeLimits: true
-//
+// WithStrictRequestSizeLimits enables request size limits with strict, secure default values.
+// This configuration prioritizes security over convenience with smaller size limits.
 // Use for applications where security is more important than convenience.
 func WithStrictRequestSizeLimits() Option {
 	return func(opts *Options) {
-		opts.MaxRequestBodySize = 5 << 20 // 5 MB
-		opts.MaxJSONBodySize = 512 << 10  // 512 KB
-		opts.MaxFileUploadSize = 10 << 20 // 10 MB
-		opts.MaxMultipartMemory = 5 << 20 // 5 MB
+		opts.MaxRequestBodySize = 10 << 20 // 10 MB
+		opts.MaxJSONBodySize = 512 << 10   // 512 KB
+		opts.MaxFileUploadSize = 10 << 20  // 10 MB (same as MaxRequestBodySize)
+		opts.MaxMultipartMemory = 5 << 20  // 5 MB
 		opts.EnableRequestSizeLimits = true
 	}
 }
@@ -5094,9 +5767,6 @@ func (opts *Options) Validate() error {
 		}
 		if opts.RateLimit.Interval <= 0 {
 			errors = append(errors, "rate limit interval must be positive")
-		}
-		if opts.RateLimit.BurstSize < opts.RateLimit.RequestsPerInterval {
-			errors = append(errors, "burst size should not be smaller than requests per interval")
 		}
 	}
 

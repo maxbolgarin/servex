@@ -58,6 +58,24 @@ func NewWithOptions(opts Options) (*Server, error) {
 		opts.RequestLogger = &noopRequestLogger{}
 	}
 
+	// Initialize audit logger if not set but default audit logging was requested
+	if opts.AuditLogger == nil {
+		if opts.EnableDefaultAuditLogger {
+			// Default audit logging was requested, create it now with the available logger
+			opts.AuditLogger = NewDefaultAuditLogger(opts.Logger)
+		} else {
+			// No audit logging requested, use no-op logger
+			opts.AuditLogger = &NoopAuditLogger{}
+		}
+	} else if dal, ok := opts.AuditLogger.(*DefaultAuditLogger); ok && dal.Logger == nil {
+		// Complete initialization of DefaultAuditLogger with the logger
+		// This handles cases where WithAuditLogHeaders was called before the logger was available
+		dal.Logger = opts.Logger
+		dal.SensitiveHeaders = []string{"Authorization", "Cookie", "X-API-Key", "X-Auth-Token"}
+		dal.MaxDetailSize = 1024
+		dal.EnableGeoLocation = false
+	}
+
 	if opts.Certificate == nil && opts.CertFilePath != "" && opts.KeyFilePath != "" {
 		cert, err := ReadCertificateFromFile(opts.CertFilePath, opts.KeyFilePath)
 		if err != nil {
@@ -71,11 +89,11 @@ func NewWithOptions(opts Options) (*Server, error) {
 		opts:   opts,
 	}
 
-	rateLimitCleanup := RegisterRateLimitMiddleware(s.router, opts.RateLimit)
+	rateLimitCleanup := RegisterRateLimitMiddleware(s.router, opts.RateLimit, opts.AuditLogger)
 	s.cleanups = append(s.cleanups, rateLimitCleanup)
 	RegisterRequestSizeLimitMiddleware(s.router, opts)
 
-	filter, err := RegisterFilterMiddleware(s.router, opts.Filter)
+	filter, err := RegisterFilterMiddleware(s.router, opts.Filter, opts.AuditLogger)
 	if err != nil {
 		return nil, err
 	}
@@ -94,17 +112,11 @@ func NewWithOptions(opts Options) (*Server, error) {
 	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken, opts)
 	registerOptsMiddleware(s.router, opts)
 
-	// Register static file middleware - should be registered after API routes but before health
-	RegisterStaticFileMiddleware(s.router, opts.StaticFiles)
-
-	// Register health
-	s.registerBuiltinEndpoints()
-
 	if s.opts.Auth.Enabled {
 		if s.opts.Auth.Database == nil {
 			return nil, errors.New("auth database is required")
 		}
-		authManager, err := NewAuthManager(s.opts.Auth)
+		authManager, err := NewAuthManager(s.opts.Auth, opts.AuditLogger)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create auth manager: %w", err)
 		}
@@ -122,6 +134,12 @@ func NewWithOptions(opts Options) (*Server, error) {
 			}
 		}
 	}
+
+	// Register health
+	s.registerBuiltinEndpoints()
+
+	// Register static file middleware - should be registered after all other middleware
+	RegisterStaticFileMiddleware(s.router, opts.StaticFiles)
 
 	return s, nil
 }
@@ -401,6 +419,20 @@ func (s *Server) registerBuiltinEndpoints() {
 			healthPath = "/health"
 		}
 		s.router.HandleFunc(healthPath, s.healthHandler).Methods("GET")
+	}
+
+	// Register metrics endpoint if enabled
+	if s.opts.EnableDefaultMetrics {
+		metricsPath := s.opts.MetricsPath
+		if metricsPath == "" {
+			metricsPath = "/metrics"
+		}
+		// Register metrics endpoint using the built-in metrics
+		if builtinMetrics, ok := s.opts.Metrics.(*BuiltinMetrics); ok {
+			builtinMetrics.RegisterMetricsEndpoint(s, metricsPath)
+		} else {
+			s.opts.Logger.Error("cannot register metrics endpoint, metrics is not a BuiltinMetrics")
+		}
 	}
 }
 

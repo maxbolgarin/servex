@@ -53,6 +53,26 @@ type visitor struct {
 	lastSeen int64 // Use atomic int64 for Unix timestamp to avoid race conditions
 }
 
+// Pool for reusing visitor objects to reduce allocations
+var visitorPool = sync.Pool{
+	New: func() any {
+		return &visitor{}
+	},
+}
+
+// getVisitor retrieves a visitor from the pool
+func getVisitor() *visitor {
+	return visitorPool.Get().(*visitor)
+}
+
+// putVisitor returns a visitor to the pool after resetting it
+func putVisitor(v *visitor) {
+	// Reset the visitor to prevent memory leaks
+	v.limiter = nil
+	v.lastSeen = 0
+	visitorPool.Put(v)
+}
+
 // getLastSeen returns the last seen time safely
 func (v *visitor) getLastSeen() time.Time {
 	timestamp := atomic.LoadInt64(&v.lastSeen)
@@ -77,12 +97,20 @@ type rateLimiterMiddleware struct {
 	// Emergency cleanup control
 	emergencyCleanup chan struct{}
 	emergencyOnce    sync.Once
+
+	// Goroutine lifecycle management
+	shutdownOnce sync.Once
+	goroutineWG  sync.WaitGroup
+	isShutdown   int32 // atomic flag
+
+	// Audit logging for security events
+	auditLogger AuditLogger
 }
 
 // RegisterRateLimitMiddleware adds rate limiting middleware to the router.
 // If the config is not enabled, no middleware will be registered.
 // It returns a function that can be used to stop the cleanup routine.
-func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig) func() {
+func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig, auditLogger ...AuditLogger) func() {
 	if !cfg.Enabled || cfg.RequestsPerInterval <= 0 {
 		return func() {} // Return no-op function for consistency
 	}
@@ -95,23 +123,29 @@ func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig) f
 		cfg.KeyFunc = getUsernameKeyFuncWithProxies(cfg.TrustedProxies)
 	}
 
+	// Get audit logger (optional parameter)
+	var audit AuditLogger = &NoopAuditLogger{}
+	if len(auditLogger) > 0 && auditLogger[0] != nil {
+		audit = auditLogger[0]
+	}
+
 	m := &rateLimiterMiddleware{
 		cfg:              cfg,
 		visitors:         make(map[string]*visitor),
 		cleanupDone:      make(chan struct{}),
 		emergencyCleanup: make(chan struct{}, 1), // Buffered to avoid blocking
+		auditLogger:      audit,
 	}
 
 	router.Use(m.middleware)
 
-	// Start cleanup goroutines only once
+	// Start cleanup goroutines with proper lifecycle management
 	m.cleanupOnce.Do(func() {
-		go m.startCleanupRoutine()
-		go m.startEmergencyCleanupRoutine()
+		m.startBackgroundTasks()
 	})
 
 	return func() {
-		close(m.cleanupDone)
+		m.shutdown()
 	}
 }
 
@@ -145,7 +179,7 @@ func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig) f
 //	    },
 //	  },
 //	})
-func RegisterLocationBasedRateLimitMiddleware(router MiddlewareRouter, locationConfigs []LocationRateLimitConfig) func() {
+func RegisterLocationBasedRateLimitMiddleware(router MiddlewareRouter, locationConfigs []LocationRateLimitConfig, auditLogger ...AuditLogger) func() {
 	if len(locationConfigs) == 0 {
 		return func() {} // Return no-op function for consistency
 	}
@@ -174,23 +208,29 @@ func RegisterLocationBasedRateLimitMiddleware(router MiddlewareRouter, locationC
 		return func() {} // Return no-op function for consistency
 	}
 
+	// Get audit logger (optional parameter)
+	var audit AuditLogger = &NoopAuditLogger{}
+	if len(auditLogger) > 0 && auditLogger[0] != nil {
+		audit = auditLogger[0]
+	}
+
 	m := &rateLimiterMiddleware{
 		locationConfigs:  validConfigs,
 		visitors:         make(map[string]*visitor),
 		cleanupDone:      make(chan struct{}),
 		emergencyCleanup: make(chan struct{}, 1), // Buffered to avoid blocking
+		auditLogger:      audit,
 	}
 
 	router.Use(m.middleware)
 
-	// Start cleanup goroutines only once
+	// Start cleanup goroutines with proper lifecycle management
 	m.cleanupOnce.Do(func() {
-		go m.startCleanupRoutine()
-		go m.startEmergencyCleanupRoutine()
+		m.startBackgroundTasks()
 	})
 
 	return func() {
-		close(m.cleanupDone)
+		m.shutdown()
 	}
 }
 
@@ -251,10 +291,13 @@ func (m *rateLimiterMiddleware) cleanup(aggressive bool) {
 		}
 	}
 
-	// Delete stale visitors
+	// Delete stale visitors and return them to pool
 	for _, key := range keysToDelete {
-		delete(m.visitors, key)
-		atomic.AddInt64(&m.visitorCount, -1)
+		if v, exists := m.visitors[key]; exists {
+			putVisitor(v) // Return visitor to pool
+			delete(m.visitors, key)
+			atomic.AddInt64(&m.visitorCount, -1)
+		}
 	}
 
 	// Second pass: if still over limit, implement LRU eviction
@@ -269,6 +312,32 @@ func (m *rateLimiterMiddleware) cleanup(aggressive bool) {
 
 	// Sync the atomic counter with actual map size to prevent drift
 	atomic.StoreInt64(&m.visitorCount, int64(len(m.visitors)))
+}
+
+// startBackgroundTasks starts the cleanup goroutines with proper lifecycle tracking
+func (m *rateLimiterMiddleware) startBackgroundTasks() {
+	if atomic.LoadInt32(&m.isShutdown) == 1 {
+		return // Already shutdown
+	}
+
+	m.goroutineWG.Add(2)
+	go func() {
+		defer m.goroutineWG.Done()
+		m.startCleanupRoutine()
+	}()
+	go func() {
+		defer m.goroutineWG.Done()
+		m.startEmergencyCleanupRoutine()
+	}()
+}
+
+// shutdown gracefully stops all background goroutines
+func (m *rateLimiterMiddleware) shutdown() {
+	m.shutdownOnce.Do(func() {
+		atomic.StoreInt32(&m.isShutdown, 1)
+		close(m.cleanupDone)
+		m.goroutineWG.Wait()
+	})
 }
 
 // evictLRU removes the least recently used visitors to stay under memory limits.
@@ -297,11 +366,15 @@ func (m *rateLimiterMiddleware) evictLRU(numToEvict int) {
 		return visitors[i].lastSeen.Before(visitors[j].lastSeen)
 	})
 
-	// Remove the oldest entries
+	// Remove the oldest entries and return them to pool
 	evicted := 0
 	for i := 0; i < len(visitors) && evicted < numToEvict; i++ {
-		delete(m.visitors, visitors[i].key)
-		evicted++
+		key := visitors[i].key
+		if v, exists := m.visitors[key]; exists {
+			putVisitor(v) // Return visitor to pool
+			delete(m.visitors, key)
+			evicted++
+		}
 	}
 
 	// Update counter
@@ -344,7 +417,17 @@ func (m *rateLimiterMiddleware) middleware(next http.Handler) http.Handler {
 
 		// Check if this request exceeds the rate limit
 		if !limiter.Allow() {
-			// Rate limit exceeded
+			// Rate limit exceeded - log security event
+			if m.auditLogger != nil {
+				details := map[string]any{
+					"rate_limit_key":        key,
+					"requests_per_interval": cfg.RequestsPerInterval,
+					"interval_seconds":      cfg.Interval.Seconds(),
+					"burst_size":            cfg.BurstSize,
+				}
+				m.auditLogger.LogRateLimitEvent(r, key, details)
+			}
+
 			w.Header().Set("Retry-After", "60") // Suggest retry after 1 minute
 			C(w, r).Error(fmt.Errorf("rate limit exceeded"), cfg.StatusCode, cfg.Message)
 			return
@@ -427,11 +510,13 @@ func (m *rateLimiterMiddleware) getLimiter(key string, cfg RateLimitConfig) *rat
 		cfg.BurstSize,
 	)
 
-	// Create and store the visitor
-	m.visitors[key] = &visitor{
-		limiter:  limiter,
-		lastSeen: time.Now().Unix(),
-	}
+	// Get visitor from pool and initialize it
+	v := getVisitor()
+	v.limiter = limiter
+	v.lastSeen = time.Now().Unix()
+
+	// Store the visitor
+	m.visitors[key] = v
 
 	// Update atomic counter
 	atomic.AddInt64(&m.visitorCount, 1)

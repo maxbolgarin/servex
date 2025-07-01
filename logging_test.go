@@ -122,7 +122,7 @@ func TestRequestLogger_Log(t *testing.T) {
 	}
 
 	expectedFields := []any{
-		"error", bundle.Error,
+		"error", bundle.Error.Error(),
 		"error_message", bundle.ErrorMessage,
 		"request_id", bundle.RequestID,
 		"status", bundle.StatusCode,
@@ -184,8 +184,10 @@ func TestRequestLogger_LogWithSelectiveFields(t *testing.T) {
 	}
 
 	// Check that only the specified fields are present
+	// Note: method, url, status, and duration_ms are always included
 	expectedFields := map[string]any{
 		"method":      "POST",
+		"url":         "http://example.com/api/users",
 		"status":      400,
 		"duration_ms": int64(2000), // Approximate match due to time function
 	}
@@ -214,7 +216,7 @@ func TestRequestLogger_LogWithSelectiveFields(t *testing.T) {
 
 	// Check that unexpected fields are NOT present
 	unexpectedFields := []string{
-		"request_id", "ip", "user_agent", "url", "proto", "error", "error_message",
+		"request_id", "ip", "user_agent", "proto", "error", "error_message",
 	}
 	for _, unexpectedKey := range unexpectedFields {
 		if _, exists := actualFields[unexpectedKey]; exists {

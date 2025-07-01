@@ -2,7 +2,9 @@ package servex
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -320,6 +322,210 @@ func RegisterSecurityHeadersMiddleware(router MiddlewareRouter, cfg SecurityConf
 			next.ServeHTTP(w, r)
 		})
 	})
+
+	// Register CSRF protection if enabled
+	if cfg.CSRFEnabled {
+		RegisterCSRFMiddleware(router, cfg)
+	}
+}
+
+// RegisterCSRFMiddleware adds CSRF (Cross-Site Request Forgery) protection middleware.
+// This middleware provides comprehensive CSRF protection for web applications.
+func RegisterCSRFMiddleware(router MiddlewareRouter, cfg SecurityConfig) {
+	// Set defaults for CSRF configuration
+	tokenName := cfg.CSRFTokenName
+	if tokenName == "" {
+		tokenName = "X-CSRF-Token"
+	}
+
+	cookieName := cfg.CSRFCookieName
+	if cookieName == "" {
+		cookieName = "csrf_token"
+	}
+
+	cookiePath := cfg.CSRFCookiePath
+	if cookiePath == "" {
+		cookiePath = "/"
+	}
+
+	errorMessage := cfg.CSRFErrorMessage
+	if errorMessage == "" {
+		errorMessage = "CSRF token validation failed"
+	}
+
+	safeMethods := cfg.CSRFSafeMethods
+	if len(safeMethods) == 0 {
+		safeMethods = []string{"GET", "HEAD", "OPTIONS", "TRACE"}
+	}
+
+	// Create safe methods map for faster lookup
+	safeMethodsMap := make(map[string]bool)
+	for _, method := range safeMethods {
+		safeMethodsMap[strings.ToUpper(method)] = true
+	}
+
+	// Register CSRF token endpoint if configured
+	if cfg.CSRFTokenEndpoint != "" {
+		registerCSRFTokenEndpoint(router, cfg.CSRFTokenEndpoint, cookieName, cookiePath, cfg)
+	}
+
+	// Register CSRF validation middleware
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip CSRF validation for safe methods
+			if safeMethodsMap[strings.ToUpper(r.Method)] {
+				// Set CSRF cookie for safe methods to establish token
+				if _, err := r.Cookie(cookieName); err != nil {
+					setCSRFCookie(w, cookieName, cookiePath, cfg)
+				}
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Skip CSRF validation for token endpoint
+			if cfg.CSRFTokenEndpoint != "" && r.URL.Path == cfg.CSRFTokenEndpoint {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Check if the path should have CSRF protection applied
+			if !shouldApplySecurityHeaders(r, cfg) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Validate CSRF token
+			if !validateCSRFToken(r, tokenName, cookieName) {
+				w.WriteHeader(http.StatusForbidden)
+				w.Write([]byte(errorMessage))
+				return
+			}
+
+			// Token is valid, proceed with request
+			next.ServeHTTP(w, r)
+		})
+	})
+}
+
+// registerCSRFTokenEndpoint creates an endpoint that returns CSRF tokens for SPAs and AJAX applications.
+func registerCSRFTokenEndpoint(router MiddlewareRouter, endpoint, cookieName, cookiePath string, cfg SecurityConfig) {
+	// We need to add the endpoint to the router if it's a *mux.Router
+	if muxRouter, ok := router.(*mux.Router); ok {
+		muxRouter.HandleFunc(endpoint, func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != "GET" {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+
+			// Generate and set CSRF token
+			token := setCSRFCookie(w, cookieName, cookiePath, cfg)
+
+			// Return token as JSON
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, `{"csrf_token": "%s"}`, token)
+		}).Methods("GET")
+	}
+}
+
+// setCSRFCookie generates a new CSRF token and sets it as a cookie.
+func setCSRFCookie(w http.ResponseWriter, cookieName, cookiePath string, cfg SecurityConfig) string {
+	// Generate secure random token
+	token := generateCSRFToken()
+
+	// Create cookie
+	cookie := &http.Cookie{
+		Name:     cookieName,
+		Value:    token,
+		Path:     cookiePath,
+		HttpOnly: cfg.CSRFCookieHttpOnly,
+		Secure:   cfg.CSRFCookieSecure,
+		SameSite: parseSameSite(cfg.CSRFCookieSameSite),
+	}
+
+	// Set MaxAge if configured
+	if cfg.CSRFCookieMaxAge > 0 {
+		cookie.MaxAge = cfg.CSRFCookieMaxAge
+		cookie.Expires = time.Now().Add(time.Duration(cfg.CSRFCookieMaxAge) * time.Second)
+	}
+
+	// Set cookie
+	http.SetCookie(w, cookie)
+
+	return token
+}
+
+// validateCSRFToken validates the CSRF token from the request.
+func validateCSRFToken(r *http.Request, tokenName, cookieName string) bool {
+	// Get expected token from cookie
+	cookie, err := r.Cookie(cookieName)
+	if err != nil || cookie.Value == "" {
+		return false
+	}
+	expectedToken := cookie.Value
+
+	// Extract token from request (try multiple sources)
+	var providedToken string
+
+	// 1. Try header
+	providedToken = r.Header.Get(tokenName)
+
+	// 2. Try form field if not found in header
+	if providedToken == "" {
+		if err := r.ParseForm(); err == nil {
+			providedToken = r.FormValue(tokenName)
+		}
+	}
+
+	// 3. Try multipart form if still not found
+	if providedToken == "" {
+		if err := r.ParseMultipartForm(32 << 20); err == nil { // 32MB max
+			if r.MultipartForm != nil && r.MultipartForm.Value != nil {
+				if values := r.MultipartForm.Value[tokenName]; len(values) > 0 {
+					providedToken = values[0]
+				}
+			}
+		}
+	}
+
+	// 4. Try query parameter as fallback
+	if providedToken == "" {
+		providedToken = r.URL.Query().Get(tokenName)
+	}
+
+	// Validate token using constant-time comparison
+	if providedToken == "" || expectedToken == "" {
+		return false
+	}
+
+	return subtle.ConstantTimeCompare([]byte(providedToken), []byte(expectedToken)) == 1
+}
+
+// generateCSRFToken generates a cryptographically secure random token.
+func generateCSRFToken() string {
+	// Generate 32 bytes of random data
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to time-based token if crypto/rand fails
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+
+	// Encode as base64 URL-safe string
+	return base64.URLEncoding.EncodeToString(bytes)
+}
+
+// parseSameSite converts string to http.SameSite enum.
+func parseSameSite(sameSite string) http.SameSite {
+	switch strings.ToLower(sameSite) {
+	case "strict":
+		return http.SameSiteStrictMode
+	case "lax":
+		return http.SameSiteLaxMode
+	case "none":
+		return http.SameSiteNoneMode
+	default:
+		return http.SameSiteLaxMode // Default to Lax for security and usability balance
+	}
 }
 
 // shouldApplySecurityHeaders determines if security headers should be applied based on the path.
