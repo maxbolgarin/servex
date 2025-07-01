@@ -2,7 +2,7 @@ module hello-world
 
 go 1.24
 
-
+require github.com/maxbolgarin/servex/v2 v2.0.0
 
 require (
 	github.com/golang-jwt/jwt/v4 v4.5.2 // indirect
@@ -15,4 +15,3 @@ require (
 	golang.org/x/time v0.11.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
-

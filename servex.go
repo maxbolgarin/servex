@@ -10,7 +10,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"runtime/debug"
+	"syscall"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -536,6 +538,117 @@ func (s *Server) StartWithShutdownHTTP(ctx context.Context, address string) erro
 //	err = server.StartWithShutdownHTTPS(ctx, ":8443")
 func (s *Server) StartWithShutdownHTTPS(ctx context.Context, address string) error {
 	return s.StartWithShutdown(ctx, "", address)
+}
+
+// StartWithWaitSignals starts the server with automatic graceful shutdown when the provided signals are received.
+//
+// This method starts the servers and waits (blocks) until the provided signals are received.
+// When the signals are received, it automatically initiates a graceful shutdown with a 30-second timeout.
+//
+// Parameters:
+//   - ctx: Context for controlling server lifecycle
+//   - httpAddr: Address for HTTP server (empty string disables HTTP)
+//   - httpsAddr: Address for HTTPS server (empty string disables HTTPS)
+//   - signals: Signals to listen for (default: [os.Interrupt, syscall.SIGTERM])
+//
+// Example:
+//
+//	server, err := servex.New(
+//		servex.WithCertificateFromFile("cert.pem", "key.pem"),
+//	)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	err = server.StartWithWaitSignals(ctx, ":8080", ":8443", os.Interrupt, syscall.SIGTERM)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Server will shutdown gracefully when ctx is cancelled
+//	// or when the program receives a signal
+func (s *Server) StartWithWaitSignals(ctx context.Context, httpAddr, httpsAddr string, signals ...os.Signal) error {
+	if len(signals) == 0 {
+		signals = []os.Signal{os.Interrupt, syscall.SIGTERM}
+	}
+	ctx, cancel := signal.NotifyContext(ctx, signals...)
+	defer cancel()
+
+	if err := s.Start(httpAddr, httpsAddr); err != nil {
+		return err
+	}
+
+	<-ctx.Done()
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := s.Shutdown(shutdownCtx); err != nil {
+		s.opts.Logger.Error("cannot shutdown", "error", err)
+	}
+
+	return nil
+}
+
+// StartWithWaitSignalsHTTP starts the HTTP server with automatic graceful shutdown when the provided signals are received.
+//
+// This method starts the HTTP server and waits (blocks) until the provided signals are received.
+// When the signals are received, it automatically initiates a graceful shutdown with a 30-second timeout.
+//
+// Parameters:
+//   - ctx: Context for controlling server lifecycle
+//   - httpAddr: Address for HTTP server (empty string disables HTTP)
+//   - httpsAddr: Address for HTTPS server (empty string disables HTTPS)
+//   - signals: Signals to listen for (default: [os.Interrupt, syscall.SIGTERM])
+//
+// Example:
+//
+//	server, err := servex.New(
+//		servex.WithCertificateFromFile("cert.pem", "key.pem"),
+//	)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	err = server.StartWithWaitSignalsHTTP(ctx, ":8080", os.Interrupt, syscall.SIGTERM)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Server will shutdown gracefully when ctx is cancelled
+//	// or when the program receives a signal
+func (s *Server) StartWithWaitSignalsHTTP(ctx context.Context, address string, signals ...os.Signal) error {
+	return s.StartWithWaitSignals(ctx, address, "", signals...)
+}
+
+// StartWithWaitSignalsHTTPS starts the HTTPS server with automatic graceful shutdown when the provided signals are received.
+//
+// This method starts the HTTPS server and waits (blocks) until the provided signals are received.
+// When the signals are received, it automatically initiates a graceful shutdown with a 30-second timeout.
+//
+// Parameters:
+//   - ctx: Context for controlling server lifecycle
+//   - httpAddr: Address for HTTP server (empty string disables HTTP)
+//   - httpsAddr: Address for HTTPS server (empty string disables HTTPS)
+//   - signals: Signals to listen for (default: [os.Interrupt, syscall.SIGTERM])
+//
+// Example:
+//
+//	server, err := servex.New(
+//		servex.WithCertificateFromFile("cert.pem", "key.pem"),
+//	)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	err = server.StartWithWaitSignalsHTTPS(ctx, ":8443", os.Interrupt, syscall.SIGTERM)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//
+//	// Server will shutdown gracefully when ctx is cancelled
+//	// or when the program receives a signal
+func (s *Server) StartWithWaitSignalsHTTPS(ctx context.Context, address string, signals ...os.Signal) error {
+	return s.StartWithWaitSignals(ctx, "", address, signals...)
 }
 
 // Shutdown gracefully shuts down both HTTP and HTTPS servers.
