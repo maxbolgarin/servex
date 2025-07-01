@@ -114,7 +114,8 @@ func addManagementEndpoints(server *servex.Server, config *servex.Config) {
 	server.GET("/proxy/backends", func(w http.ResponseWriter, r *http.Request) {
 		backends := make(map[string]interface{})
 
-		for _, rule := range config.Proxy.Rules {
+		for i := range config.Proxy.Rules {
+			rule := &config.Proxy.Rules[i]
 			ruleInfo := map[string]interface{}{
 				"name":           rule.Name,
 				"path_prefix":    rule.PathPrefix,
@@ -125,7 +126,8 @@ func addManagementEndpoints(server *servex.Server, config *servex.Config) {
 				"backends":       make([]map[string]interface{}, 0),
 			}
 
-			for _, backend := range rule.Backends {
+			for i := range rule.Backends {
+				backend := &rule.Backends[i]
 				backendInfo := map[string]interface{}{
 					"url":                   backend.URL,
 					"weight":                backend.Weight,
@@ -181,7 +183,8 @@ func addManagementEndpoints(server *servex.Server, config *servex.Config) {
 			"rules":     make(map[string]interface{}),
 		}
 
-		for _, rule := range config.Proxy.Rules {
+		for i := range config.Proxy.Rules {
+			rule := &config.Proxy.Rules[i]
 			ruleHealth := map[string]interface{}{
 				"total_backends":     len(rule.Backends),
 				"healthy_backends":   0, // This would be calculated from actual backend health
@@ -211,7 +214,8 @@ func logStartupInfo(config *servex.Config, baseConfig servex.BaseConfig) {
 	log.Println("\n=== Proxy Configuration ===")
 	log.Printf("Rules: %d", len(config.Proxy.Rules))
 
-	for _, rule := range config.Proxy.Rules {
+	for i := range config.Proxy.Rules {
+		rule := &config.Proxy.Rules[i]
 		log.Printf("Rule '%s':", rule.Name)
 		if rule.PathPrefix != "" {
 			log.Printf("  Path: %s", rule.PathPrefix)
@@ -223,7 +227,8 @@ func logStartupInfo(config *servex.Config, baseConfig servex.BaseConfig) {
 		log.Printf("  Load Balancing: %s", rule.LoadBalancing)
 		log.Printf("  Timeout: %s", rule.Timeout)
 
-		for i, backend := range rule.Backends {
+		for i := range rule.Backends {
+			backend := &rule.Backends[i]
 			log.Printf("    Backend %d: %s (weight: %d)", i+1, backend.URL, backend.Weight)
 			if backend.HealthCheckPath != "" {
 				log.Printf("      Health check: %s (every %s)", backend.HealthCheckPath, backend.HealthCheckInterval)

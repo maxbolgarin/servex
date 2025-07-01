@@ -317,9 +317,9 @@ func (s *Server) StartWithShutdown(ctx context.Context, httpAddr, httpsAddr stri
 	}
 	go func() {
 		<-ctx.Done()
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := s.Shutdown(ctx); err != nil {
+		if err := s.Shutdown(shutdownCtx); err != nil {
 			s.opts.Logger.Error("cannot shutdown", "error", err)
 		}
 	}()
