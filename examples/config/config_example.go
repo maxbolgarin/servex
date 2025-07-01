@@ -8,7 +8,7 @@ import (
 	"github.com/maxbolgarin/servex"
 )
 
-func configMain() {
+func main() {
 	// === YAML Configuration Example ===
 	yamlConfigExample()
 
@@ -103,7 +103,7 @@ logging:
 	log.Printf("Generated %d servex options from config", len(opts))
 
 	// Create server from config
-	server, err := servex.NewFromConfig(config)
+	server, err := servex.NewServerFromConfig(config)
 	if err != nil {
 		log.Fatal("Failed to create server from config:", err)
 	}
@@ -167,7 +167,7 @@ func envConfigExample() {
 	log.Printf("Auth enabled: %v, Rate limit: %v req/min", config.Auth.Enabled, config.RateLimit.RequestsPerInterval)
 
 	// Create server from environment config
-	server, err := servex.NewFromConfig(config)
+	server, err := servex.NewServerFromConfig(config)
 	if err != nil {
 		log.Fatal("Failed to create server from env config:", err)
 	}
@@ -245,7 +245,7 @@ rate_limit:
 	log.Printf("Security enabled: %v (from env)", config.Security.Enabled)
 
 	// Create server from combined config
-	server, err := servex.NewFromConfig(config)
+	server, err := servex.NewServerFromConfig(config)
 	if err != nil {
 		log.Fatal("Failed to create server from combined config:", err)
 	}

@@ -149,7 +149,7 @@ server:
 }
 
 func TestRegisterStandaloneRoutes(t *testing.T) {
-	server, err := servex.New()
+	server, err := servex.NewServer()
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}

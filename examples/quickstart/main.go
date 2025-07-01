@@ -10,33 +10,24 @@ import (
 	"github.com/maxbolgarin/servex"
 )
 
-func quickstartMain() {
-	// Example 1: Quick Development Server
+func main() {
+	fmt.Println("=== Servex Quickstart Examples ===")
+	fmt.Println("Choose an example to run:")
+	fmt.Println("1. Quick Development Server")
+	fmt.Println("2. Production-Ready Server")
+	fmt.Println("3. REST API Server")
+	fmt.Println("4. Web Application Server")
+	fmt.Println("5. Microservice Server")
+	fmt.Println("6. High-Security Server")
+	fmt.Println("7. SSL-Enabled Server")
+	fmt.Println("8. API with Authentication")
+	fmt.Println("9. Real-world Example")
+	fmt.Println("")
+
+	// For demo purposes, we'll run the development server
+	// Users can modify main() to run different examples
+	fmt.Println("Running: Quick Development Server")
 	quickDevelopmentServer()
-
-	// Example 2: Production-Ready Server
-	productionReadyServer()
-
-	// Example 3: REST API Server
-	restAPIServer()
-
-	// Example 4: Web Application Server
-	webApplicationServer()
-
-	// Example 5: Microservice Server
-	microserviceServer()
-
-	// Example 6: High-Security Server
-	highSecurityServer()
-
-	// Example 7: SSL-Enabled Server
-	sslEnabledServer()
-
-	// Example 8: API with Authentication
-	apiWithAuthentication()
-
-	// Example 9: Real world server example
-	realWorldExampleQuickStart()
 }
 
 // Example 1: Quick Development Server
@@ -44,7 +35,7 @@ func quickDevelopmentServer() {
 	// === Quick Development Server ===
 
 	// Just one line with preset - perfect for development!
-	server, err := servex.New(servex.DevelopmentPreset()...)
+	server, err := servex.NewServer(servex.DevelopmentPreset()...)
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
 	}
@@ -63,7 +54,10 @@ func quickDevelopmentServer() {
 	// - No security restrictions (for easy debugging)
 	// - Client errors not logged (less noise)
 
-	// server.Start(":8080", "")
+	fmt.Println("Starting development server on :8080")
+	fmt.Println("Try: curl http://localhost:8080/hello")
+	fmt.Println("Health check: curl http://localhost:8080/health")
+	server.Start(":8080", "")
 }
 
 // Example 2: Production-Ready Server
@@ -71,7 +65,7 @@ func productionReadyServer() {
 	// === Production-Ready Server ===
 
 	// Production preset with additional custom options
-	server, err := servex.New(append(servex.ProductionPreset(),
+	server, err := servex.NewServer(append(servex.ProductionPreset(),
 		// Add any custom options on top of the preset
 		servex.WithCustomHeaders(map[string]string{
 			"X-App-Version": "1.0.0",
@@ -104,16 +98,18 @@ func productionReadyServer() {
 	// - Security exclusions for monitoring endpoints
 
 	// Start with graceful shutdown
-	// ctx, cancel := context.WithCancel(context.Background())
-	// defer cancel()
-	// server.StartWithShutdown(ctx, ":8080", ":8443")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	fmt.Println("Starting production server on :8080 and :8443")
+	server.StartWithShutdown(ctx, ":8080", ":8443")
 }
 
 // Example 3: REST API Server
 func restAPIServer() {
 	// === REST API Server ===
 
-	server, err := servex.New(servex.APIServerPreset()...)
+	server, err := servex.NewServer(servex.APIServerPreset()...)
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
 	}
@@ -130,14 +126,15 @@ func restAPIServer() {
 	// - X-API-Version header
 	// - No CSP (not needed for APIs)
 
-	// server.Start(":8080", "")
+	fmt.Println("Starting REST API server on :8080")
+	server.Start(":8080", "")
 }
 
 // Example 4: Web Application Server
 func webApplicationServer() {
 	// === Web Application Server ===
 
-	server, err := servex.New(servex.WebAppPreset()...)
+	server, err := servex.NewServer(servex.WebAppPreset()...)
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
 	}
@@ -157,14 +154,15 @@ func webApplicationServer() {
 	// - Static file exclusions from rate limiting
 	// - Common web asset exclusions
 
-	// server.Start(":8080", ":8443")
+	fmt.Println("Starting web application server on :8080 and :8443")
+	server.Start(":8080", ":8443")
 }
 
 // Example 5: Microservice Server
 func microserviceServer() {
 	// === Microservice Server ===
 
-	server, err := servex.New(servex.MicroservicePreset()...)
+	server, err := servex.NewServer(servex.MicroservicePreset()...)
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
 	}
@@ -181,14 +179,15 @@ func microserviceServer() {
 	// - Health, metrics, and readiness endpoints
 	// - Monitoring exclusions from security
 
-	// server.Start(":8080", "")
+	fmt.Println("Starting microservice server on :8080")
+	server.Start(":8080", "")
 }
 
 // Example 6: High-Security Server
 func highSecurityServer() {
 	// === High-Security Server ===
 
-	server, err := servex.New(servex.HighSecurityPreset()...)
+	server, err := servex.NewServer(servex.HighSecurityPreset()...)
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
 	}
@@ -204,7 +203,8 @@ func highSecurityServer() {
 	// - Aggressive rate limiting (20 RPS)
 	// - All server identification headers removed
 
-	// server.Start("", ":8443") // HTTPS only for high security
+	fmt.Println("Starting high-security server on :8443 (HTTPS only)")
+	server.Start("", ":8443") // HTTPS only for high security
 }
 
 // Example 7: SSL-Enabled Server
@@ -212,7 +212,7 @@ func sslEnabledServer() {
 	// === SSL-Enabled Server ===
 
 	// Quick SSL setup with preset
-	server, err := servex.New(servex.QuickTLSPreset("cert.pem", "key.pem")...)
+	server, err := servex.NewServer(servex.QuickTLSPreset("cert.pem", "key.pem")...)
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
 	}
@@ -230,14 +230,15 @@ func sslEnabledServer() {
 	// - HSTS header (1 year)
 	// - All production security features
 
-	// server.Start("", ":8443") // HTTPS only
+	fmt.Println("Starting SSL server on :8443")
+	server.Start("", ":8443") // HTTPS only
 }
 
 // Example 8: API with Authentication
 func apiWithAuthentication() {
 	// === API with Authentication ===
 
-	server, err := servex.New(append(servex.AuthAPIPreset(),
+	server, err := servex.NewServer(append(servex.AuthAPIPreset(),
 		// Enable in-memory auth database for this example
 		servex.WithAuthMemoryDatabase(),
 
@@ -271,7 +272,9 @@ func apiWithAuthentication() {
 	// - POST /api/v1/auth/refresh
 	// - POST /api/v1/auth/logout
 
-	// server.Start(":8080", "")
+	fmt.Println("Starting authenticated API server on :8080")
+	fmt.Println("Login with: admin/admin123")
+	server.Start(":8080", "")
 }
 
 // Handler functions
@@ -390,7 +393,7 @@ func realWorldExampleQuickStart() {
 	// === Real-World Production API ===
 
 	// Start with a preset and customize as needed
-	server, err := servex.New(append(servex.AuthAPIPreset(),
+	server, err := servex.NewServer(append(servex.AuthAPIPreset(),
 		// Database and auth
 		servex.WithAuthMemoryDatabase(),
 		servex.WithAuthInitialUsers(
@@ -422,6 +425,7 @@ func realWorldExampleQuickStart() {
 	defer cancel()
 
 	// Start server with graceful shutdown
+	fmt.Println("Starting real-world example server on :8080 and :8443")
 	err = server.StartWithShutdown(ctx, ":8080", ":8443")
 	if err != nil {
 		log.Fatal("Server failed:", err)

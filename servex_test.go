@@ -23,7 +23,7 @@ func randAddress() string {
 
 func TestNewServer(t *testing.T) {
 	// Basic test for server initialization with default options
-	server, err := New()
+	server, err := NewServer()
 	if err != nil {
 		t.Fatalf("unexpected error creating server: %v", err)
 	}
@@ -40,7 +40,7 @@ func TestStart(t *testing.T) {
 		HTTPS: randAddress(),
 	}
 
-	s, err := Start(cfg, func(r *mux.Router) {
+	s, err := StartServer(cfg, func(r *mux.Router) {
 		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("Hello, world!"))
 		})
@@ -90,7 +90,7 @@ func TestStartWithShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	err := StartWithShutdown(ctx, cfg, func(r *mux.Router) {
+	err := StartServerWithShutdown(ctx, cfg, func(r *mux.Router) {
 		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("Hello, world!"))
 		})
@@ -131,7 +131,7 @@ func TestStartWithShutdown(t *testing.T) {
 
 func TestServerStart(t *testing.T) {
 	log := &MockLogger{}
-	server, err := New(WithLogger(log), WithCertificate(tls.Certificate{}))
+	server, err := NewServer(WithLogger(log), WithCertificate(tls.Certificate{}))
 
 	err = server.Start("", "")
 	if err == nil {
@@ -171,7 +171,7 @@ func TestServerStart(t *testing.T) {
 
 func TestServerStartWithShutdown(t *testing.T) {
 	log := &MockLogger{}
-	server, err := New(WithLogger(log), WithCertificate(tls.Certificate{}))
+	server, err := NewServer(WithLogger(log), WithCertificate(tls.Certificate{}))
 
 	httpAddress := randAddress()
 	httpsAddress := randAddress()
@@ -195,7 +195,7 @@ func TestServerStartWithShutdown(t *testing.T) {
 
 func TestServerStartHTTP(t *testing.T) {
 	log := &MockLogger{}
-	server, err := New(WithLogger(log))
+	server, err := NewServer(WithLogger(log))
 	address := randAddress()
 
 	err = server.StartHTTP(address)
@@ -216,7 +216,7 @@ func TestServerStartHTTP(t *testing.T) {
 
 func TestServerStartWithShutdownHTTP(t *testing.T) {
 	log := &MockLogger{}
-	server, err := New(WithLogger(log))
+	server, err := NewServer(WithLogger(log))
 	address := randAddress()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -233,7 +233,7 @@ func TestServerStartWithShutdownHTTP(t *testing.T) {
 }
 
 func TestServerStartHTTPSNoCert(t *testing.T) {
-	server, err := New()
+	server, err := NewServer()
 	if err != nil {
 		t.Fatalf("unexpected error creating server: %v", err)
 	}
@@ -247,7 +247,7 @@ func TestServerStartHTTPSNoCert(t *testing.T) {
 
 func TestServerStartHTTPS(t *testing.T) {
 	log := &MockLogger{}
-	server, err := New(WithCertificate(tls.Certificate{}), WithLogger(log))
+	server, err := NewServer(WithCertificate(tls.Certificate{}), WithLogger(log))
 	address := randAddress()
 
 	err = server.StartHTTPS(address)
@@ -268,7 +268,7 @@ func TestServerStartHTTPS(t *testing.T) {
 
 func TestServerStartWithShutdownHTTPS(t *testing.T) {
 	log := &MockLogger{}
-	server, err := New(WithCertificate(tls.Certificate{}), WithLogger(log))
+	server, err := NewServer(WithCertificate(tls.Certificate{}), WithLogger(log))
 	address := randAddress()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -287,7 +287,7 @@ func TestServerStartWithShutdownHTTPS(t *testing.T) {
 // TestServerStartHTTPSWithCertFilePaths tests HTTPS server startup with certificate file paths but non-existent files.
 func TestServerStartHTTPSWithCertFilePaths(t *testing.T) {
 	// Test with non-existent certificate files
-	_, err := New(WithCertificateFromFile("nonexistent-cert.pem", "nonexistent-key.pem"))
+	_, err := NewServer(WithCertificateFromFile("nonexistent-cert.pem", "nonexistent-key.pem"))
 	if err == nil {
 		t.Fatalf("expected error for non-existent certificate files, got: nil")
 	}
@@ -301,7 +301,7 @@ func TestPrepareServerWithCertFiles(t *testing.T) {
 		KeyFile:  "nonexistent-key.pem",
 	}
 
-	_, err := Start(cfg, func(r *mux.Router) {
+	_, err := StartServer(cfg, func(r *mux.Router) {
 		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("Hello"))
 		})
@@ -325,7 +325,7 @@ func TestPrepareServerWithValidConfig(t *testing.T) {
 		// No certificate files specified
 	}
 
-	shutdown, err := Start(cfg, func(r *mux.Router) {
+	shutdown, err := StartServer(cfg, func(r *mux.Router) {
 		r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("Hello"))
 		})
@@ -344,7 +344,7 @@ func TestPrepareServerWithValidConfig(t *testing.T) {
 }
 
 func TestAuthMiddleware(t *testing.T) {
-	server, err := New(WithAuthToken("valid-token"))
+	server, err := NewServer(WithAuthToken("valid-token"))
 	router := server.Router()
 	request, err := http.NewRequest(http.MethodGet, "/", nil)
 	if err != nil {
@@ -384,7 +384,7 @@ func TestAuthMiddleware(t *testing.T) {
 // TestServerStartupWaiting tests that the server startup waiting mechanism works correctly.
 func TestServerStartupWaiting(t *testing.T) {
 	t.Run("HTTP server startup waiting", func(t *testing.T) {
-		s, err := New()
+		s, err := NewServer()
 		if err != nil {
 			t.Fatalf("unexpected error creating server: %v", err)
 		}
@@ -404,7 +404,7 @@ func TestServerStartupWaiting(t *testing.T) {
 	})
 
 	t.Run("HTTPS server startup waiting", func(t *testing.T) {
-		s, err := New(WithCertificate(tls.Certificate{}))
+		s, err := NewServer(WithCertificate(tls.Certificate{}))
 		if err != nil {
 			t.Fatalf("unexpected error creating server: %v", err)
 		}
@@ -423,7 +423,7 @@ func TestServerStartupWaiting(t *testing.T) {
 	})
 
 	t.Run("Both HTTP and HTTPS startup waiting", func(t *testing.T) {
-		s, err := New(WithCertificate(tls.Certificate{}))
+		s, err := NewServer(WithCertificate(tls.Certificate{}))
 		if err != nil {
 			t.Fatalf("unexpected error creating server: %v", err)
 		}
@@ -449,7 +449,7 @@ func TestServerStartupWaiting(t *testing.T) {
 // TestStartupErrorHandling tests error handling during server startup.
 func TestStartupErrorHandling(t *testing.T) {
 	t.Run("Invalid address should return error immediately", func(t *testing.T) {
-		s, err := New()
+		s, err := NewServer()
 		if err != nil {
 			t.Fatalf("unexpected error creating server: %v", err)
 		}
@@ -465,7 +465,7 @@ func TestStartupErrorHandling(t *testing.T) {
 		addr := randAddress()
 
 		// Start first server
-		s1, err := New()
+		s1, err := NewServer()
 		if err != nil {
 			t.Fatalf("unexpected error creating server: %v", err)
 		}
@@ -482,7 +482,7 @@ func TestStartupErrorHandling(t *testing.T) {
 		}
 
 		// Try to start second server on the same address
-		s2, err := New()
+		s2, err := NewServer()
 		if err != nil {
 			t.Fatalf("unexpected error creating server: %v", err)
 		}
@@ -587,7 +587,7 @@ func TestRequestSizeLimitMiddleware(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create server with options
-			server, err := New(tt.options...)
+			server, err := NewServer(tt.options...)
 			if err != nil {
 				t.Fatalf("unexpected error creating server: %v", err)
 			}
@@ -643,7 +643,7 @@ func TestRequestSizeLimitMiddleware(t *testing.T) {
 // TestRequestSizeLimitMiddlewareWithStrictLimits tests the middleware with strict security limits.
 func TestRequestSizeLimitMiddlewareWithStrictLimits(t *testing.T) {
 	// Create server with strict limits
-	server, err := New(WithStrictRequestSizeLimits())
+	server, err := NewServer(WithStrictRequestSizeLimits())
 	if err != nil {
 		t.Fatalf("unexpected error creating server: %v", err)
 	}
@@ -703,7 +703,7 @@ func TestRequestSizeLimitMiddlewareWithStrictLimits(t *testing.T) {
 
 // TestRequestSizeLimitMiddlewareWithMultipartForm tests the middleware with multipart form data.
 func TestRequestSizeLimitMiddlewareWithMultipartForm(t *testing.T) {
-	server, err := New(
+	server, err := NewServer(
 		WithMaxRequestBodySize(1000), // 1KB general limit
 		WithEnableRequestSizeLimits(true),
 	)
@@ -758,7 +758,7 @@ func TestRequestSizeLimitMiddlewareWithMultipartForm(t *testing.T) {
 // TestRequestSizeLimitMiddlewareNotRegisteredWhenDisabled tests that middleware is not registered when disabled.
 func TestRequestSizeLimitMiddlewareNotRegisteredWhenDisabled(t *testing.T) {
 	// Create server with middleware disabled (default behavior)
-	server, err := New(
+	server, err := NewServer(
 	// Don't set any size limits - this way we test that middleware is not active
 	// and context methods use their default limits
 	)
@@ -802,7 +802,7 @@ func TestRequestSizeLimitMiddlewareNotRegisteredWhenDisabled(t *testing.T) {
 // TestRequestSizeLimitWithDefaultOptions tests request size limits with default reasonable options.
 func TestRequestSizeLimitWithDefaultOptions(t *testing.T) {
 	// Create server with default request size limits
-	server, err := New(WithRequestSizeLimits())
+	server, err := NewServer(WithRequestSizeLimits())
 	if err != nil {
 		t.Fatalf("unexpected error creating server: %v", err)
 	}

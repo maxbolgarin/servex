@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand"
 	"net"
 	"net/http"
@@ -17,6 +18,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/maxbolgarin/lang"
 )
 
 // LoadBalancingStrategy defines the load balancing algorithm
@@ -110,6 +113,8 @@ type ProxyConfiguration struct {
 	TrafficDump TrafficDumpConfig `yaml:"traffic_dump" json:"traffic_dump"`
 	// HealthCheck configuration
 	HealthCheck HealthCheckConfig `yaml:"health_check" json:"health_check"`
+	// InsecureSkipVerify skips certificate verification
+	InsecureSkipVerify bool `yaml:"insecure_skip_verify" json:"insecure_skip_verify"`
 }
 
 // TrafficDumpConfig configures traffic dumping
@@ -142,18 +147,18 @@ type HealthCheckConfig struct {
 	RetryCount int `yaml:"retry_count" json:"retry_count"`
 }
 
-// ProxyManager manages the reverse proxy functionality
-type ProxyManager struct {
+// proxyManager manages the reverse proxy functionality
+type proxyManager struct {
 	config     ProxyConfiguration
 	rules      []*ProxyRule
 	client     *http.Client
-	dumpWriter *TrafficDumpWriter
+	dumpWriter *trafficDumpWriter
 	logger     Logger
 	mu         sync.RWMutex
 }
 
-// TrafficDumpWriter handles writing traffic dumps to files
-type TrafficDumpWriter struct {
+// trafficDumpWriter handles writing traffic dumps to files
+type trafficDumpWriter struct {
 	config    TrafficDumpConfig
 	mu        sync.Mutex
 	file      *os.File
@@ -162,8 +167,37 @@ type TrafficDumpWriter struct {
 	basePath  string
 }
 
-// NewProxyManager creates a new proxy manager
-func NewProxyManager(config ProxyConfiguration, logger Logger) (*ProxyManager, error) {
+// RegisterProxyMiddleware registers the proxy middleware
+//
+// Parameters:
+//   - router: The router to register the middleware for
+//   - config: The proxy configuration to register the middleware for
+//   - logger: The logger to register the middleware for (optional)
+//
+// Example:
+//
+//	RegisterProxyMiddleware(router, config, logger)
+//
+// Returns:
+//   - *ProxyManager: The proxy manager
+func RegisterProxyMiddleware(router MiddlewareRouter, config ProxyConfiguration, logger ...Logger) error {
+	if !config.Enabled {
+		return nil
+	}
+
+	pm, err := newProxyManager(config, lang.First(logger))
+	if err != nil {
+		return err
+	}
+
+	// Register proxy middleware
+	router.Use(pm.proxyMiddleware)
+
+	return nil
+}
+
+// newProxyManager creates a new proxy manager
+func newProxyManager(config ProxyConfiguration, logger Logger) (*proxyManager, error) {
 	if !config.Enabled {
 		return nil, nil
 	}
@@ -208,7 +242,7 @@ func NewProxyManager(config ProxyConfiguration, logger Logger) (*ProxyManager, e
 		MaxIdleConns:        config.MaxIdleConns,
 		MaxIdleConnsPerHost: config.MaxIdleConnsPerHost,
 		IdleConnTimeout:     config.IdleConnTimeout,
-		TLSClientConfig:     &tls.Config{InsecureSkipVerify: false},
+		TLSClientConfig:     &tls.Config{InsecureSkipVerify: config.InsecureSkipVerify},
 		DialContext: (&net.Dialer{
 			Timeout:   10 * time.Second,
 			KeepAlive: 30 * time.Second,
@@ -222,7 +256,13 @@ func NewProxyManager(config ProxyConfiguration, logger Logger) (*ProxyManager, e
 		Timeout:   config.GlobalTimeout,
 	}
 
-	pm := &ProxyManager{
+	if logger == nil {
+		logger = slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}))
+	}
+
+	pm := &proxyManager{
 		config: config,
 		client: client,
 		logger: logger,
@@ -231,7 +271,7 @@ func NewProxyManager(config ProxyConfiguration, logger Logger) (*ProxyManager, e
 	// Initialize traffic dump writer if enabled
 	if config.TrafficDump.Enabled && config.TrafficDump.Directory != "" {
 		var err error
-		pm.dumpWriter, err = NewTrafficDumpWriter(config.TrafficDump)
+		pm.dumpWriter, err = newTrafficDumpWriter(config.TrafficDump)
 		if err != nil {
 			return nil, fmt.Errorf("create traffic dump writer: %w", err)
 		}
@@ -257,7 +297,7 @@ func NewProxyManager(config ProxyConfiguration, logger Logger) (*ProxyManager, e
 }
 
 // initializeRule initializes a proxy rule
-func (pm *ProxyManager) initializeRule(rule *ProxyRule) error {
+func (pm *proxyManager) initializeRule(rule *ProxyRule) error {
 	if rule.LoadBalancing == "" {
 		rule.LoadBalancing = RoundRobinStrategy
 	}
@@ -280,7 +320,7 @@ func (pm *ProxyManager) initializeRule(rule *ProxyRule) error {
 }
 
 // initializeBackend initializes a backend
-func (pm *ProxyManager) initializeBackend(backend *Backend) error {
+func (pm *proxyManager) initializeBackend(backend *Backend) error {
 	var err error
 	backend.url, err = url.Parse(backend.URL)
 	if err != nil {
@@ -305,7 +345,7 @@ func (pm *ProxyManager) initializeBackend(backend *Backend) error {
 }
 
 // createErrorHandler creates an error handler for a backend
-func (pm *ProxyManager) createErrorHandler(backend *Backend) func(http.ResponseWriter, *http.Request, error) {
+func (pm *proxyManager) createErrorHandler(backend *Backend) func(http.ResponseWriter, *http.Request, error) {
 	return func(w http.ResponseWriter, r *http.Request, err error) {
 		pm.logger.Error("proxy error", "backend", backend.URL, "error", err, "path", r.URL.Path)
 		backend.healthy.Store(false)
@@ -317,25 +357,8 @@ func (pm *ProxyManager) createErrorHandler(backend *Backend) func(http.ResponseW
 	}
 }
 
-// RegisterProxyMiddleware registers the proxy middleware
-func RegisterProxyMiddleware(router MiddlewareRouter, config ProxyConfiguration, logger Logger) (*ProxyManager, error) {
-	if !config.Enabled {
-		return nil, nil
-	}
-
-	pm, err := NewProxyManager(config, logger)
-	if err != nil {
-		return nil, err
-	}
-
-	// Register proxy middleware
-	router.Use(pm.ProxyMiddleware)
-
-	return pm, nil
-}
-
-// ProxyMiddleware is the main proxy middleware
-func (pm *ProxyManager) ProxyMiddleware(next http.Handler) http.Handler {
+// proxyMiddleware is the main proxy middleware
+func (pm *proxyManager) proxyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Find matching rule
 		rule := pm.findMatchingRule(r)
@@ -346,12 +369,12 @@ func (pm *ProxyManager) ProxyMiddleware(next http.Handler) http.Handler {
 		}
 
 		// Handle proxy request
-		pm.handleProxyRequest(w, r, rule)
+		pm.handleProxyRequestEnhanced(w, r, rule)
 	})
 }
 
 // findMatchingRule finds the first rule that matches the request
-func (pm *ProxyManager) findMatchingRule(r *http.Request) *ProxyRule {
+func (pm *proxyManager) findMatchingRule(r *http.Request) *ProxyRule {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
 
@@ -364,7 +387,7 @@ func (pm *ProxyManager) findMatchingRule(r *http.Request) *ProxyRule {
 }
 
 // ruleMatches checks if a rule matches the request
-func (pm *ProxyManager) ruleMatches(rule *ProxyRule, r *http.Request) bool {
+func (pm *proxyManager) ruleMatches(rule *ProxyRule, r *http.Request) bool {
 	// Check path prefix
 	if rule.PathPrefix != "" && !strings.HasPrefix(r.URL.Path, rule.PathPrefix) {
 		return false
@@ -399,17 +422,24 @@ func (pm *ProxyManager) ruleMatches(rule *ProxyRule, r *http.Request) bool {
 	return true
 }
 
-// handleProxyRequest handles a proxy request
-func (pm *ProxyManager) handleProxyRequest(w http.ResponseWriter, r *http.Request, rule *ProxyRule) {
+// Enhanced handleProxyRequest with better logging and monitoring
+func (pm *proxyManager) handleProxyRequestEnhanced(w http.ResponseWriter, r *http.Request, rule *ProxyRule) {
+	startTime := time.Now()
+
+	// Create proxy logger if not exists
+	proxyLogger := newProxyLogger(pm.logger)
+
 	// Select backend using load balancing strategy
 	backend := pm.selectBackend(rule, r)
 	if backend == nil {
+		proxyLogger.logRequest(rule, nil, r, time.Since(startTime), http.StatusServiceUnavailable, fmt.Errorf("no healthy backends available"))
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
 	// Check connection limits
 	if backend.MaxConnections > 0 && backend.connections.Load() >= int64(backend.MaxConnections) {
+		proxyLogger.logRequest(rule, backend, r, time.Since(startTime), http.StatusServiceUnavailable, fmt.Errorf("connection limit exceeded"))
 		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
 		return
 	}
@@ -418,9 +448,9 @@ func (pm *ProxyManager) handleProxyRequest(w http.ResponseWriter, r *http.Reques
 	backend.connections.Add(1)
 	defer backend.connections.Add(-1)
 
-	// Dump traffic if enabled
+	// Enhanced traffic dumping with RAW HTTP
 	if (rule.EnableTrafficDump || pm.config.TrafficDump.Enabled) && pm.shouldSampleRequest() {
-		pm.dumpTraffic(r, rule, backend)
+		pm.dumpTrafficEnhanced(r, rule, backend)
 	}
 
 	// Modify request path if needed
@@ -437,15 +467,33 @@ func (pm *ProxyManager) handleProxyRequest(w http.ResponseWriter, r *http.Reques
 	defer cancel()
 	r = r.WithContext(ctx)
 
+	// Create response recorder to capture status code
+	recorder := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
+
 	// Proxy the request
-	backend.proxy.ServeHTTP(w, r)
+	backend.proxy.ServeHTTP(recorder, r)
+
+	// Calculate duration and log request
+	duration := time.Since(startTime)
+	proxyLogger.logRequest(rule, backend, r, duration, recorder.statusCode, nil)
 
 	// Restore original path
 	r.URL.Path = originalPath
 }
 
+// responseRecorder captures the response status code
+type responseRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rr *responseRecorder) WriteHeader(code int) {
+	rr.statusCode = code
+	rr.ResponseWriter.WriteHeader(code)
+}
+
 // selectBackend selects a backend using the configured load balancing strategy
-func (pm *ProxyManager) selectBackend(rule *ProxyRule, r *http.Request) *Backend {
+func (pm *proxyManager) selectBackend(rule *ProxyRule, r *http.Request) *Backend {
 	healthyBackends := make([]*Backend, 0, len(rule.backends))
 	for _, backend := range rule.backends {
 		if backend.healthy.Load() {
@@ -477,7 +525,7 @@ func (pm *ProxyManager) selectBackend(rule *ProxyRule, r *http.Request) *Backend
 }
 
 // selectRoundRobin implements round-robin load balancing
-func (pm *ProxyManager) selectRoundRobin(rule *ProxyRule, backends []*Backend) *Backend {
+func (pm *proxyManager) selectRoundRobin(rule *ProxyRule, backends []*Backend) *Backend {
 	if len(backends) == 0 {
 		return nil
 	}
@@ -486,7 +534,7 @@ func (pm *ProxyManager) selectRoundRobin(rule *ProxyRule, backends []*Backend) *
 }
 
 // selectWeightedRoundRobin implements weighted round-robin load balancing
-func (pm *ProxyManager) selectWeightedRoundRobin(rule *ProxyRule, backends []*Backend) *Backend {
+func (pm *proxyManager) selectWeightedRoundRobin(rule *ProxyRule, backends []*Backend) *Backend {
 	if len(backends) == 0 {
 		return nil
 	}
@@ -516,7 +564,7 @@ func (pm *ProxyManager) selectWeightedRoundRobin(rule *ProxyRule, backends []*Ba
 }
 
 // selectLeastConnections implements least connections load balancing
-func (pm *ProxyManager) selectLeastConnections(backends []*Backend) *Backend {
+func (pm *proxyManager) selectLeastConnections(backends []*Backend) *Backend {
 	if len(backends) == 0 {
 		return nil
 	}
@@ -536,7 +584,7 @@ func (pm *ProxyManager) selectLeastConnections(backends []*Backend) *Backend {
 }
 
 // selectRandom implements random load balancing
-func (pm *ProxyManager) selectRandom(backends []*Backend) *Backend {
+func (pm *proxyManager) selectRandom(backends []*Backend) *Backend {
 	if len(backends) == 0 {
 		return nil
 	}
@@ -544,7 +592,7 @@ func (pm *ProxyManager) selectRandom(backends []*Backend) *Backend {
 }
 
 // selectWeightedRandom implements weighted random load balancing
-func (pm *ProxyManager) selectWeightedRandom(backends []*Backend) *Backend {
+func (pm *proxyManager) selectWeightedRandom(backends []*Backend) *Backend {
 	if len(backends) == 0 {
 		return nil
 	}
@@ -574,7 +622,7 @@ func (pm *ProxyManager) selectWeightedRandom(backends []*Backend) *Backend {
 }
 
 // selectIPHash implements IP hash-based load balancing for session affinity
-func (pm *ProxyManager) selectIPHash(r *http.Request, backends []*Backend) *Backend {
+func (pm *proxyManager) selectIPHash(r *http.Request, backends []*Backend) *Backend {
 	if len(backends) == 0 {
 		return nil
 	}
@@ -595,7 +643,7 @@ func (pm *ProxyManager) selectIPHash(r *http.Request, backends []*Backend) *Back
 }
 
 // getClientIP extracts the real client IP from the request
-func (pm *ProxyManager) getClientIP(r *http.Request) string {
+func (pm *proxyManager) getClientIP(r *http.Request) string {
 	// Check X-Real-IP header
 	if ip := r.Header.Get("X-Real-IP"); ip != "" {
 		return ip
@@ -618,7 +666,7 @@ func (pm *ProxyManager) getClientIP(r *http.Request) string {
 }
 
 // shouldSampleRequest determines if this request should be sampled for traffic dumping
-func (pm *ProxyManager) shouldSampleRequest() bool {
+func (pm *proxyManager) shouldSampleRequest() bool {
 	if pm.config.TrafficDump.SampleRate >= 1.0 {
 		return true
 	}
@@ -628,61 +676,8 @@ func (pm *ProxyManager) shouldSampleRequest() bool {
 	return rand.Float64() < pm.config.TrafficDump.SampleRate
 }
 
-// dumpTraffic dumps the traffic for analysis
-func (pm *ProxyManager) dumpTraffic(r *http.Request, rule *ProxyRule, backend *Backend) {
-	if pm.dumpWriter == nil {
-		return
-	}
-
-	// Create traffic dump entry
-	timestamp := time.Now()
-	entry := TrafficDumpEntry{
-		Timestamp:   timestamp,
-		Rule:        rule.Name,
-		Backend:     backend.URL,
-		Method:      r.Method,
-		URL:         r.URL.String(),
-		Host:        r.Host,
-		RemoteAddr:  r.RemoteAddr,
-		UserAgent:   r.Header.Get("User-Agent"),
-		Headers:     make(map[string][]string),
-		RequestBody: "",
-	}
-
-	// Copy headers
-	for name, values := range r.Header {
-		entry.Headers[name] = values
-	}
-
-	// Read request body if enabled and not too large
-	if pm.config.TrafficDump.IncludeBody && r.ContentLength > 0 && r.ContentLength <= pm.config.TrafficDump.MaxBodySize {
-		if bodyBytes, err := io.ReadAll(io.LimitReader(r.Body, pm.config.TrafficDump.MaxBodySize)); err == nil {
-			entry.RequestBody = string(bodyBytes)
-			// Restore body for actual proxying
-			r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-		}
-	}
-
-	// Write to dump file
-	pm.dumpWriter.WriteEntry(entry)
-}
-
-// TrafficDumpEntry represents a traffic dump entry
-type TrafficDumpEntry struct {
-	Timestamp   time.Time           `json:"timestamp"`
-	Rule        string              `json:"rule"`
-	Backend     string              `json:"backend"`
-	Method      string              `json:"method"`
-	URL         string              `json:"url"`
-	Host        string              `json:"host"`
-	RemoteAddr  string              `json:"remote_addr"`
-	UserAgent   string              `json:"user_agent"`
-	Headers     map[string][]string `json:"headers"`
-	RequestBody string              `json:"request_body,omitempty"`
-}
-
-// NewTrafficDumpWriter creates a new traffic dump writer
-func NewTrafficDumpWriter(config TrafficDumpConfig) (*TrafficDumpWriter, error) {
+// newTrafficDumpWriter creates a new traffic dump writer
+func newTrafficDumpWriter(config TrafficDumpConfig) (*trafficDumpWriter, error) {
 	if config.Directory == "" {
 		return nil, fmt.Errorf("dump directory is required")
 	}
@@ -694,7 +689,7 @@ func NewTrafficDumpWriter(config TrafficDumpConfig) (*TrafficDumpWriter, error) 
 
 	basePath := filepath.Join(config.Directory, "traffic_dump")
 
-	tdw := &TrafficDumpWriter{
+	tdw := &trafficDumpWriter{
 		config:   config,
 		basePath: basePath,
 	}
@@ -707,38 +702,8 @@ func NewTrafficDumpWriter(config TrafficDumpConfig) (*TrafficDumpWriter, error) 
 	return tdw, nil
 }
 
-// WriteEntry writes a traffic dump entry to the file
-func (tdw *TrafficDumpWriter) WriteEntry(entry TrafficDumpEntry) error {
-	tdw.mu.Lock()
-	defer tdw.mu.Unlock()
-
-	// Check if we need to rotate the file
-	if tdw.size >= tdw.config.MaxFileSize {
-		if err := tdw.rotateFile(); err != nil {
-			return fmt.Errorf("rotate dump file: %w", err)
-		}
-	}
-
-	// Write entry as JSON line
-	entryJSON, err := json.Marshal(entry)
-	if err != nil {
-		return fmt.Errorf("marshal entry: %w", err)
-	}
-
-	line := string(entryJSON) + "\n"
-	n, err := tdw.file.WriteString(line)
-	if err != nil {
-		return fmt.Errorf("write entry: %w", err)
-	}
-
-	tdw.size += int64(n)
-
-	// Flush to ensure data is written
-	return tdw.file.Sync()
-}
-
 // rotateFile creates a new dump file and closes the old one
-func (tdw *TrafficDumpWriter) rotateFile() error {
+func (tdw *trafficDumpWriter) rotateFile() error {
 	// Close current file if exists
 	if tdw.file != nil {
 		tdw.file.Close()
@@ -764,112 +729,22 @@ func (tdw *TrafficDumpWriter) rotateFile() error {
 	return nil
 }
 
-// Close closes the traffic dump writer
-func (tdw *TrafficDumpWriter) Close() error {
-	tdw.mu.Lock()
-	defer tdw.mu.Unlock()
-
-	if tdw.file != nil {
-		return tdw.file.Close()
-	}
-	return nil
-}
-
-// (Replaced by enhanced version below)
-
-// ProxyLogger is a specialized logger for proxy operations
-type ProxyLogger struct {
-	logger Logger
-}
-
-// NewProxyLogger creates a new proxy logger
-func NewProxyLogger(logger Logger) *ProxyLogger {
-	return &ProxyLogger{logger: logger}
-}
-
-// LogRequest logs proxy request details
-func (pl *ProxyLogger) LogRequest(rule *ProxyRule, backend *Backend, r *http.Request, duration time.Duration, statusCode int, err error) {
-	fields := []any{
-		"component", "proxy",
-		"rule", rule.Name,
-		"backend", backend.URL,
-		"method", r.Method,
-		"path", r.URL.Path,
-		"host", r.Host,
-		"remote_addr", r.RemoteAddr,
-		"user_agent", r.Header.Get("User-Agent"),
-		"duration_ms", duration.Milliseconds(),
-		"status_code", statusCode,
-		"backend_connections", backend.connections.Load(),
-		"backend_healthy", backend.healthy.Load(),
-		"load_balancing", string(rule.LoadBalancing),
-	}
-
-	if err != nil {
-		fields = append(fields, "error", err.Error())
-		pl.logger.Error("proxy request failed", fields...)
-	} else if statusCode >= 400 {
-		pl.logger.Error("proxy request error", fields...)
-	} else {
-		pl.logger.Info("proxy request", fields...)
-	}
-}
-
-// LogBackendHealthChange logs backend health status changes
-func (pl *ProxyLogger) LogBackendHealthChange(backend *Backend, healthy bool, err error) {
-	fields := []any{
-		"component", "proxy",
-		"backend", backend.URL,
-		"healthy", healthy,
-	}
-
-	if err != nil {
-		fields = append(fields, "error", err.Error())
-	}
-
-	if healthy {
-		pl.logger.Info("backend recovered", fields...)
-	} else {
-		pl.logger.Error("backend unhealthy", fields...)
-	}
-}
-
-// LogRuleSelection logs load balancer rule selection
-func (pl *ProxyLogger) LogRuleSelection(rule *ProxyRule, backend *Backend, strategy LoadBalancingStrategy) {
-	pl.logger.Debug("backend selected",
-		"component", "proxy",
-		"rule", rule.Name,
-		"backend", backend.URL,
-		"strategy", string(strategy),
-		"weight", backend.Weight,
-		"connections", backend.connections.Load(),
-	)
-}
-
-// RawHTTPDumpEntry represents a raw HTTP traffic dump entry
-type RawHTTPDumpEntry struct {
-	Timestamp       time.Time           `json:"timestamp"`
-	Rule            string              `json:"rule"`
-	Backend         string              `json:"backend"`
-	ClientIP        string              `json:"client_ip"`
-	RequestID       string              `json:"request_id"`
-	RawRequest      string              `json:"raw_request"`
-	RawResponse     string              `json:"raw_response,omitempty"`
-	RequestHeaders  map[string][]string `json:"request_headers"`
-	ResponseHeaders map[string][]string `json:"response_headers,omitempty"`
-	StatusCode      int                 `json:"status_code,omitempty"`
-	Duration        time.Duration       `json:"duration"`
-	Error           string              `json:"error,omitempty"`
+// rawHTTPDumpEntry represents a raw HTTP traffic dump entry
+type rawHTTPDumpEntry struct {
+	Timestamp      time.Time           `json:"timestamp"`
+	Rule           string              `json:"rule"`
+	Backend        string              `json:"backend"`
+	ClientIP       string              `json:"client_ip"`
+	RawRequest     string              `json:"raw_request"`
+	RequestHeaders map[string][]string `json:"request_headers"`
+	StatusCode     int                 `json:"status_code,omitempty"`
 }
 
 // Enhanced traffic dumping with RAW HTTP capture
-func (pm *ProxyManager) dumpTrafficEnhanced(r *http.Request, rule *ProxyRule, backend *Backend) {
+func (pm *proxyManager) dumpTrafficEnhanced(r *http.Request, rule *ProxyRule, backend *Backend) {
 	if pm.dumpWriter == nil {
 		return
 	}
-
-	// Generate unique request ID
-	requestID := fmt.Sprintf("%d-%s", time.Now().UnixNano(), generateRandomString(8))
 
 	// Capture raw HTTP request
 	var rawRequest strings.Builder
@@ -895,12 +770,11 @@ func (pm *ProxyManager) dumpTrafficEnhanced(r *http.Request, rule *ProxyRule, ba
 		}
 	}
 
-	entry := RawHTTPDumpEntry{
+	entry := rawHTTPDumpEntry{
 		Timestamp:      time.Now(),
 		Rule:           rule.Name,
 		Backend:        backend.URL,
 		ClientIP:       pm.getClientIP(r),
-		RequestID:      requestID,
 		RawRequest:     rawRequest.String(),
 		RequestHeaders: make(map[string][]string),
 	}
@@ -910,25 +784,12 @@ func (pm *ProxyManager) dumpTrafficEnhanced(r *http.Request, rule *ProxyRule, ba
 		entry.RequestHeaders[name] = values
 	}
 
-	// Store request ID in context for response logging
-	r.Header.Set("X-Proxy-Request-ID", requestID)
-
 	// Write entry (response will be added later if response capture is implemented)
-	pm.dumpWriter.WriteRawEntry(entry)
+	pm.dumpWriter.writeRawEntry(entry)
 }
 
-// generateRandomString generates a random string of given length
-func generateRandomString(length int) string {
-	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	result := make([]byte, length)
-	for i := range result {
-		result[i] = charset[rand.Intn(len(charset))]
-	}
-	return string(result)
-}
-
-// WriteRawEntry writes a raw HTTP dump entry to the file
-func (tdw *TrafficDumpWriter) WriteRawEntry(entry RawHTTPDumpEntry) error {
+// writeRawEntry writes a raw HTTP dump entry to the file
+func (tdw *trafficDumpWriter) writeRawEntry(entry rawHTTPDumpEntry) error {
 	tdw.mu.Lock()
 	defer tdw.mu.Unlock()
 
@@ -957,81 +818,118 @@ func (tdw *TrafficDumpWriter) WriteRawEntry(entry RawHTTPDumpEntry) error {
 	return tdw.file.Sync()
 }
 
-// Enhanced handleProxyRequest with better logging and monitoring
-func (pm *ProxyManager) handleProxyRequestEnhanced(w http.ResponseWriter, r *http.Request, rule *ProxyRule) {
-	startTime := time.Now()
+// close closes the traffic dump writer
+func (tdw *trafficDumpWriter) close() error {
+	tdw.mu.Lock()
+	defer tdw.mu.Unlock()
 
-	// Create proxy logger if not exists
-	proxyLogger := NewProxyLogger(pm.logger)
-
-	// Select backend using load balancing strategy
-	backend := pm.selectBackend(rule, r)
-	if backend == nil {
-		proxyLogger.LogRequest(rule, &Backend{URL: "no-backend"}, r, time.Since(startTime), 503, fmt.Errorf("no healthy backends available"))
-		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
-		return
+	if tdw.file != nil {
+		return tdw.file.Close()
 	}
-
-	// Log backend selection
-	proxyLogger.LogRuleSelection(rule, backend, rule.LoadBalancing)
-
-	// Check connection limits
-	if backend.MaxConnections > 0 && backend.connections.Load() >= int64(backend.MaxConnections) {
-		proxyLogger.LogRequest(rule, backend, r, time.Since(startTime), 503, fmt.Errorf("connection limit exceeded"))
-		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
-		return
-	}
-
-	// Increment connection count
-	backend.connections.Add(1)
-	defer backend.connections.Add(-1)
-
-	// Enhanced traffic dumping with RAW HTTP
-	if (rule.EnableTrafficDump || pm.config.TrafficDump.Enabled) && pm.shouldSampleRequest() {
-		pm.dumpTrafficEnhanced(r, rule, backend)
-	}
-
-	// Modify request path if needed
-	originalPath := r.URL.Path
-	if rule.StripPrefix != "" {
-		r.URL.Path = strings.TrimPrefix(r.URL.Path, rule.StripPrefix)
-	}
-	if rule.AddPrefix != "" {
-		r.URL.Path = rule.AddPrefix + r.URL.Path
-	}
-
-	// Set timeout for this request
-	ctx, cancel := context.WithTimeout(r.Context(), rule.Timeout)
-	defer cancel()
-	r = r.WithContext(ctx)
-
-	// Create response recorder to capture status code
-	recorder := &responseRecorder{ResponseWriter: w, statusCode: 200}
-
-	// Proxy the request
-	backend.proxy.ServeHTTP(recorder, r)
-
-	// Calculate duration and log request
-	duration := time.Since(startTime)
-	proxyLogger.LogRequest(rule, backend, r, duration, recorder.statusCode, nil)
-
-	// Restore original path
-	r.URL.Path = originalPath
+	return nil
 }
 
-// responseRecorder captures the response status code
-type responseRecorder struct {
-	http.ResponseWriter
-	statusCode int
+// proxyLogger is a specialized logger for proxy operations
+type proxyLogger struct {
+	logger Logger
 }
 
-func (rr *responseRecorder) WriteHeader(code int) {
-	rr.statusCode = code
-	rr.ResponseWriter.WriteHeader(code)
+// fieldsPool is a pool for reusing log field slices to reduce allocations
+var fieldsPool = sync.Pool{
+	New: func() any {
+		// Pre-allocate with maximum capacity to avoid reallocations
+		// Base fields: 24 elements (12 key-value pairs) + potential error: 2 elements = 26 total
+		return make([]any, 0, 26)
+	},
+}
+
+// newProxyLogger creates a new proxy logger
+func newProxyLogger(logger Logger) *proxyLogger {
+	return &proxyLogger{logger: logger}
+}
+
+// LogRequest logs proxy request details
+func (pl *proxyLogger) logRequest(rule *ProxyRule, backend *Backend, r *http.Request, duration time.Duration, statusCode int, err error) {
+	backendURL := "no backend"
+	backendConnections := int64(0)
+	backendHealthy := false
+	if backend != nil {
+		backendURL = backend.URL
+		backendConnections = backend.connections.Load()
+		backendHealthy = backend.healthy.Load()
+	}
+
+	// Get a slice from the pool to avoid allocations
+	fields := fieldsPool.Get().([]any)
+	defer func() {
+		// Reset slice length and return to pool
+		fields = fields[:0]
+		fieldsPool.Put(fields)
+	}()
+
+	// Resize slice to needed length (24 elements for base fields)
+	fields = fields[:24]
+
+	// Use indexed assignment to avoid any slice growth
+	fields[0] = "rule"
+	fields[1] = rule.Name
+	fields[2] = "backend"
+	fields[3] = backendURL
+	fields[4] = "method"
+	fields[5] = r.Method
+	fields[6] = "path"
+	fields[7] = r.URL.Path
+	fields[8] = "host"
+	fields[9] = r.Host
+	fields[10] = "remote_addr"
+	fields[11] = r.RemoteAddr
+	fields[12] = "user_agent"
+	fields[13] = r.Header.Get("User-Agent")
+	fields[14] = "duration_ms"
+	fields[15] = duration.Milliseconds()
+	fields[16] = "status_code"
+	fields[17] = statusCode
+	fields[18] = "backend_connections"
+	fields[19] = backendConnections
+	fields[20] = "backend_healthy"
+	fields[21] = backendHealthy
+	fields[22] = "load_balancing"
+	fields[23] = string(rule.LoadBalancing)
+
+	if err != nil {
+		// Extend slice to include error fields without reallocation
+		fields = fields[:26]
+		fields[24] = "error"
+		fields[25] = err.Error()
+		pl.logger.Error("proxy failed", fields...)
+	} else if statusCode >= 400 {
+		pl.logger.Error("proxy client error", fields...)
+	} else {
+		pl.logger.Info("proxy", fields...)
+	}
+}
+
+// LogBackendHealthChange logs backend health status changes
+func (pl *proxyLogger) logBackendHealthChange(backend *Backend, healthy bool, err error) {
+	fields := []any{
+		"component", "proxy",
+		"backend", backend.URL,
+		"healthy", healthy,
+	}
+
+	if err != nil {
+		fields = append(fields, "error", err.Error())
+	}
+
+	if healthy {
+		pl.logger.Info("backend recovered", fields...)
+	} else {
+		pl.logger.Error("backend unhealthy", fields...)
+	}
 }
 
 // Enhanced health check with better lifecycle management
-func (pm *ProxyManager) startHealthChecks() {
+func (pm *proxyManager) startHealthChecks() {
 	for _, rule := range pm.rules {
 		for _, backend := range rule.backends {
 			if backend.HealthCheckPath != "" {
@@ -1042,8 +940,8 @@ func (pm *ProxyManager) startHealthChecks() {
 }
 
 // healthCheckLoopEnhanced with better lifecycle and logging
-func (pm *ProxyManager) healthCheckLoopEnhanced(backend *Backend) {
-	proxyLogger := NewProxyLogger(pm.logger)
+func (pm *proxyManager) healthCheckLoopEnhanced(backend *Backend) {
+	proxyLogger := newProxyLogger(pm.logger)
 	ticker := time.NewTicker(backend.HealthCheckInterval)
 	defer ticker.Stop()
 
@@ -1071,7 +969,7 @@ func (pm *ProxyManager) healthCheckLoopEnhanced(backend *Backend) {
 }
 
 // performHealthCheckEnhanced with better error handling and logging
-func (pm *ProxyManager) performHealthCheckEnhanced(backend *Backend, proxyLogger *ProxyLogger) {
+func (pm *proxyManager) performHealthCheckEnhanced(backend *Backend, proxyLogger *proxyLogger) {
 	healthURL := backend.url.ResolveReference(&url.URL{Path: backend.HealthCheckPath})
 
 	// Create health check client with timeout
@@ -1114,6 +1012,6 @@ func (pm *ProxyManager) performHealthCheckEnhanced(backend *Backend, proxyLogger
 
 	// Log status changes
 	if healthy != wasHealthy {
-		proxyLogger.LogBackendHealthChange(backend, healthy, lastErr)
+		proxyLogger.logBackendHealthChange(backend, healthy, lastErr)
 	}
 }

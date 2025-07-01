@@ -163,7 +163,34 @@ func ReadFileWithLimit(r *http.Request, fileKey string, maxMemory, maxFileSize i
 	return bytes, header, nil
 }
 
-// Context holds data and methods for handling HTTP request.
+// Context provides a convenient wrapper around http.ResponseWriter and *http.Request
+// with additional utilities for common HTTP operations.
+//
+// Context simplifies common tasks such as:
+//   - Reading and parsing request data (JSON, files, form values)
+//   - Writing responses (JSON, files, error responses)
+//   - Extracting client information (IP, headers, cookies)
+//   - Managing request lifecycle (logging, error handling)
+//
+// The Context is designed to be used within HTTP handlers and provides
+// type-safe methods with built-in security features like size limits
+// and input validation.
+//
+// Example usage:
+//
+//	func userHandler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//
+//		var user User
+//		if err := ctx.ReadJSON(&user); err != nil {
+//			ctx.BadRequest(err, "Invalid JSON")
+//			return
+//		}
+//
+//		// Process user...
+//
+//		ctx.JSON(map[string]string{"status": "created"})
+//	}
 type Context struct {
 	context.Context
 	w http.ResponseWriter
@@ -179,15 +206,53 @@ type Context struct {
 	maxMultipartMemory int64
 }
 
-// C returns a new context for the provided request.
-// It is a shortcut for [NewContext].
+// C creates a new Context for the HTTP request and response.
+//
+// This is a convenient shortcut for NewContext() and is the most common
+// way to create a Context in HTTP handlers.
+//
+// Parameters:
+//   - w: The HTTP response writer
+//   - r: The HTTP request
+//   - opts: Optional server options for configuration (usually omitted in handlers)
+//
+// Example:
+//
+//	func apiHandler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//
+//		userID := ctx.Path("id")
+//		if userID == "" {
+//			ctx.BadRequest(nil, "Missing user ID")
+//			return
+//		}
+//
+//		ctx.JSON(map[string]string{"user_id": userID})
+//	}
 func C(w http.ResponseWriter, r *http.Request, opts ...Options) *Context {
 	return NewContext(w, r, opts...)
 }
 
-// NewContext returns a new context for the provided request.
-// You can provide options to configure the context.
-// The returned context should be returned to the pool using putContext() when done.
+// NewContext creates a new Context for the HTTP request and response.
+//
+// Parameters:
+//   - w: The HTTP response writer
+//   - r: The HTTP request
+//   - opts: Optional server options for configuration
+//
+// Example:
+//
+//	func apiHandler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.NewContext(w, r)
+//
+//		userID := ctx.Path("id")
+//		if userID == "" {
+//			ctx.BadRequest(nil, "Missing user ID")
+//			return
+//		}
+//
+//		ctx.JSON(map[string]string{"user_id": userID})
+//	}
 func NewContext(w http.ResponseWriter, r *http.Request, optsRaw ...Options) *Context {
 	opts := lang.First(optsRaw)
 
@@ -208,16 +273,16 @@ func NewContext(w http.ResponseWriter, r *http.Request, optsRaw ...Options) *Con
 	return ctx
 }
 
+// C returns a new context for the provided request.
+// It is a shortcut for [C] with server options.
+func (s *Server) C(w http.ResponseWriter, r *http.Request) *Context {
+	return C(w, r, s.opts)
+}
+
 // NewContext returns a new context for the provided request.
 // It is a shortcut for [NewContext] with server options.
 func (s *Server) NewContext(w http.ResponseWriter, r *http.Request) *Context {
 	return NewContext(w, r, s.opts)
-}
-
-// NewContext returns a new context for the provided request.
-// It is a shortcut for [C] with server options.
-func (s *Server) C(w http.ResponseWriter, r *http.Request) *Context {
-	return C(w, r, s.opts)
 }
 
 // RequestID returns the request ID for the request.
@@ -225,13 +290,17 @@ func (ctx *Context) RequestID() string {
 	return getOrSetRequestID(ctx.r)
 }
 
-// SetSendErrorToClient add golang error to response body in case of error.
-func (ctx *Context) SetSendErrorToClient(sendErrorToClient bool) {
-	ctx.isSendErrorToClient = sendErrorToClient
-}
-
 // APIVersion returns the API version of the handler from the path.
 // It returns an empty string if not found.
+// Example:
+//
+//	// Route definition: server.GET("/api/v1/users", handler)
+//	// Request: GET /api/v1/users
+//
+//	func handler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//		version := ctx.APIVersion() // "v1"
+//	}
 func (ctx *Context) APIVersion() string {
 	for s := range strings.SplitSeq(ctx.r.URL.Path, "/") {
 		if len(s) > 1 && s[0] == 'v' {
@@ -243,20 +312,73 @@ func (ctx *Context) APIVersion() string {
 	return ""
 }
 
-// Query returns the value of the query parameter for the given key.
-// Query is a parameter from the URL, e.g. "abc/?key=value".
+// Query returns the value of a URL query parameter.
+//
+// Query parameters are the key-value pairs that appear after the "?" in a URL.
+// For example, in "GET /users?page=2&limit=10", this method can extract
+// "page" and "limit" values.
+//
+// Parameters:
+//   - key: The name of the query parameter
+//
+// Returns the first value associated with the key, or an empty string
+// if the parameter doesn't exist.
+//
+// Example:
+//
+//	// URL: /api/users?page=2&limit=10&sort=name
+//	page := ctx.Query("page")     // "2"
+//	limit := ctx.Query("limit")   // "10"
+//	sort := ctx.Query("sort")     // "name"
+//	missing := ctx.Query("foo")   // ""
 func (ctx *Context) Query(key string) string {
 	return ctx.r.URL.Query().Get(key)
 }
 
-// Path returns the value of the path parameter for the given key.
-// Path parameters are the variables from the URL like "/{key}".
+// Path returns the value of a URL path parameter.
+//
+// Path parameters are variables embedded in the URL path pattern, defined
+// using curly braces in route definitions. They are extracted when the
+// route matches the incoming request.
+//
+// Parameters:
+//   - key: The name of the path parameter (without curly braces)
+//
+// Returns the value extracted from the URL path, or an empty string
+// if the parameter doesn't exist in the route.
+//
+// Example:
+//
+//	// Route definition: server.GET("/users/{id}/posts/{postID}", handler)
+//	// Request: GET /users/123/posts/456
+//
+//	func handler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//
+//		userID := ctx.Path("id")       // "123"
+//		postID := ctx.Path("postID")   // "456"
+//		missing := ctx.Path("foo")     // ""
+//
+//		ctx.JSON(map[string]string{
+//			"user_id": userID,
+//			"post_id": postID,
+//		})
+//	}
 func (ctx *Context) Path(key string) string {
 	return mux.Vars(ctx.r)[key]
 }
 
 // Header returns the value of the request header with the given name.
 // If multiple values are present, they are joined with a comma and space ", ".
+// Example:
+//
+//	// Request: GET /api/users
+//	// Header: X-API-Key: abc, def
+//
+//	func handler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//		apiKey := ctx.Header("X-API-Key") // "abc, def"
+//	}
 func (ctx *Context) Header(key string) string {
 	return strings.Join(ctx.r.Header.Values(key), ", ")
 }
@@ -312,7 +434,26 @@ func (ctx *Context) SetRawCookie(c *http.Cookie) {
 	http.SetCookie(ctx.w, c)
 }
 
+// SetDeleteCookie sets the cookie with the given name to be deleted.
+func (ctx *Context) SetDeleteCookie(name string) {
+	http.SetCookie(ctx.w, &http.Cookie{
+		Name:   name,
+		Value:  "",
+		MaxAge: -1,
+	})
+}
+
 // FormValue returns the value of the form field for the given key.
+// Example:
+//
+//	// Request: POST /api/users
+//	// Form: name=John&age=30
+//
+//	func handler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//		name := ctx.FormValue("name") // "John"
+//		age := ctx.FormValue("age")   // "30"
+//	}
 func (ctx *Context) FormValue(key string) string {
 	if err := ctx.r.ParseForm(); err == nil {
 		return ctx.r.FormValue(key)
@@ -361,6 +502,15 @@ func (ctx *Context) ClientIPWithTrustedProxies(trustedProxies []string) string {
 }
 
 // ParseUnixFromQuery parses unix timestamp from query params to time.Time.
+// Example:
+//
+//	// Request: GET /api/users?created_at=1714732800
+//
+//	func handler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//		createdAt, err := ctx.ParseUnixFromQuery("created_at") // time.Unix(1714732800, 0)
+//	}
+
 func (ctx *Context) ParseUnixFromQuery(key string) (time.Time, error) {
 	raw := ctx.r.URL.Query().Get(key)
 	if raw == "" {
@@ -376,6 +526,15 @@ func (ctx *Context) ParseUnixFromQuery(key string) (time.Time, error) {
 // Body returns the request body as bytes with default size limit.
 // Be careful with this method as it reads the entire body into memory.
 // Use ReadWithLimit for better control over memory usage.
+// Example:
+//
+//	// Request: POST /api/users
+//	// Body: {"name": "John", "age": 30}
+//
+//	func handler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//		body := ctx.Body() // []byte(`{"name": "John", "age": 30}`)
+//	}
 func (ctx *Context) Body() []byte {
 	bytes, err := ctx.Read()
 	if err != nil {
@@ -386,11 +545,29 @@ func (ctx *Context) Body() []byte {
 
 // Read reads the request body with size limit to prevent DoS attacks.
 // It is a shortcut for ReadWithLimit with configured default size.
+// Example:
+//
+//	// Request: POST /api/users
+//	// Body: {"name": "John", "age": 30}
+//
+//	func handler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//		body, err := ctx.Read() // []byte(`{"name": "John", "age": 30}`)
+//	}
 func (ctx *Context) Read() ([]byte, error) {
 	return ctx.ReadWithLimit(ctx.maxRequestBodySize)
 }
 
 // ReadWithLimit reads the request body with a specific size limit.
+// Example:
+//
+//	// Request: POST /api/users
+//	// Body: {"name": "John", "age": 30}
+//
+//	func handler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//		body, err := ctx.ReadWithLimit(1024) // []byte(`{"name": "John", "age": 30}`)
+//	}
 func (ctx *Context) ReadWithLimit(maxSize int64) ([]byte, error) {
 	if maxSize <= 0 {
 		maxSize = ctx.maxRequestBodySize
@@ -409,13 +586,76 @@ func (ctx *Context) ReadWithLimit(maxSize int64) ([]byte, error) {
 	return bytes, nil
 }
 
-// ReadJSON reads a JSON from the request body to the provided variable with size limits.
-// You should provide a pointer to the variable.
+// ReadJSON reads and parses JSON from the request body into the provided variable.
+//
+// The method automatically applies size limits to prevent DoS attacks and
+// validates that the content is valid JSON. You must provide a pointer to
+// the variable where the JSON should be unmarshaled.
+//
+// Features:
+//   - Automatic size limiting (configurable via WithMaxJSONBodySize)
+//   - Memory-safe reading with io.LimitReader
+//   - Detailed error messages for debugging
+//
+// Parameters:
+//   - body: Pointer to the variable where JSON will be unmarshaled
+//
+// Example:
+//
+//	type User struct {
+//		Name  string `json:"name"`
+//		Email string `json:"email"`
+//	}
+//
+//	func createUser(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//
+//		var user User
+//		if err := ctx.ReadJSON(&user); err != nil {
+//			ctx.BadRequest(err, "Invalid JSON payload")
+//			return
+//		}
+//
+//		// Process user...
+//		ctx.JSON(map[string]string{"status": "created"})
+//	}
 func (ctx *Context) ReadJSON(body any) error {
 	return ctx.ReadJSONWithLimit(body, ctx.maxJSONBodySize)
 }
 
-// ReadJSONWithLimit reads a JSON from the request body with a specific size limit.
+// ReadJSONWithLimit reads and parses JSON from the request body into the provided variable.
+//
+// The method applies size limits to prevent DoS attacks and
+// validates that the content is valid JSON. You must provide a pointer to
+// the variable where the JSON should be unmarshaled.
+//
+// Features:
+//   - Automatic size limiting (configurable via WithMaxJSONBodySize)
+//   - Memory-safe reading with io.LimitReader
+//   - Detailed error messages for debugging
+//
+// Parameters:
+//   - body: Pointer to the variable where JSON will be unmarshaled
+//
+// Example:
+//
+//	type User struct {
+//		Name  string `json:"name"`
+//		Email string `json:"email"`
+//	}
+//
+//	func createUser(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//
+//		var user User
+//		if err := ctx.ReadJSONWithLimit(&user, 1024); err != nil {
+//			ctx.BadRequest(err, "Invalid JSON payload")
+//			return
+//		}
+//
+//		// Process user...
+//		ctx.JSON(map[string]string{"status": "created"})
+//	}
 func (ctx *Context) ReadJSONWithLimit(body any, maxSize int64) error {
 	if maxSize <= 0 {
 		maxSize = ctx.maxJSONBodySize
@@ -439,11 +679,64 @@ func (ctx *Context) ReadJSONWithLimit(body any, maxSize int64) error {
 
 // ReadAndValidate reads a JSON from the request body to the provided variable and validates it with size limits.
 // You should provide a pointer to the variable.
+// Example:
+//
+//	type User struct {
+//		Name  string `json:"name"`
+//		Email string `json:"email"`
+//	}
+//
+//	func (u *User) Validate() error {
+//		if u.Name == "" {
+//			return errors.New("name is required")
+//		}
+//		return nil
+//	}
+//
+//	func createUser(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//
+//		var user User
+//		if err := ctx.ReadAndValidate(&user); err != nil {
+//			ctx.BadRequest(err, "Invalid JSON payload")
+//			return
+//		}
+//
+//		// Process user...
+//		ctx.JSON(map[string]string{"status": "created"})
+//	}
 func (ctx *Context) ReadAndValidate(body interface{ Validate() error }) error {
 	return ctx.ReadAndValidateWithLimit(body, ctx.maxJSONBodySize)
 }
 
-// ReadAndValidateWithLimit reads and validates a JSON from the request body with a specific size limit.
+// ReadAndValidateWithLimit reads a JSON from the request body to the provided variable and validates it with size limits.
+// You should provide a pointer to the variable.
+// Example:
+//
+//	type User struct {
+//		Name  string `json:"name"`
+//		Email string `json:"email"`
+//	}
+//
+//	func (u *User) Validate() error {
+//		if u.Name == "" {
+//			return errors.New("name is required")
+//		}
+//		return nil
+//	}
+//
+//	func createUser(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//
+//		var user User
+//		if err := ctx.ReadAndValidateWithLimit(&user, 1024); err != nil {
+//			ctx.BadRequest(err, "Invalid JSON payload")
+//			return
+//		}
+//
+//		// Process user...
+//		ctx.JSON(map[string]string{"status": "created"})
+//	}
 func (ctx *Context) ReadAndValidateWithLimit(body interface{ Validate() error }, maxSize int64) error {
 	if err := ctx.ReadJSONWithLimit(body, maxSize); err != nil {
 		return err
@@ -455,13 +748,39 @@ func (ctx *Context) ReadAndValidateWithLimit(body interface{ Validate() error },
 }
 
 // ReadFile reads a file from the request body with configurable size limits.
-// fileKey is the key of the file in the request.
-// It returns the file bytes, the file header and an error.
+//
+// Parameters:
+//   - fileKey: The key of the file in the request
+//
+// Example:
+//
+//	// Request: POST /api/users
+//	// Form: file=user.txt
+//
+//	func handler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//		file, header, err := ctx.ReadFile("file") // []byte(`user.txt`), *multipart.FileHeader, nil
+//	}
 func (ctx *Context) ReadFile(fileKey string) ([]byte, *multipart.FileHeader, error) {
 	return ReadFileWithLimit(ctx.r, fileKey, ctx.maxMultipartMemory, ctx.maxFileUploadSize)
 }
 
 // ReadFileWithLimit reads a file from the request body with specific size limits.
+//
+// Parameters:
+//   - fileKey: The key of the file in the request
+//   - maxMemory: The maximum memory to use for the file
+//   - maxFileSize: The maximum size of the file
+//
+// Example:
+//
+//	// Request: POST /api/users
+//	// Form: file=user.txt
+//
+//	func handler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//		file, header, err := ctx.ReadFileWithLimit("file", 1024, 1024) // []byte(`user.txt`), *multipart.FileHeader, nil
+//	}
 func (ctx *Context) ReadFileWithLimit(fileKey string, maxMemory, maxFileSize int64) ([]byte, *multipart.FileHeader, error) {
 	return ReadFileWithLimit(ctx.r, fileKey, maxMemory, maxFileSize)
 }
@@ -471,12 +790,43 @@ func (ctx *Context) NoLog() {
 	ctx.setNoLog()
 }
 
-// Response writes provided status code and body to the [http.ResponseWriter].
-// Body may be []byte, string or an object, that can be marshalled to JSON.
-// It will write nothing in case of body==nil sending response headers with status code only.
-// Method sets Content-Type and Content-Length headers.
-// You should not modify the [http.ResponseWriter] after calling this method.
-// You will probably want to return from your handler after calling this method.
+// Response writes an HTTP response with the specified status code and optional body.
+//
+// This is the primary method for sending responses. It automatically handles
+// content type detection, header setting, and proper HTTP response formatting.
+//
+// Supported body types:
+//   - []byte: Written directly with detected content type
+//   - string: Written as text/plain with UTF-8 charset
+//   - any other type: Marshaled to JSON with application/json content type
+//   - nil: Sends only status code with no body
+//
+// Features:
+//   - Automatic Content-Type header setting
+//   - Content-Length header calculation
+//   - JSON marshaling with error handling
+//   - Memory-efficient for large responses
+//
+// Parameters:
+//   - code: HTTP status code (e.g., 200, 404, 500)
+//   - bodyRaw: Optional response body (supports multiple types)
+//
+// Example:
+//
+//	// JSON response
+//	ctx.Response(200, map[string]string{"message": "success"})
+//
+//	// String response
+//	ctx.Response(200, "Hello, World!")
+//
+//	// Byte response (e.g., file content)
+//	ctx.Response(200, fileBytes)
+//
+//	// Status-only response
+//	ctx.Response(204)
+//
+// Note: Do not modify the ResponseWriter after calling this method.
+// This method should typically be the last operation in your handler.
 func (ctx *Context) Response(code int, bodyRaw ...any) {
 	body := lang.First(bodyRaw)
 	if body == nil {
@@ -528,6 +878,24 @@ func (ctx *Context) Response(code int, bodyRaw ...any) {
 // It sets the Content-Type header to the provided mime type.
 // It sets the Content-Disposition header to "attachment; filename=" + filename (safely sanitized).
 // It sets the Content-Length header to the length of the body.
+// Parameters:
+//   - filename: The name of the file
+//   - mimeType: The mime type of the file
+//   - body: The body of the file
+//
+// Example:
+//
+//	// Request: GET /api/users/123/avatar.png
+//	// Response: 200 OK
+//	// Content-Type: image/png
+//	// Content-Disposition: attachment; filename="avatar.png"
+//	// Content-Length: 12345
+//	// Body: file content
+//
+//	func handler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//		ctx.ResponseFile("avatar.png", "image/png", fileBytes)
+//	}
 func (ctx *Context) ResponseFile(filename string, mimeType string, body []byte) {
 	ctx.SetContentType(mimeType)
 	ctx.SetHeader("Content-Disposition", formatContentDisposition(filename))
@@ -551,6 +919,12 @@ func (ctx *Context) JSON(bodyRaw any) {
 // BadRequest handles an error by returning an HTTP error response with status code 400.
 // You should not modify the [http.ResponseWriter] after calling this method.
 // You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - args: Optional arguments for the error message
+//
 // It is a shortcut for [Context.Error].
 func (ctx *Context) BadRequest(err error, msg string, args ...any) {
 	ctx.Error(err, http.StatusBadRequest, msg, args...)
@@ -559,6 +933,12 @@ func (ctx *Context) BadRequest(err error, msg string, args ...any) {
 // Unauthorized handles an error by returning an HTTP error response with status code 401.
 // You should not modify the [http.ResponseWriter] after calling this method.
 // You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - args: Optional arguments for the error message
+//
 // It is a shortcut for [Context.Error].
 func (ctx *Context) Unauthorized(err error, msg string, args ...any) {
 	ctx.Error(err, http.StatusUnauthorized, msg, args...)
@@ -567,6 +947,12 @@ func (ctx *Context) Unauthorized(err error, msg string, args ...any) {
 // Forbidden handles an error by returning an HTTP error response with status code 403.
 // You should not modify the [http.ResponseWriter] after calling this method.
 // You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - args: Optional arguments for the error message
+//
 // It is a shortcut for [Context.Error].
 func (ctx *Context) Forbidden(err error, msg string, args ...any) {
 	ctx.Error(err, http.StatusForbidden, msg, args...)
@@ -575,6 +961,12 @@ func (ctx *Context) Forbidden(err error, msg string, args ...any) {
 // NotFound handles an error by returning an HTTP error response with status code 404.
 // You should not modify the [http.ResponseWriter] after calling this method.
 // You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - args: Optional arguments for the error message
+//
 // It is a shortcut for [Context.Error].
 func (ctx *Context) NotFound(err error, msg string, args ...any) {
 	ctx.Error(err, http.StatusNotFound, msg, args...)
@@ -583,6 +975,12 @@ func (ctx *Context) NotFound(err error, msg string, args ...any) {
 // NotAcceptable handles an error by returning an HTTP error response with status code 406.
 // You should not modify the [http.ResponseWriter] after calling this method.
 // You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - args: Optional arguments for the error message
+//
 // It is a shortcut for [Context.Error].
 func (ctx *Context) NotAcceptable(err error, msg string, args ...any) {
 	ctx.Error(err, http.StatusNotAcceptable, msg, args...)
@@ -591,6 +989,12 @@ func (ctx *Context) NotAcceptable(err error, msg string, args ...any) {
 // Conflict handles an error by returning an HTTP error response with status code 409.
 // You should not modify the [http.ResponseWriter] after calling this method.
 // You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - args: Optional arguments for the error message
+//
 // It is a shortcut for [Context.Error].
 func (ctx *Context) Conflict(err error, msg string, args ...any) {
 	ctx.Error(err, http.StatusConflict, msg, args...)
@@ -599,6 +1003,12 @@ func (ctx *Context) Conflict(err error, msg string, args ...any) {
 // StatusUnprocessableEntity handles an error by returning an HTTP error response with status code 422.
 // You should not modify the [http.ResponseWriter] after calling this method.
 // You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - args: Optional arguments for the error message
+//
 // It is a shortcut for [Context.Error].
 func (ctx *Context) UnprocessableEntity(err error, msg string, args ...any) {
 	ctx.Error(err, http.StatusUnprocessableEntity, msg, args...)
@@ -607,6 +1017,12 @@ func (ctx *Context) UnprocessableEntity(err error, msg string, args ...any) {
 // TooManyRequests handles an error by returning an HTTP error response with status code 429.
 // You should not modify the [http.ResponseWriter] after calling this method.
 // You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - args: Optional arguments for the error message
+//
 // It is a shortcut for [Context.Error].
 func (ctx *Context) TooManyRequests(err error, msg string, args ...any) {
 	ctx.Error(err, http.StatusTooManyRequests, msg, args...)
@@ -615,6 +1031,12 @@ func (ctx *Context) TooManyRequests(err error, msg string, args ...any) {
 // InternalServerError handles an error by returning an HTTP error response with status code 500.
 // You should not modify the [http.ResponseWriter] after calling this method.
 // You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - args: Optional arguments for the error message
+//
 // It is a shortcut for [Context.Error].
 func (ctx *Context) InternalServerError(err error, msg string, args ...any) {
 	ctx.Error(err, http.StatusInternalServerError, msg, args...)
@@ -623,6 +1045,12 @@ func (ctx *Context) InternalServerError(err error, msg string, args ...any) {
 // NotImplemented handles an error by returning an HTTP error response with status code 501.
 // You should not modify the [http.ResponseWriter] after calling this method.
 // You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - args: Optional arguments for the error message
+//
 // It is a shortcut for [Context.Error].
 func (ctx *Context) NotImplemented(err error, msg string, args ...any) {
 	ctx.Error(err, http.StatusNotImplemented, msg, args...)
@@ -631,6 +1059,12 @@ func (ctx *Context) NotImplemented(err error, msg string, args ...any) {
 // BadGateway handles an error by returning an HTTP error response with status code 502.
 // You should not modify the [http.ResponseWriter] after calling this method.
 // You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - args: Optional arguments for the error message
+//
 // It is a shortcut for [Context.Error].
 func (ctx *Context) BadGateway(err error, msg string, args ...any) {
 	ctx.Error(err, http.StatusBadGateway, msg, args...)
@@ -639,16 +1073,53 @@ func (ctx *Context) BadGateway(err error, msg string, args ...any) {
 // ServiceUnavailable handles an error by returning an HTTP error response with status code 503.
 // You should not modify the [http.ResponseWriter] after calling this method.
 // You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - args: Optional arguments for the error message
+//
 // It is a shortcut for [Context.Error].
 func (ctx *Context) ServiceUnavailable(err error, msg string, args ...any) {
 	ctx.Error(err, http.StatusServiceUnavailable, msg, args...)
 }
 
-// Error handles an error by returning an HTTP error response.
-// You should use this method during error handling in HTTP handlers.
-// Method sets Content-Type and Content-Length headers.
-// You should not modify the [http.ResponseWriter] after calling this method.
-// You will probably want to return from your handler after calling this method.
+// Error handles errors by sending standardized HTTP error responses.
+//
+// This method provides consistent error handling across your application
+// with proper logging integration and optional client error exposure.
+// It formats error messages and manages error context for middleware.
+//
+// Features:
+//   - Consistent error response format
+//   - Integration with logging middleware
+//   - Configurable error exposure to clients
+//   - Support for formatted error messages
+//   - Automatic HTTP status code handling
+//
+// Parameters:
+//   - err: The underlying error (logged but not always exposed to client)
+//   - code: HTTP status code (400, 401, 404, 500, etc.)
+//   - msg: User-friendly error message (can include format verbs)
+//   - args: Optional arguments for message formatting
+//
+// The response format is JSON: {"message": "error description"}
+//
+// Example:
+//
+//	// Simple error
+//	ctx.Error(err, 400, "Invalid request")
+//
+//	// Formatted error message
+//	ctx.Error(err, 404, "User with ID %s not found", userID)
+//
+//	// Use helper methods for common cases
+//	ctx.BadRequest(err, "Invalid JSON payload")
+//	ctx.NotFound(err, "Resource not found")
+//	ctx.InternalServerError(err, "Database connection failed")
+//
+// Note: Do not modify the ResponseWriter after calling this method.
+// This method should typically be followed by a return statement.
 func (ctx *Context) Error(err error, code int, msg string, args ...any) {
 	if err == nil {
 		return

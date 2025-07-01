@@ -12,45 +12,6 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// isDirectoryTraversalAttempt checks if a path contains directory traversal patterns
-func isDirectoryTraversalAttempt(path string) bool {
-	if path == "" {
-		return false
-	}
-
-	// Check for common directory traversal patterns
-	patterns := []string{
-		"..",
-		"%2e%2e",
-		"%2E%2E",
-		"%2e%2E", // Mixed case
-		"%2E%2e", // Mixed case
-		"%2e.",
-		"%2E.",
-		".%2e",
-		".%2E",
-		"..%2f",
-		"..%2F",
-		"%2e%2e%2f",
-		"%2E%2E%2F",
-		"%2e%2E%2f", // Mixed case
-		"%2E%2e%2F", // Mixed case
-		"..\\",
-		"%2e%2e%5c",
-		"%2E%2E%5C",
-		"%2e%2E%5c", // Mixed case
-		"%2E%2e%5C", // Mixed case
-	}
-
-	for _, pattern := range patterns {
-		if strings.Contains(path, pattern) {
-			return true
-		}
-	}
-
-	return false
-}
-
 // RegisterStaticFileMiddleware sets up static file serving middleware based on the configuration.
 // This should be called after all API routes are registered but before starting the server.
 // It returns a cleanup function that should be called when shutting down.
@@ -557,4 +518,43 @@ func (s *Server) AddStaticFileRoutes(cfg StaticFileConfig) error {
 	})
 
 	return nil
+}
+
+// isDirectoryTraversalAttempt checks if a path contains directory traversal patterns
+func isDirectoryTraversalAttempt(path string) bool {
+	if path == "" {
+		return false
+	}
+
+	// Check for common directory traversal patterns
+	patterns := []string{
+		"..",
+		"%2e%2e",
+		"%2E%2E",
+		"%2e%2E", // Mixed case
+		"%2E%2e", // Mixed case
+		"%2e.",
+		"%2E.",
+		".%2e",
+		".%2E",
+		"..%2f",
+		"..%2F",
+		"%2e%2e%2f",
+		"%2E%2E%2F",
+		"%2e%2E%2f", // Mixed case
+		"%2E%2e%2F", // Mixed case
+		"..\\",
+		"%2e%2e%5c",
+		"%2E%2E%5C",
+		"%2e%2E%5c", // Mixed case
+		"%2E%2e%5C", // Mixed case
+	}
+
+	for _, pattern := range patterns {
+		if strings.Contains(path, pattern) {
+			return true
+		}
+	}
+
+	return false
 }

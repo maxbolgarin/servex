@@ -7,7 +7,7 @@ import (
 	"github.com/maxbolgarin/servex"
 )
 
-func mainFilters() {
+func main() {
 	// Example 1: Basic IP filtering
 	basicIPFiltering()
 
@@ -27,7 +27,7 @@ func mainFilters() {
 func basicIPFiltering() {
 	// === Basic IP Filtering Example ===
 
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		// Only allow requests from specific IP ranges
 		servex.WithAllowedIPs("192.168.1.0/24", "10.0.0.0/8"),
 
@@ -54,7 +54,7 @@ func basicIPFiltering() {
 func userAgentFiltering() {
 	// === User-Agent Filtering Example ===
 
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		// Block common bots and scrapers
 		servex.WithBlockedUserAgents("BadTool/1.0"), // Specific bad tool
 		servex.WithBlockedUserAgentsRegex(
@@ -92,7 +92,7 @@ func userAgentFiltering() {
 func headerBasedAuth() {
 	// === Header-Based Authentication Example ===
 
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		// Require specific API key in header
 		servex.WithAllowedHeadersRegex(map[string][]string{
 			"X-API-Key":        {"^api-key-[0-9a-f]{32}$"},      // Require specific API key format
@@ -130,7 +130,7 @@ func comprehensiveSecurity() {
 	// === Comprehensive Security Example ===
 
 	// Create server with multiple security layers
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		// Rate limiting
 		servex.WithRPS(10), // 10 requests per second
 
@@ -177,9 +177,15 @@ func comprehensiveSecurity() {
 		log.Fatal("Failed to create server:", err)
 	}
 	// Add routes
-	server.HandleFunc("/api/users", handleUsers)
-	server.HandleFunc("/api/admin", handleAdmin)
-	server.HandleFunc("/health", handleHealth)
+	server.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Users API"))
+	})
+	server.HandleFunc("/api/admin", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Admin API"))
+	})
+	server.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("Service is healthy"))
+	})
 
 	// Server with comprehensive security filtering configured
 
@@ -193,14 +199,6 @@ func comprehensiveSecurity() {
 	// if err != nil {
 	//     log.Fatal(err)
 	// }
-}
-
-func handleAdmin(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Admin API - highly secure endpoint"))
-}
-
-func handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Write([]byte("Service is healthy")) // This bypasses all filtering
 }
 
 // Configuration structure for complex setups
@@ -290,7 +288,7 @@ func createSecureServer(config SecurityConfig) (*servex.Server, error) {
 		servex.WithRPS(50),
 	}
 
-	server, err := servex.New(options...)
+	server, err := servex.NewServer(options...)
 	if err != nil {
 		return nil, err
 	}

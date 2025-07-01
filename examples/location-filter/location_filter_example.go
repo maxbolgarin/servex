@@ -11,7 +11,7 @@ import (
 
 // locationFilterExample demonstrates how to use location-based filtering
 // with different filter configurations for different URL paths.
-func locationFilterExample() {
+func main() {
 	// Create a new router
 	router := mux.NewRouter()
 
@@ -246,7 +246,7 @@ func locationFilterExample() {
 // with location-specific filtering for more complex security setups.
 func alternativeLocationFilterExample() {
 	// Create server with global filtering first
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		// Global IP filtering - allow only internal networks
 		servex.WithAllowedIPs("192.168.0.0/16", "10.0.0.0/8"),
 

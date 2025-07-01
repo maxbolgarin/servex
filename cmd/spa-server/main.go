@@ -53,7 +53,7 @@ func main() {
 	listenAddr := *host + ":" + *port
 
 	// Configure SPA server
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		// SPA configuration with client-side routing
 		servex.WithSPAMode(*buildDir, *indexFile),
 

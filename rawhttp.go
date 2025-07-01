@@ -9,6 +9,15 @@ import (
 )
 
 // MakeRawRequest makes a raw HTTP request in a form of []byte.
+//
+// Parameters:
+//   - path: The path to register the route for
+//   - host: The host to register the route for
+//   - headers: The headers to register the route for
+//   - body: The body to register the route for
+//
+// Returns:
+//   - []byte: The raw HTTP request
 func MakeRawRequest(path, host string, headers map[string]string, body ...string) []byte {
 	// Cannot use plain string because rune '\n' becomes string "\\n"
 	// and readBuff.ReadSlice('\n') won't work properly inside net/http readRequest().
@@ -22,6 +31,14 @@ func MakeRawRequest(path, host string, headers map[string]string, body ...string
 }
 
 // MakeRawResponse makes a raw HTTP response in a form of []byte.
+//
+// Parameters:
+//   - code: The code to register the route for
+//   - headers: The headers to register the route for
+//   - body: The body to register the route for
+//
+// Returns:
+//   - []byte: The raw HTTP response
 func MakeRawResponse(code int, headers map[string]string, body ...string) []byte {
 	code = lang.Check(code, http.StatusOK)
 

@@ -10,6 +10,10 @@ import (
 )
 
 func main() {
+	log.Println("=== Servex Simple Proxy Example ===")
+	log.Println("This example demonstrates a simple reverse proxy with load balancing.")
+	log.Println("")
+
 	// Simple proxy configuration with two rules
 	proxyConfig := servex.ProxyConfiguration{
 		Enabled:         true,
@@ -74,7 +78,7 @@ func main() {
 	}
 
 	// Create server with proxy
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		servex.WithProxyConfig(proxyConfig),
 		servex.WithHealthEndpoint(),
 		servex.WithDefaultMetrics(),
@@ -90,7 +94,41 @@ func main() {
 			"proxy_enabled": true,
 			"rules":         len(proxyConfig.Rules),
 			"timestamp":     time.Now().Format(time.RFC3339),
+			"message":       "Proxy server is running",
 		})
+	})
+
+	// Add a simple info endpoint
+	server.GET("/", func(w http.ResponseWriter, r *http.Request) {
+		ctx := servex.C(w, r)
+		ctx.SetHeader("Content-Type", "text/html")
+		ctx.Response(200, `
+<!DOCTYPE html>
+<html>
+<head><title>Servex Simple Proxy</title></head>
+<body>
+    <h1>Servex Simple Proxy Example</h1>
+    <p>This proxy server demonstrates:</p>
+    <ul>
+        <li>Load balancing between multiple backends</li>
+        <li>Health checking of backend services</li>
+        <li>Traffic dumping for debugging</li>
+        <li>Rate limiting and metrics</li>
+    </ul>
+    <h2>Proxy Rules:</h2>
+    <ul>
+        <li><strong>/api/*</strong> → localhost:8081 (weight 2), localhost:8082 (weight 1)</li>
+        <li><strong>/auth/*</strong> → localhost:8083</li>
+    </ul>
+    <h2>Endpoints:</h2>
+    <ul>
+        <li><a href="/status">/status</a> - Proxy status</li>
+        <li><a href="/health">/health</a> - Health check</li>
+        <li><a href="/metrics">/metrics</a> - Metrics</li>
+    </ul>
+    <p><strong>Note:</strong> You need to start backend services on ports 8081, 8082, and 8083 for the proxy to work.</p>
+</body>
+</html>`)
 	})
 
 	// Start the proxy server
@@ -105,6 +143,12 @@ func main() {
 	log.Println("  /status -> Proxy status")
 	log.Println("  /health -> Health check")
 	log.Println("  /metrics -> Metrics")
+	log.Println("  / -> Info page")
+	log.Println("")
+	log.Println("Traffic dumps will be saved to ./traffic_logs/")
+	log.Println("")
+	log.Println("To test, start backend services on ports 8081, 8082, 8083")
+	log.Println("Then visit: http://localhost:8080")
 
 	if err := server.StartWithShutdown(ctx, ":8080", ""); err != nil {
 		log.Fatalf("Server failed: %v", err)
@@ -114,14 +158,44 @@ func main() {
 /*
 To test this example, you can create simple backend servers:
 
-# Backend 1 (port 8081)
-curl -X POST http://localhost:8081/health -d '{"status": "ok"}'
+# Backend 1 (port 8081) - Simple Go server
+echo 'package main
+import ("fmt"; "net/http")
+func main() {
+    http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintf(w, `{"status": "ok", "service": "backend-1"}`)
+    })
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintf(w, `{"message": "Hello from backend 1", "port": 8081}`)
+    })
+    fmt.Println("Backend 1 starting on :8081")
+    http.ListenAndServe(":8081", nil)
+}' > backend1.go && go run backend1.go &
 
-# Backend 2 (port 8082)
-curl -X POST http://localhost:8082/health -d '{"status": "ok"}'
+# Backend 2 (port 8082) - Simple Go server
+echo 'package main
+import ("fmt"; "net/http")
+func main() {
+    http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintf(w, `{"status": "ok", "service": "backend-2"}`)
+    })
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintf(w, `{"message": "Hello from backend 2", "port": 8082}`)
+    })
+    fmt.Println("Backend 2 starting on :8082")
+    http.ListenAndServe(":8082", nil)
+}' > backend2.go && go run backend2.go &
 
-# Auth service (port 8083)
-curl -X POST http://localhost:8083/login -d '{"username": "test"}'
+# Auth service (port 8083) - Simple Go server
+echo 'package main
+import ("fmt"; "net/http")
+func main() {
+    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+        fmt.Fprintf(w, `{"message": "Auth service", "endpoint": "%s"}`, r.URL.Path)
+    })
+    fmt.Println("Auth service starting on :8083")
+    http.ListenAndServe(":8083", nil)
+}' > auth.go && go run auth.go &
 
 Then test the proxy:
 curl http://localhost:8080/api/users      # -> goes to 8081 or 8082 (weighted)

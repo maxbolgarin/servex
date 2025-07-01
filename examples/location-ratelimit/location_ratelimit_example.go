@@ -11,7 +11,7 @@ import (
 
 // locationRateLimitExample demonstrates how to use location-based rate limiting
 // with different rate limits for different URL paths.
-func locationRateLimitExample() {
+func main() {
 	// Set up different rate limit configurations for different locations
 	locationConfigs := []servex.LocationRateLimitConfig{
 		{
@@ -68,7 +68,7 @@ func locationRateLimitExample() {
 
 	// Create a server with location-based rate limiting
 	// Note: We manually register the middleware instead of using presets
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		servex.WithHealthEndpoint(),
 		servex.WithSendErrorToClient(), // For better error visibility in examples
 	)
@@ -214,7 +214,7 @@ func locationRateLimitExample() {
 // Alternative example: Using global rate limiting with location exclusions
 func alternativeLocationRateLimitExample() {
 	// You can also combine global rate limiting with location-specific exclusions
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		// Global rate limiting for all endpoints
 		servex.WithRPM(60), // 60 requests per minute globally
 		// Exclude certain paths from global rate limiting

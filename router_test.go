@@ -41,7 +41,7 @@ func TestServer_WithBasePath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server, err := New()
+			server, err := NewServer()
 			if err != nil {
 				t.Fatalf("unexpected error creating server: %v", err)
 			}
@@ -60,7 +60,7 @@ func TestServer_WithBasePath(t *testing.T) {
 
 // Test Router method and R shortcut
 func TestServer_Router(t *testing.T) {
-	server, err := New()
+	server, err := NewServer()
 	if err != nil {
 		t.Fatalf("unexpected error creating server: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestServer_Router(t *testing.T) {
 
 // Test AddMiddleware method
 func TestServer_AddMiddleware(t *testing.T) {
-	server, err := New()
+	server, err := NewServer()
 	if err != nil {
 		t.Fatalf("unexpected error creating server: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestServer_AddMiddleware(t *testing.T) {
 	})
 
 	t.Run("add multiple middleware", func(t *testing.T) {
-		server2, err := New()
+		server2, err := NewServer()
 		if err != nil {
 			t.Fatalf("unexpected error creating server: %v", err)
 		}
@@ -177,7 +177,7 @@ func TestServer_AddMiddleware(t *testing.T) {
 	})
 
 	t.Run("add nil middleware", func(t *testing.T) {
-		server3, err := New()
+		server3, err := NewServer()
 		if err != nil {
 			t.Fatalf("unexpected error creating server: %v", err)
 		}
@@ -252,7 +252,7 @@ func TestServer_Handle(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server, err := New()
+			server, err := NewServer()
 			if err != nil {
 				t.Fatalf("unexpected error creating server: %v", err)
 			}
@@ -278,7 +278,7 @@ func TestServer_Handle(t *testing.T) {
 	}
 
 	t.Run("H shortcut", func(t *testing.T) {
-		server, err := New()
+		server, err := NewServer()
 		if err != nil {
 			t.Fatalf("unexpected error creating server: %v", err)
 		}
@@ -340,7 +340,7 @@ func TestServer_HandleFunc(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server, err := New()
+			server, err := NewServer()
 			if err != nil {
 				t.Fatalf("unexpected error creating server: %v", err)
 			}
@@ -366,7 +366,7 @@ func TestServer_HandleFunc(t *testing.T) {
 	}
 
 	t.Run("HF shortcut", func(t *testing.T) {
-		server, err := New()
+		server, err := NewServer()
 		if err != nil {
 			t.Fatalf("unexpected error creating server: %v", err)
 		}
@@ -392,7 +392,7 @@ func TestServer_HandleFunc(t *testing.T) {
 
 // Test base path functionality with routes
 func TestServer_BasePathIntegration(t *testing.T) {
-	server, err := New()
+	server, err := NewServer()
 	if err != nil {
 		t.Fatalf("unexpected error creating server: %v", err)
 	}
@@ -589,7 +589,7 @@ func TestServer_HTTPMethodHandlers(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server, err := New()
+			server, err := NewServer()
 			if err != nil {
 				t.Fatalf("unexpected error creating server: %v", err)
 			}
@@ -623,7 +623,7 @@ func TestServer_HTTPMethodHandlers(t *testing.T) {
 
 // Test wrong method for specific handlers
 func TestServer_HTTPMethodHandlers_WrongMethod(t *testing.T) {
-	server, err := New()
+	server, err := NewServer()
 	if err != nil {
 		t.Fatalf("unexpected error creating server: %v", err)
 	}
@@ -673,7 +673,7 @@ func createTestAuthManager(t *testing.T) *AuthManager {
 func TestServer_WithAuth(t *testing.T) {
 	t.Run("auth enabled", func(t *testing.T) {
 		logger := &MockLogger{}
-		server, err := New(WithLogger(logger))
+		server, err := NewServer(WithLogger(logger))
 		if err != nil {
 			t.Fatalf("unexpected error creating server: %v", err)
 		}
@@ -705,7 +705,7 @@ func TestServer_WithAuth(t *testing.T) {
 
 	t.Run("auth disabled", func(t *testing.T) {
 		logger := &MockLogger{}
-		server, err := New(WithLogger(logger))
+		server, err := NewServer(WithLogger(logger))
 		if err != nil {
 			t.Fatalf("unexpected error creating server: %v", err)
 		}
@@ -743,7 +743,7 @@ func TestServer_WithAuth(t *testing.T) {
 // Test HandleWithAuth and HA shortcut
 func TestServer_HandleWithAuth(t *testing.T) {
 	logger := &MockLogger{}
-	server, err := New(WithLogger(logger))
+	server, err := NewServer(WithLogger(logger))
 	if err != nil {
 		t.Fatalf("unexpected error creating server: %v", err)
 	}
@@ -798,7 +798,7 @@ func TestServer_HandleWithAuth(t *testing.T) {
 // Test HandleFuncWithAuth and HFA shortcut
 func TestServer_HandleFuncWithAuth(t *testing.T) {
 	logger := &MockLogger{}
-	server, err := New(WithLogger(logger))
+	server, err := NewServer(WithLogger(logger))
 	if err != nil {
 		t.Fatalf("unexpected error creating server: %v", err)
 	}
@@ -917,7 +917,7 @@ func TestServer_HTTPMethodHandlersWithAuth(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			logger := &MockLogger{}
-			server, err := New(WithLogger(logger))
+			server, err := NewServer(WithLogger(logger))
 			if err != nil {
 				t.Fatalf("unexpected error creating server: %v", err)
 			}
@@ -950,7 +950,7 @@ func TestServer_HTTPMethodHandlersWithAuth(t *testing.T) {
 
 // Test route return values for method chaining
 func TestServer_RouteChaining(t *testing.T) {
-	server, err := New()
+	server, err := NewServer()
 	if err != nil {
 		t.Fatalf("unexpected error creating server: %v", err)
 	}

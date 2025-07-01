@@ -86,7 +86,7 @@ func TestStaticFileMiddleware(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create server with static file middleware
-			server, err := New(WithStaticFileConfig(tt.config))
+			server, err := NewServer(WithStaticFileConfig(tt.config))
 			if err != nil {
 				t.Fatalf("Failed to create server: %v", err)
 			}
@@ -179,7 +179,7 @@ func TestSPAMode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create server with static file middleware
-			server, err := New(WithStaticFileConfig(tt.config))
+			server, err := NewServer(WithStaticFileConfig(tt.config))
 			if err != nil {
 				t.Fatalf("Failed to create server: %v", err)
 			}
@@ -223,7 +223,7 @@ func TestStaticFileExclusions(t *testing.T) {
 		ExcludePaths: []string{"/api/*", "/auth/*", "/admin"},
 	}
 
-	server, err := New(WithStaticFileConfig(config))
+	server, err := NewServer(WithStaticFileConfig(config))
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -313,7 +313,7 @@ func TestStaticFileCaching(t *testing.T) {
 		},
 	}
 
-	server, err := New(WithStaticFileConfig(config))
+	server, err := NewServer(WithStaticFileConfig(config))
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -378,7 +378,7 @@ func TestStaticFileWithURLPrefix(t *testing.T) {
 		URLPrefix: "/static",
 	}
 
-	server, err := New(WithStaticFileConfig(config))
+	server, err := NewServer(WithStaticFileConfig(config))
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -442,7 +442,7 @@ func TestStaticFileDirectoryTraversal(t *testing.T) {
 		Dir:     tempDir,
 	}
 
-	server, err := New(WithStaticFileConfig(config))
+	server, err := NewServer(WithStaticFileConfig(config))
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -580,7 +580,7 @@ func TestStaticFileOptions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			server, err := New(tt.options...)
+			server, err := NewServer(tt.options...)
 			if err != nil {
 				t.Fatalf("Failed to create server: %v", err)
 			}
@@ -617,7 +617,7 @@ func TestStaticFileIntegrationWithAPI(t *testing.T) {
 	tempDir := t.TempDir()
 	createTestFile(t, filepath.Join(tempDir, "index.html"), "<html>SPA</html>")
 
-	server, err := New(WithSPAMode(tempDir, "index.html"))
+	server, err := NewServer(WithSPAMode(tempDir, "index.html"))
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -1025,7 +1025,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create server with static file middleware
-			server, err := New(WithStaticFileConfig(tt.config))
+			server, err := NewServer(WithStaticFileConfig(tt.config))
 			if err != nil {
 				t.Fatalf("Failed to create server: %v", err)
 			}
@@ -1099,7 +1099,7 @@ func TestStaticMiddlewareCaching(t *testing.T) {
 		},
 	}
 
-	server, err := New(WithStaticFileConfig(config))
+	server, err := NewServer(WithStaticFileConfig(config))
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -1185,7 +1185,7 @@ func TestStaticMiddlewareSecurityEdgeCases(t *testing.T) {
 		Dir:     tempDir,
 	}
 
-	server, err := New(WithStaticFileConfig(config))
+	server, err := NewServer(WithStaticFileConfig(config))
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

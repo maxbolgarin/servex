@@ -8,6 +8,19 @@ import (
 
 // WithBasePath sets the base path for the server's router.
 // It returns the server itself to allow method chaining.
+//
+// Parameters:
+//   - path: The base path to set for the router
+//
+// Example:
+//
+//	server.WithBasePath("/api")
+//	server.Get("/users", ...)
+//
+//	Result: /api/users
+//
+// Returns:
+//   - *Server: The server itself to allow method chaining
 func (s *Server) WithBasePath(path string) *Server {
 	if len(path) == 0 {
 		return s
@@ -47,6 +60,14 @@ func (s *Server) Use(middleware ...func(http.Handler) http.Handler) {
 
 // Handle registers a new route with the provided path, [http.Handler] and methods.
 // It returns a pointer to the created [mux.Route] to set additional settings to the route.
+//
+// Parameters:
+//   - path: The path to register the route for
+//   - h: The handler to register the route for
+//   - methods: The methods to register the route for
+//
+// Returns:
+//   - *mux.Route: The created route to set additional settings to the route
 func (s *Server) Handle(path string, h http.Handler, methods ...string) *mux.Route {
 	r := s.router.PathPrefix(s.basePath).Subrouter().Handle(path, h)
 	if len(methods) == 0 {
@@ -56,12 +77,34 @@ func (s *Server) Handle(path string, h http.Handler, methods ...string) *mux.Rou
 }
 
 // H is a shortcut for [Server.Handle].
+//
+// Parameters:
+//   - path: The path to register the route for
+//   - h: The handler to register the route for
+//   - methods: The methods to register the route for
+//
+// Returns:
+//   - *mux.Route: The created route to set additional settings to the route
 func (s *Server) H(path string, h http.Handler, methods ...string) *mux.Route {
 	return s.Handle(path, h, methods...)
 }
 
 // HandleFunc registers a new route with the provided path, [http.HandlerFunc] and methods.
 // It returns a pointer to the created [mux.Route] to set additional settings to the route.
+//
+// Parameters:
+//   - path: The path to register the route for
+//   - f: The handler to register the route for
+//   - methods: The methods to register the route for
+//
+// Example:
+//
+//	server.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
+//		w.Write([]byte("Hello, World!"))
+//	}, "GET", "POST")
+//
+// Returns:
+//   - *mux.Route: The created route to set additional settings to the route
 func (s *Server) HandleFunc(path string, f http.HandlerFunc, methods ...string) *mux.Route {
 	r := s.router.PathPrefix(s.basePath).Subrouter().HandleFunc(path, f)
 	if len(methods) == 0 {
@@ -71,12 +114,33 @@ func (s *Server) HandleFunc(path string, f http.HandlerFunc, methods ...string) 
 }
 
 // HF is a shortcut for [Server.HandleFunc].
+//
+// Parameters:
+//   - path: The path to register the route for
+//   - f: The handler to register the route for
+//   - methods: The methods to register the route for
+//
+// Example:
+//
+//	server.HF("/users", func(w http.ResponseWriter, r *http.Request) {
+//		w.Write([]byte("Hello, World!"))
+//	}, "GET", "POST")
+//
+// Returns:
+//   - *mux.Route: The created route to set additional settings to the route
 func (s *Server) HF(path string, f http.HandlerFunc, methods ...string) *mux.Route {
 	return s.HandleFunc(path, f, methods...)
 }
 
 // WithAuth adds auth middleware to the router with the provided roles.
 // It returns a pointer to the created [mux.Route] to set additional settings to the route.
+//
+// Parameters:
+//   - next: The next handler to register the route for
+//   - roles: The roles to register the route for
+//
+// Returns:
+//   - http.HandlerFunc: The created handler to register the route for
 func (s *Server) WithAuth(next http.HandlerFunc, roles ...UserRole) http.HandlerFunc {
 	if !s.opts.Auth.Enabled {
 		s.opts.Logger.Error("auth is not enabled, skipping auth middleware")

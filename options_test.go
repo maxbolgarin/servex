@@ -221,6 +221,9 @@ type mockMetrics struct{}
 
 func (m *mockMetrics) HandleRequest(r *http.Request) {}
 
+func (m *mockMetrics) HandleResponse(r *http.Request, w http.ResponseWriter, statusCode int, duration time.Duration) {
+}
+
 type mockLogger struct{}
 
 func (m *mockLogger) Error(msg string, args ...interface{}) {}

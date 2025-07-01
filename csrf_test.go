@@ -437,7 +437,7 @@ func TestParseSameSite(t *testing.T) {
 
 func TestCSRFIntegrationWithOptions(t *testing.T) {
 	t.Run("CSRF configuration through options", func(t *testing.T) {
-		server, err := New(
+		server, err := NewServer(
 			WithCSRFProtection(),
 			WithCSRFTokenName("X-My-Token"),
 			WithCSRFCookieName("my_token"),

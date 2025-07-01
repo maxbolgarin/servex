@@ -25,7 +25,7 @@ func honeypotExample() {
 	fmt.Println("=== Honeypot Example ===")
 
 	// Create server with basic filtering
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		// Start with some basic blocked IPs
 		servex.WithBlockedIPs("10.0.0.1", "192.168.1.1"),
 
@@ -115,7 +115,7 @@ func advancedSecurityExample() {
 	fmt.Println("\n=== Advanced Security Example ===")
 
 	// Create server with comprehensive security
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		// Rate limiting
 		servex.WithRPS(100),
 
@@ -233,7 +233,7 @@ func advancedSecurityExample() {
 func temporaryBlockingExample() {
 	fmt.Println("\n=== Temporary Blocking Example ===")
 
-	server, err := servex.New()
+	server, err := servex.NewServer()
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
 	}
@@ -241,7 +241,7 @@ func temporaryBlockingExample() {
 	filter := server.Filter()
 	if filter == nil {
 		// If no filter is configured, we need to enable it
-		server, err = servex.New(servex.WithBlockedIPs()) // Enable filtering with empty list
+		server, err = servex.NewServer(servex.WithBlockedIPs()) // Enable filtering with empty list
 		if err != nil {
 			log.Fatal("Failed to create server with filtering:", err)
 		}
@@ -343,7 +343,7 @@ func productionUsageExample() {
 	fmt.Println("\n=== Production Usage Example ===")
 
 	// In a production environment, you might want to integrate with external services
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		servex.WithBlockedIPs(), // Enable filtering
 	)
 	if err != nil {
@@ -437,7 +437,7 @@ func realWorldExample() {
 	defer cancel()
 
 	// Create server
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		// Enable various security features
 		servex.WithRPS(50),                // Rate limiting
 		servex.WithBlockedIPs("10.0.0.1"), // Initial blocked IPs

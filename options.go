@@ -20,13 +20,6 @@ var (
 	defaultIdleTimeout = 180 * time.Second
 )
 
-// Metrics is an interface for collecting metrics on each request.
-// [Metrics.HandleRequest] is called on each request.
-type Metrics interface {
-	// HandleRequest is called on each request to collect metrics.
-	HandleRequest(r *http.Request)
-}
-
 type Option func(*Options)
 
 // Options represents the configuration for a server.
@@ -3833,7 +3826,7 @@ func WithMetrics(m Metrics) Option {
 func WithDefaultMetrics(path ...string) Option {
 	return func(op *Options) {
 		op.EnableDefaultMetrics = true
-		op.Metrics = NewBuiltinMetrics()
+		op.Metrics = newBuiltinMetrics()
 		if len(path) > 0 {
 			op.MetricsPath = path[0]
 		}

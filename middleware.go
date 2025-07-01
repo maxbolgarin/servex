@@ -17,10 +17,15 @@ import (
 	"github.com/gorilla/mux"
 )
 
-// MiddlewareRouter is an interface representing a router that supports adding middleware.
-// This is typically implemented by router packages like gorilla/mux.
+// MiddlewareRouter represents a router that supports adding middleware functions.
+// This interface is typically implemented by router packages like gorilla/mux
+// and allows servex to register its middleware functions with different router implementations.
+//
+// The middleware functions registered through this interface provide essential
+// features like logging, security headers, rate limiting, authentication, and more.
 type MiddlewareRouter interface {
 	// Use adds one or more middleware functions to the router.
+	// Middleware functions are executed in the order they are added.
 	Use(middleware ...mux.MiddlewareFunc)
 }
 
@@ -46,6 +51,10 @@ func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, me
 			lrw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK} // Default to 200 OK
 
 			next.ServeHTTP(lrw, r)
+
+			if metrics != nil {
+				metrics.HandleResponse(r, w, lrw.statusCode, time.Since(start))
+			}
 
 			// Check for NoLog flag from both context and loggingResponseWriter
 			noLog := getValueFromContext[bool](r, noLogKey{}) || lrw.noLog

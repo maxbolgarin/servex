@@ -10,8 +10,19 @@ import (
 	"time"
 )
 
-// BuiltinMetrics provides comprehensive request and system metrics
-type BuiltinMetrics struct {
+// Metrics is an interface for collecting metrics on each request.
+// [Metrics.HandleRequest] is called on each request.
+// [Metrics.HandleResponse] is called on each response.
+type Metrics interface {
+	// HandleRequest is called on each request to collect metrics.
+	HandleRequest(r *http.Request)
+
+	// HandleResponse is called on each response to collect metrics.
+	HandleResponse(r *http.Request, w http.ResponseWriter, statusCode int, duration time.Duration)
+}
+
+// builtinMetrics provides comprehensive request and system metrics
+type builtinMetrics struct {
 	mu               sync.RWMutex
 	startTime        time.Time
 	requestCount     int64
@@ -19,13 +30,13 @@ type BuiltinMetrics struct {
 	errorCount       int64
 	totalRequestTime int64 // in nanoseconds
 	statusCodes      map[int]int64
-	pathMetrics      map[string]*PathMetrics
+	pathMetrics      map[string]*pathMetrics
 	methodMetrics    map[string]int64
 	enabled          bool
 }
 
-// PathMetrics tracks metrics for specific paths
-type PathMetrics struct {
+// pathMetrics tracks metrics for specific paths
+type pathMetrics struct {
 	Count       int64
 	TotalTime   int64 // in nanoseconds
 	ErrorCount  int64
@@ -34,8 +45,8 @@ type PathMetrics struct {
 	StatusCodes map[int]int64
 }
 
-// MetricsSnapshot provides a point-in-time view of metrics
-type MetricsSnapshot struct {
+// metricsSnapshot provides a point-in-time view of metrics
+type metricsSnapshot struct {
 	Timestamp       time.Time        `json:"timestamp"`
 	Uptime          string           `json:"uptime"`
 	RequestCount    int64            `json:"request_count"`
@@ -46,12 +57,12 @@ type MetricsSnapshot struct {
 	RequestsPerSec  float64          `json:"requests_per_second"`
 	StatusCodes     map[int]int64    `json:"status_codes"`
 	Methods         map[string]int64 `json:"methods"`
-	TopPaths        []PathSummary    `json:"top_paths"`
-	SystemMetrics   SystemMetrics    `json:"system_metrics"`
+	TopPaths        []pathSummary    `json:"top_paths"`
+	SystemMetrics   systemMetrics    `json:"system_metrics"`
 }
 
-// PathSummary provides summary metrics for a path
-type PathSummary struct {
+// pathSummary provides summary metrics for a path
+type pathSummary struct {
 	Path            string  `json:"path"`
 	Count           int64   `json:"count"`
 	ErrorCount      int64   `json:"error_count"`
@@ -61,8 +72,8 @@ type PathSummary struct {
 	MinResponseTime float64 `json:"min_response_time_ms"`
 }
 
-// SystemMetrics provides system-level metrics
-type SystemMetrics struct {
+// systemMetrics provides system-level metrics
+type systemMetrics struct {
 	MemoryUsageMB   uint64  `json:"memory_usage_mb"`
 	MemoryAllocMB   uint64  `json:"memory_alloc_mb"`
 	GoroutineCount  int     `json:"goroutine_count"`
@@ -71,26 +82,26 @@ type SystemMetrics struct {
 	CPUUsagePercent float64 `json:"cpu_usage_percent,omitempty"`
 }
 
-// NewBuiltinMetrics creates a new metrics collector
-func NewBuiltinMetrics() *BuiltinMetrics {
-	return &BuiltinMetrics{
+// newBuiltinMetrics creates a new metrics collector
+func newBuiltinMetrics() *builtinMetrics {
+	return &builtinMetrics{
 		startTime:     time.Now(),
 		statusCodes:   make(map[int]int64),
-		pathMetrics:   make(map[string]*PathMetrics),
+		pathMetrics:   make(map[string]*pathMetrics),
 		methodMetrics: make(map[string]int64),
 		enabled:       true,
 	}
 }
 
 // Enable/disable metrics collection
-func (m *BuiltinMetrics) SetEnabled(enabled bool) {
+func (m *builtinMetrics) setEnabled(enabled bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.enabled = enabled
 }
 
 // HandleRequest implements the Metrics interface
-func (m *BuiltinMetrics) HandleRequest(r *http.Request) {
+func (m *builtinMetrics) HandleRequest(r *http.Request) {
 	if !m.enabled {
 		return
 	}
@@ -103,8 +114,13 @@ func (m *BuiltinMetrics) HandleRequest(r *http.Request) {
 	m.mu.Unlock()
 }
 
-// RecordResponse records response metrics
-func (m *BuiltinMetrics) RecordResponse(path, method string, statusCode int, duration time.Duration, isError bool) {
+// HandleResponse implements the Metrics interface
+func (m *builtinMetrics) HandleResponse(r *http.Request, w http.ResponseWriter, statusCode int, duration time.Duration) {
+	m.recordResponse(r.URL.Path, r.Method, statusCode, duration, statusCode >= 400)
+}
+
+// recordResponse records response metrics
+func (m *builtinMetrics) recordResponse(path, method string, statusCode int, duration time.Duration, isError bool) {
 	if !m.enabled {
 		return
 	}
@@ -124,7 +140,7 @@ func (m *BuiltinMetrics) RecordResponse(path, method string, statusCode int, dur
 
 	// Track path metrics
 	if m.pathMetrics[path] == nil {
-		m.pathMetrics[path] = &PathMetrics{
+		m.pathMetrics[path] = &pathMetrics{
 			StatusCodes: make(map[int]int64),
 			MinTime:     duration.Nanoseconds(),
 			MaxTime:     duration.Nanoseconds(),
@@ -150,12 +166,12 @@ func (m *BuiltinMetrics) RecordResponse(path, method string, statusCode int, dur
 	}
 }
 
-// GetSnapshot returns current metrics snapshot
-func (m *BuiltinMetrics) GetSnapshot() MetricsSnapshot {
+// getSnapshot returns current metrics snapshot
+func (m *builtinMetrics) getSnapshot() metricsSnapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	snapshot := MetricsSnapshot{
+	snapshot := metricsSnapshot{
 		Timestamp:     time.Now(),
 		Uptime:        time.Since(m.startTime).String(),
 		RequestCount:  atomic.LoadInt64(&m.requestCount),
@@ -197,7 +213,7 @@ func (m *BuiltinMetrics) GetSnapshot() MetricsSnapshot {
 }
 
 // getTopPaths returns the top N paths by request count
-func (m *BuiltinMetrics) getTopPaths(limit int) []PathSummary {
+func (m *builtinMetrics) getTopPaths(limit int) []pathSummary {
 	type pathCount struct {
 		path  string
 		count int64
@@ -222,12 +238,12 @@ func (m *BuiltinMetrics) getTopPaths(limit int) []PathSummary {
 	}
 
 	// Convert to summaries
-	summaries := make([]PathSummary, 0, limit)
+	summaries := make([]pathSummary, 0, limit)
 	for i := 0; i < len(paths) && i < limit; i++ {
 		path := paths[i].path
 		metric := m.pathMetrics[path]
 
-		summary := PathSummary{
+		summary := pathSummary{
 			Path:            path,
 			Count:           metric.Count,
 			ErrorCount:      metric.ErrorCount,
@@ -247,11 +263,11 @@ func (m *BuiltinMetrics) getTopPaths(limit int) []PathSummary {
 }
 
 // getSystemMetrics collects system-level metrics
-func getSystemMetrics() SystemMetrics {
+func getSystemMetrics() systemMetrics {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
-	return SystemMetrics{
+	return systemMetrics{
 		MemoryUsageMB:   bToMb(m.Sys),
 		MemoryAllocMB:   bToMb(m.Alloc),
 		GoroutineCount:  runtime.NumGoroutine(),
@@ -265,8 +281,8 @@ func bToMb(b uint64) uint64 {
 	return b / 1024 / 1024
 }
 
-// RegisterMetricsEndpoint registers a metrics endpoint on the given router
-func (m *BuiltinMetrics) RegisterMetricsEndpoint(server *Server, path string) {
+// registerMetricsEndpoint registers a metrics endpoint on the given router
+func (m *builtinMetrics) registerMetricsEndpoint(server *Server, path string) {
 	server.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -278,7 +294,7 @@ func (m *BuiltinMetrics) RegisterMetricsEndpoint(server *Server, path string) {
 		w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 
 		// Get metrics in Prometheus format
-		prometheusMetrics := m.GetPrometheusMetrics()
+		prometheusMetrics := m.getPrometheusMetrics()
 
 		// Write the Prometheus text format directly
 		if _, err := w.Write([]byte(prometheusMetrics)); err != nil {
@@ -289,8 +305,8 @@ func (m *BuiltinMetrics) RegisterMetricsEndpoint(server *Server, path string) {
 	}).Methods("GET")
 }
 
-// Reset clears all metrics (useful for testing)
-func (m *BuiltinMetrics) Reset() {
+// reset clears all metrics (useful for testing)
+func (m *builtinMetrics) reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -301,16 +317,16 @@ func (m *BuiltinMetrics) Reset() {
 
 	m.startTime = time.Now()
 	m.statusCodes = make(map[int]int64)
-	m.pathMetrics = make(map[string]*PathMetrics)
+	m.pathMetrics = make(map[string]*pathMetrics)
 	m.methodMetrics = make(map[string]int64)
 }
 
-// GetPrometheusMetrics returns metrics in Prometheus text format
-func (m *BuiltinMetrics) GetPrometheusMetrics() string {
+// getPrometheusMetrics returns metrics in Prometheus text format
+func (m *builtinMetrics) getPrometheusMetrics() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	snapshot := m.GetSnapshot()
+	snapshot := m.getSnapshot()
 	var result strings.Builder
 
 	// Server info

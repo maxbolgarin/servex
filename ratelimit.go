@@ -110,6 +110,14 @@ type rateLimiterMiddleware struct {
 // RegisterRateLimitMiddleware adds rate limiting middleware to the router.
 // If the config is not enabled, no middleware will be registered.
 // It returns a function that can be used to stop the cleanup routine.
+//
+// Parameters:
+//   - router: The router to register the middleware for
+//   - cfg: The rate limit configuration to register the middleware for
+//   - auditLogger: The audit logger to register the middleware for
+//
+// Returns:
+//   - func(): The function to stop the cleanup routine
 func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig, auditLogger ...AuditLogger) func() {
 	if !cfg.Enabled || cfg.RequestsPerInterval <= 0 {
 		return func() {} // Return no-op function for consistency

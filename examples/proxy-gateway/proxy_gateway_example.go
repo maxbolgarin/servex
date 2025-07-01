@@ -9,7 +9,7 @@ import (
 	"github.com/maxbolgarin/servex"
 )
 
-func mainGateway() {
+func main() {
 	// Configure the reverse proxy with multiple rules and backends
 	proxyConfig := servex.ProxyConfiguration{
 		Enabled: true,
@@ -150,7 +150,7 @@ func mainGateway() {
 	}
 
 	// Create server with proxy and other middleware
-	server, err := servex.New(
+	server, err := servex.NewServer(
 		servex.WithProxyConfig(proxyConfig),
 		servex.WithHealthEndpoint(),
 		servex.WithDefaultMetrics(),

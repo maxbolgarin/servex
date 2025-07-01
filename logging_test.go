@@ -32,67 +32,6 @@ func (m *MockLogger) Error(msg string, fields ...any) {
 	m.LastMessage = msg
 }
 
-func TestLogFields(t *testing.T) {
-	req, err := http.NewRequest("GET", "http://example.com", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
-
-	ctx := C(nil, req)
-
-	// Test specific fields with proper cleanup
-	fields, cleanup := ctx.LogFieldsWithCleanup(UserAgentLogField, URLLogField, MethodLogField, ProtoLogField)
-	defer cleanup()
-
-	expectedFields := []any{
-		"user_agent", "",
-		"url", "http://example.com",
-		"method", "GET",
-		"proto", "HTTP/1.1",
-	}
-
-	// Check if all expected fields are present in the result
-	for i := 0; i < len(expectedFields); i += 2 {
-		found := false
-		for j := 0; j < len(fields); j += 2 {
-			if expectedFields[i] == fields[j] && expectedFields[i+1] == fields[j+1] {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("Expected field %v with value %v not found", expectedFields[i], expectedFields[i+1])
-		}
-	}
-
-	// Test all fields with proper cleanup
-	fields2, cleanup2 := ctx.LogFieldsWithCleanup()
-	defer cleanup2()
-
-	expectedFields2 := []any{
-		"request_id", fields2[1], // This is rand request id so we cant prepare it
-		"ip", fields2[3], // This is rand ip so we cant prepare it
-		"user_agent", "",
-		"url", "http://example.com",
-		"method", "GET",
-		"proto", "HTTP/1.1",
-	}
-
-	// Check if all expected fields are present in the result
-	for i := 0; i < len(expectedFields2); i += 2 {
-		found := false
-		for j := 0; j < len(fields2); j += 2 {
-			if expectedFields2[i] == fields2[j] && expectedFields2[i+1] == fields2[j+1] {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("Expected field %v with value %v not found", expectedFields2[i], expectedFields2[i+1])
-		}
-	}
-}
-
 func TestRequestLogger_Log(t *testing.T) {
 	mockLogger := &MockLogger{}
 	rLogger := BaseRequestLogger{Logger: mockLogger}
@@ -222,36 +161,5 @@ func TestRequestLogger_LogWithSelectiveFields(t *testing.T) {
 		if _, exists := actualFields[unexpectedKey]; exists {
 			t.Errorf("Unexpected field %q found in logs", unexpectedKey)
 		}
-	}
-}
-
-// TestLogFieldsPool tests that the pool is working correctly
-func TestLogFieldsPool(t *testing.T) {
-	req, err := http.NewRequest("GET", "http://example.com", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
-
-	ctx := C(nil, req)
-
-	// Test that multiple calls reuse slices from the pool
-	var slices [][]any
-	for i := 0; i < 10; i++ {
-		fields, cleanup := ctx.LogFieldsWithCleanup()
-		slices = append(slices, fields)
-		cleanup() // Return to pool immediately
-	}
-
-	// Get a new slice and check if it has zero length (indicating pool reuse)
-	fields, cleanup := ctx.LogFieldsWithCleanup()
-	defer cleanup()
-
-	if len(fields) != 6*2 { // 6 fields * 2 (key + value)
-		t.Errorf("Expected 12 field elements, got %d", len(fields))
-	}
-
-	// Test that capacity is preserved from pooled slice
-	if cap(fields) < 12 {
-		t.Errorf("Expected capacity of at least 12, got %d", cap(fields))
 	}
 }

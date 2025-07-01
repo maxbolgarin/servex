@@ -130,53 +130,6 @@ func putRequestLogBundle(bundle *RequestLogBundle) {
 	requestLogBundlePool.Put(bundle)
 }
 
-// LogFields returns a slice of fields to set to logger using With method.
-// You can add fieldsToInclude to set exact fields that you need.
-// By default it returns all fields.
-// NOTE: The caller is responsible for calling putLogFields() to return the slice to the pool.
-func (ctx *Context) LogFields(fieldsToInclude ...string) []any {
-	fields := getLogFields()
-
-	if len(fieldsToInclude) == 0 {
-		// Add all default fields efficiently using pre-allocated constants
-		return append(fields,
-			requestIDFieldKey, getOrSetRequestID(ctx.r),
-			ipFieldKey, ctx.r.RemoteAddr,
-			userAgentFieldKey, ctx.r.UserAgent(),
-			urlFieldKey, ctx.r.URL.String(),
-			methodFieldKey, ctx.r.Method,
-			protoFieldKey, ctx.r.Proto,
-		)
-	}
-
-	// Add only requested fields using optimized field appending
-	for _, field := range fieldsToInclude {
-		switch field {
-		case RequestIDLogField:
-			fields = appendFieldPair(fields, requestIDFieldKey, getOrSetRequestID(ctx.r))
-		case IPLogField:
-			fields = appendFieldPair(fields, ipFieldKey, ctx.r.RemoteAddr)
-		case UserAgentLogField:
-			fields = appendFieldPair(fields, userAgentFieldKey, ctx.r.UserAgent())
-		case URLLogField:
-			fields = appendFieldPair(fields, urlFieldKey, ctx.r.URL.String())
-		case MethodLogField:
-			fields = appendFieldPair(fields, methodFieldKey, ctx.r.Method)
-		case ProtoLogField:
-			fields = appendFieldPair(fields, protoFieldKey, ctx.r.Proto)
-		}
-	}
-	return fields
-}
-
-// LogFieldsWithCleanup returns log fields and a cleanup function.
-// This is a convenience method that automatically handles pool cleanup.
-// Usage: fields, cleanup := ctx.LogFieldsWithCleanup(); defer cleanup()
-func (ctx *Context) LogFieldsWithCleanup(fieldsToInclude ...string) ([]any, func()) {
-	fields := ctx.LogFields(fieldsToInclude...)
-	return fields, func() { putLogFields(fields) }
-}
-
 type BaseRequestLogger struct {
 	Logger
 	// FieldsToInclude specifies which fields to include in logs.

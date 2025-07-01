@@ -9,7 +9,7 @@ import (
 )
 
 func TestNewBuiltinMetrics(t *testing.T) {
-	metrics := NewBuiltinMetrics()
+	metrics := newBuiltinMetrics()
 
 	if metrics == nil {
 		t.Fatal("expected non-nil metrics instance")
@@ -33,21 +33,21 @@ func TestNewBuiltinMetrics(t *testing.T) {
 }
 
 func TestBuiltinMetrics_SetEnabled(t *testing.T) {
-	metrics := NewBuiltinMetrics()
+	metrics := newBuiltinMetrics()
 
-	metrics.SetEnabled(false)
+	metrics.setEnabled(false)
 	if metrics.enabled {
 		t.Error("metrics should be disabled")
 	}
 
-	metrics.SetEnabled(true)
+	metrics.setEnabled(true)
 	if !metrics.enabled {
 		t.Error("metrics should be enabled")
 	}
 }
 
 func TestBuiltinMetrics_HandleRequest(t *testing.T) {
-	metrics := NewBuiltinMetrics()
+	metrics := newBuiltinMetrics()
 
 	req1 := httptest.NewRequest("GET", "/test", nil)
 	req2 := httptest.NewRequest("POST", "/api", nil)
@@ -69,8 +69,8 @@ func TestBuiltinMetrics_HandleRequest(t *testing.T) {
 }
 
 func TestBuiltinMetrics_HandleRequest_Disabled(t *testing.T) {
-	metrics := NewBuiltinMetrics()
-	metrics.SetEnabled(false)
+	metrics := newBuiltinMetrics()
+	metrics.setEnabled(false)
 
 	req := httptest.NewRequest("GET", "/test", nil)
 	metrics.HandleRequest(req)
@@ -81,10 +81,10 @@ func TestBuiltinMetrics_HandleRequest_Disabled(t *testing.T) {
 }
 
 func TestBuiltinMetrics_RecordResponse(t *testing.T) {
-	metrics := NewBuiltinMetrics()
+	metrics := newBuiltinMetrics()
 
 	// Record a successful response
-	metrics.RecordResponse("/api/users", "GET", 200, 100*time.Millisecond, false)
+	metrics.recordResponse("/api/users", "GET", 200, 100*time.Millisecond, false)
 
 	if metrics.responseCount != 1 {
 		t.Errorf("expected response count 1, got %d", metrics.responseCount)
@@ -112,7 +112,7 @@ func TestBuiltinMetrics_RecordResponse(t *testing.T) {
 	}
 
 	// Record an error response
-	metrics.RecordResponse("/api/error", "POST", 500, 50*time.Millisecond, true)
+	metrics.recordResponse("/api/error", "POST", 500, 50*time.Millisecond, true)
 
 	if metrics.responseCount != 2 {
 		t.Errorf("expected response count 2, got %d", metrics.responseCount)
@@ -129,10 +129,10 @@ func TestBuiltinMetrics_RecordResponse(t *testing.T) {
 }
 
 func TestBuiltinMetrics_RecordResponse_Disabled(t *testing.T) {
-	metrics := NewBuiltinMetrics()
-	metrics.SetEnabled(false)
+	metrics := newBuiltinMetrics()
+	metrics.setEnabled(false)
 
-	metrics.RecordResponse("/api/test", "GET", 200, 100*time.Millisecond, false)
+	metrics.recordResponse("/api/test", "GET", 200, 100*time.Millisecond, false)
 
 	if metrics.responseCount != 0 {
 		t.Errorf("expected response count 0 when disabled, got %d", metrics.responseCount)
@@ -140,15 +140,15 @@ func TestBuiltinMetrics_RecordResponse_Disabled(t *testing.T) {
 }
 
 func TestBuiltinMetrics_GetSnapshot(t *testing.T) {
-	metrics := NewBuiltinMetrics()
+	metrics := newBuiltinMetrics()
 
 	// Record some test data
 	req := httptest.NewRequest("GET", "/api/test", nil)
 	metrics.HandleRequest(req)
-	metrics.RecordResponse("/api/test", "GET", 200, 100*time.Millisecond, false)
-	metrics.RecordResponse("/api/error", "POST", 500, 50*time.Millisecond, true)
+	metrics.recordResponse("/api/test", "GET", 200, 100*time.Millisecond, false)
+	metrics.recordResponse("/api/error", "POST", 500, 50*time.Millisecond, true)
 
-	snapshot := metrics.GetSnapshot()
+	snapshot := metrics.getSnapshot()
 
 	if snapshot.RequestCount != 1 {
 		t.Errorf("expected request count 1, got %d", snapshot.RequestCount)
@@ -189,7 +189,7 @@ func TestBuiltinMetrics_GetSnapshot(t *testing.T) {
 }
 
 func TestBuiltinMetrics_GetTopPaths(t *testing.T) {
-	metrics := NewBuiltinMetrics()
+	metrics := newBuiltinMetrics()
 
 	// Record data for multiple paths
 	paths := []string{"/api/popular", "/api/less-popular", "/api/least-popular"}
@@ -197,7 +197,7 @@ func TestBuiltinMetrics_GetTopPaths(t *testing.T) {
 
 	for i, path := range paths {
 		for j := 0; j < counts[i]; j++ {
-			metrics.RecordResponse(path, "GET", 200, 10*time.Millisecond, false)
+			metrics.recordResponse(path, "GET", 200, 10*time.Millisecond, false)
 		}
 	}
 
@@ -222,12 +222,12 @@ func TestBuiltinMetrics_GetTopPaths(t *testing.T) {
 }
 
 func TestBuiltinMetrics_Reset(t *testing.T) {
-	metrics := NewBuiltinMetrics()
+	metrics := newBuiltinMetrics()
 
 	// Record some data
 	req := httptest.NewRequest("GET", "/test", nil)
 	metrics.HandleRequest(req)
-	metrics.RecordResponse("/test", "GET", 200, 100*time.Millisecond, false)
+	metrics.recordResponse("/test", "GET", 200, 100*time.Millisecond, false)
 
 	// Verify data exists
 	if metrics.requestCount == 0 {
@@ -235,7 +235,7 @@ func TestBuiltinMetrics_Reset(t *testing.T) {
 	}
 
 	// Reset metrics
-	metrics.Reset()
+	metrics.reset()
 
 	// Verify data is cleared
 	if metrics.requestCount != 0 {
@@ -264,15 +264,15 @@ func TestBuiltinMetrics_Reset(t *testing.T) {
 }
 
 func TestBuiltinMetrics_GetPrometheusMetrics(t *testing.T) {
-	metrics := NewBuiltinMetrics()
+	metrics := newBuiltinMetrics()
 
 	// Record some test data
 	req := httptest.NewRequest("GET", "/api/test", nil)
 	metrics.HandleRequest(req)
-	metrics.RecordResponse("/api/test", "GET", 200, 100*time.Millisecond, false)
-	metrics.RecordResponse("/api/error", "POST", 500, 50*time.Millisecond, true)
+	metrics.recordResponse("/api/test", "GET", 200, 100*time.Millisecond, false)
+	metrics.recordResponse("/api/error", "POST", 500, 50*time.Millisecond, true)
 
-	prometheusOutput := metrics.GetPrometheusMetrics()
+	prometheusOutput := metrics.getPrometheusMetrics()
 
 	// Check for expected Prometheus format elements
 	expectedMetrics := []string{
@@ -316,14 +316,14 @@ func TestBuiltinMetrics_GetPrometheusMetrics(t *testing.T) {
 }
 
 func TestBuiltinMetrics_RegisterMetricsEndpoint(t *testing.T) {
-	metrics := NewBuiltinMetrics()
-	server, err := New()
+	metrics := newBuiltinMetrics()
+	server, err := NewServer()
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
 
 	// Register metrics endpoint
-	metrics.RegisterMetricsEndpoint(server, "/metrics")
+	metrics.registerMetricsEndpoint(server, "/metrics")
 
 	// Test GET request to metrics endpoint
 	req := httptest.NewRequest("GET", "/metrics", nil)
@@ -382,7 +382,7 @@ newline`, `with\nnewline`},
 }
 
 func TestPathMetrics_TimingCalculations(t *testing.T) {
-	metrics := NewBuiltinMetrics()
+	metrics := newBuiltinMetrics()
 
 	// Record responses with different durations
 	durations := []time.Duration{
@@ -392,7 +392,7 @@ func TestPathMetrics_TimingCalculations(t *testing.T) {
 	}
 
 	for _, duration := range durations {
-		metrics.RecordResponse("/api/test", "GET", 200, duration, false)
+		metrics.recordResponse("/api/test", "GET", 200, duration, false)
 	}
 
 	pathMetric := metrics.pathMetrics["/api/test"]
@@ -459,8 +459,8 @@ func TestBytesToMegabytes(t *testing.T) {
 
 func TestMetricsIntegration(t *testing.T) {
 	// Test that metrics integrate properly with the middleware system
-	metrics := NewBuiltinMetrics()
-	server, err := New(WithMetrics(metrics))
+	metrics := newBuiltinMetrics()
+	server, err := NewServer(WithMetrics(metrics))
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
@@ -483,7 +483,7 @@ func TestMetricsIntegration(t *testing.T) {
 
 	// The response recording happens in the logging middleware
 	// so we need to ensure the logging middleware is also working
-	snapshot := metrics.GetSnapshot()
+	snapshot := metrics.getSnapshot()
 	if snapshot.RequestCount != 1 {
 		t.Errorf("expected snapshot request count 1, got %d", snapshot.RequestCount)
 	}

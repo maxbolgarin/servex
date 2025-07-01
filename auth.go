@@ -143,6 +143,12 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 }
 
 // RegisterRoutes registers the authentication-related HTTP routes on the provided router.
+// It registers the following routes:
+// - /register - POST - Register a new user
+// - /login - POST - Login a user
+// - /refresh - POST - Refresh an access token
+// - /logout - POST - Logout a user
+// - /me - GET - Get the current user
 func (h *AuthManager) RegisterRoutes(r *mux.Router) {
 	rr := r.PathPrefix(h.service.cfg.AuthBasePath).Subrouter()
 	{
@@ -217,6 +223,8 @@ func (m *AuthManager) WithAuth(next http.HandlerFunc, roles ...UserRole) http.Ha
 }
 
 // RegisterHandler handles the HTTP request for user registration.
+// It reads the request body, validates it, and registers a new user.
+// It sets the auth cookie and returns the user login response.
 func (h *AuthManager) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(w, r)
 
@@ -244,6 +252,8 @@ func (h *AuthManager) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // LoginHandler handles the HTTP request for user login.
+// It reads the request body, validates it, and logs the user in.
+// It sets the auth cookie and returns the user login response.
 func (h *AuthManager) LoginHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(w, r)
 
@@ -289,6 +299,8 @@ func (h *AuthManager) LoginHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // RefreshHandler handles the HTTP request for refreshing access tokens using a refresh token cookie.
+// It reads the refresh token cookie, validates it, and refreshes the access token.
+// It sets the auth cookie and returns the user login response.
 func (h *AuthManager) RefreshHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(w, r)
 
@@ -311,6 +323,7 @@ func (h *AuthManager) RefreshHandler(w http.ResponseWriter, r *http.Request) {
 
 // LogoutHandler handles the HTTP request for user logout.
 // It invalidates the refresh token associated with the current session.
+// It sets the logout cookie and returns a no content response.
 func (h *AuthManager) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(w, r)
 
@@ -340,6 +353,7 @@ func (h *AuthManager) LogoutHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetCurrentUserHandler handles the HTTP request to retrieve the details of the currently authenticated user.
+// It reads the user ID from the request context, validates it, and returns the user details.
 func (h *AuthManager) GetCurrentUserHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(w, r)
 
@@ -365,6 +379,7 @@ func (h *AuthManager) GetCurrentUserHandler(w http.ResponseWriter, r *http.Reque
 // GetAllUsersHandler handles the HTTP request to retrieve all users.
 // Note: This handler is intended for administrative purposes and might require specific roles.
 // The corresponding route registration is commented out by default.
+// It returns a list of all users.
 func (h *AuthManager) GetAllUsersHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(w, r)
 

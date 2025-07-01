@@ -492,23 +492,23 @@ func (c *Config) ToBaseConfig() BaseConfig {
 	}
 }
 
-// NewFromConfig creates a new Server instance from a Config struct
-func NewFromConfig(config *Config) (*Server, error) {
+// NewServerFromConfig creates a new Server instance from a Config struct
+func NewServerFromConfig(config *Config) (*Server, error) {
 	opts, err := config.ToOptions()
 	if err != nil {
 		return nil, fmt.Errorf("convert config to options: %w", err)
 	}
-	return NewWithOptions(parseOptions(opts))
+	return NewServerWithOptions(parseOptions(opts))
 }
 
-// StartFromConfig starts a server using configuration from a YAML file
-func StartFromConfig(configFile string, handlerSetter func(*mux.Router)) (shutdown func() error, err error) {
+// StartServerFromConfig starts a server using configuration from a YAML file
+func StartServerFromConfig(configFile string, handlerSetter func(*mux.Router)) (shutdown func() error, err error) {
 	config, err := LoadConfig(configFile)
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
-	server, err := NewFromConfig(config)
+	server, err := NewServerFromConfig(config)
 	if err != nil {
 		return nil, fmt.Errorf("create server: %w", err)
 	}

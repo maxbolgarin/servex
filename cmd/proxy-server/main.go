@@ -53,7 +53,7 @@ func main() {
 
 	// Create server from configuration
 	log.Println("Initializing proxy server...")
-	server, err := servex.NewFromConfig(config)
+	server, err := servex.NewServerFromConfig(config)
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
