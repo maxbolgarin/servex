@@ -330,7 +330,7 @@ func TestContext_Error(t *testing.T) {
 
 	ctx := NewContext(w, req)
 
-	ctx.Error(errors.New("example error"), http.StatusInternalServerError, "Internal server error")
+	ctx.Error(errors.New("example error"), http.StatusInternalServerError, "Internal server error", "code", "INTERNAL_ERROR")
 	resp := w.Result()
 	body, _ := io.ReadAll(resp.Body)
 
@@ -339,6 +339,9 @@ func TestContext_Error(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "Internal server error") {
 		t.Errorf("expected 'Internal server error' error message, got %v", string(body))
+	}
+	if !strings.Contains(string(body), `"code":"INTERNAL_ERROR"`) {
+		t.Errorf("expected 'code=INTERNAL_ERROR' in error message, got %v", string(body))
 	}
 }
 

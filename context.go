@@ -923,11 +923,11 @@ func (ctx *Context) JSON(bodyRaw any) {
 // Parameters:
 //   - err: The error to log and send to the client
 //   - msg: The error message to send to the client
-//   - args: Optional arguments for the error message
+//   - fields: Optional fields for the error message
 //
 // It is a shortcut for [Context.Error].
-func (ctx *Context) BadRequest(err error, msg string, args ...any) {
-	ctx.Error(err, http.StatusBadRequest, msg, args...)
+func (ctx *Context) BadRequest(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusBadRequest, msg, fields...)
 }
 
 // Unauthorized handles an error by returning an HTTP error response with status code 401.
@@ -937,11 +937,11 @@ func (ctx *Context) BadRequest(err error, msg string, args ...any) {
 // Parameters:
 //   - err: The error to log and send to the client
 //   - msg: The error message to send to the client
-//   - args: Optional arguments for the error message
+//   - fields: Optional fields for the error message
 //
 // It is a shortcut for [Context.Error].
-func (ctx *Context) Unauthorized(err error, msg string, args ...any) {
-	ctx.Error(err, http.StatusUnauthorized, msg, args...)
+func (ctx *Context) Unauthorized(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusUnauthorized, msg, fields...)
 }
 
 // Forbidden handles an error by returning an HTTP error response with status code 403.
@@ -951,11 +951,11 @@ func (ctx *Context) Unauthorized(err error, msg string, args ...any) {
 // Parameters:
 //   - err: The error to log and send to the client
 //   - msg: The error message to send to the client
-//   - args: Optional arguments for the error message
+//   - fields: Optional fields for the error message
 //
 // It is a shortcut for [Context.Error].
-func (ctx *Context) Forbidden(err error, msg string, args ...any) {
-	ctx.Error(err, http.StatusForbidden, msg, args...)
+func (ctx *Context) Forbidden(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusForbidden, msg, fields...)
 }
 
 // NotFound handles an error by returning an HTTP error response with status code 404.
@@ -965,11 +965,22 @@ func (ctx *Context) Forbidden(err error, msg string, args ...any) {
 // Parameters:
 //   - err: The error to log and send to the client
 //   - msg: The error message to send to the client
-//   - args: Optional arguments for the error message
+//   - fields: Optional fields for the error message
 //
 // It is a shortcut for [Context.Error].
-func (ctx *Context) NotFound(err error, msg string, args ...any) {
-	ctx.Error(err, http.StatusNotFound, msg, args...)
+func (ctx *Context) NotFound(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusNotFound, msg, fields...)
+}
+
+// MethodNotAllowed handles an error by returning an HTTP error response with status code 405.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// It sends a 'Method not allowed' error response.
+//
+// It is a shortcut for [Context.Error].
+func (ctx *Context) MethodNotAllowed(fields ...any) {
+	ctx.Error(nil, http.StatusMethodNotAllowed, "Method not allowed", fields...)
 }
 
 // NotAcceptable handles an error by returning an HTTP error response with status code 406.
@@ -979,11 +990,11 @@ func (ctx *Context) NotFound(err error, msg string, args ...any) {
 // Parameters:
 //   - err: The error to log and send to the client
 //   - msg: The error message to send to the client
-//   - args: Optional arguments for the error message
+//   - fields: Optional fields for the error message
 //
 // It is a shortcut for [Context.Error].
-func (ctx *Context) NotAcceptable(err error, msg string, args ...any) {
-	ctx.Error(err, http.StatusNotAcceptable, msg, args...)
+func (ctx *Context) NotAcceptable(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusNotAcceptable, msg, fields...)
 }
 
 // Conflict handles an error by returning an HTTP error response with status code 409.
@@ -993,11 +1004,53 @@ func (ctx *Context) NotAcceptable(err error, msg string, args ...any) {
 // Parameters:
 //   - err: The error to log and send to the client
 //   - msg: The error message to send to the client
-//   - args: Optional arguments for the error message
+//   - fields: Optional fields for the error message
 //
 // It is a shortcut for [Context.Error].
-func (ctx *Context) Conflict(err error, msg string, args ...any) {
-	ctx.Error(err, http.StatusConflict, msg, args...)
+func (ctx *Context) Conflict(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusConflict, msg, fields...)
+}
+
+// MethodConflict handles an error by returning an HTTP error response with status code 409.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - fields: Optional fields for the error message
+//
+// It is a shortcut for [Context.Error].
+func (ctx *Context) PreconditionFailed(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusPreconditionFailed, msg, fields...)
+}
+
+// RequestEntityTooLarge handles an error by returning an HTTP error response with status code 413.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - fields: Optional fields for the error message
+//
+// It is a shortcut for [Context.Error].
+func (ctx *Context) RequestEntityTooLarge(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusRequestEntityTooLarge, msg, fields...)
+}
+
+// UnsupportedMediaType handles an error by returning an HTTP error response with status code 415.
+// You should not modify the [http.ResponseWriter] after calling this method.
+// You will probably want to return from your handler after calling this method.
+//
+// Parameters:
+//   - err: The error to log and send to the client
+//   - msg: The error message to send to the client
+//   - fields: Optional fields for the error message
+//
+// It is a shortcut for [Context.Error].
+func (ctx *Context) UnsupportedMediaType(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusUnsupportedMediaType, msg, fields...)
 }
 
 // StatusUnprocessableEntity handles an error by returning an HTTP error response with status code 422.
@@ -1007,11 +1060,11 @@ func (ctx *Context) Conflict(err error, msg string, args ...any) {
 // Parameters:
 //   - err: The error to log and send to the client
 //   - msg: The error message to send to the client
-//   - args: Optional arguments for the error message
+//   - fields: Optional fields for the error message
 //
 // It is a shortcut for [Context.Error].
-func (ctx *Context) UnprocessableEntity(err error, msg string, args ...any) {
-	ctx.Error(err, http.StatusUnprocessableEntity, msg, args...)
+func (ctx *Context) UnprocessableEntity(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusUnprocessableEntity, msg, fields...)
 }
 
 // TooManyRequests handles an error by returning an HTTP error response with status code 429.
@@ -1021,11 +1074,11 @@ func (ctx *Context) UnprocessableEntity(err error, msg string, args ...any) {
 // Parameters:
 //   - err: The error to log and send to the client
 //   - msg: The error message to send to the client
-//   - args: Optional arguments for the error message
+//   - fields: Optional fields for the error message
 //
 // It is a shortcut for [Context.Error].
-func (ctx *Context) TooManyRequests(err error, msg string, args ...any) {
-	ctx.Error(err, http.StatusTooManyRequests, msg, args...)
+func (ctx *Context) TooManyRequests(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusTooManyRequests, msg, fields...)
 }
 
 // InternalServerError handles an error by returning an HTTP error response with status code 500.
@@ -1035,11 +1088,11 @@ func (ctx *Context) TooManyRequests(err error, msg string, args ...any) {
 // Parameters:
 //   - err: The error to log and send to the client
 //   - msg: The error message to send to the client
-//   - args: Optional arguments for the error message
+//   - fields: Optional fields for the error message
 //
 // It is a shortcut for [Context.Error].
-func (ctx *Context) InternalServerError(err error, msg string, args ...any) {
-	ctx.Error(err, http.StatusInternalServerError, msg, args...)
+func (ctx *Context) InternalServerError(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusInternalServerError, msg, fields...)
 }
 
 // NotImplemented handles an error by returning an HTTP error response with status code 501.
@@ -1049,11 +1102,11 @@ func (ctx *Context) InternalServerError(err error, msg string, args ...any) {
 // Parameters:
 //   - err: The error to log and send to the client
 //   - msg: The error message to send to the client
-//   - args: Optional arguments for the error message
+//   - fields: Optional fields for the error message
 //
 // It is a shortcut for [Context.Error].
-func (ctx *Context) NotImplemented(err error, msg string, args ...any) {
-	ctx.Error(err, http.StatusNotImplemented, msg, args...)
+func (ctx *Context) NotImplemented(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusNotImplemented, msg, fields...)
 }
 
 // BadGateway handles an error by returning an HTTP error response with status code 502.
@@ -1063,11 +1116,11 @@ func (ctx *Context) NotImplemented(err error, msg string, args ...any) {
 // Parameters:
 //   - err: The error to log and send to the client
 //   - msg: The error message to send to the client
-//   - args: Optional arguments for the error message
+//   - fields: Optional fields for the error message
 //
 // It is a shortcut for [Context.Error].
-func (ctx *Context) BadGateway(err error, msg string, args ...any) {
-	ctx.Error(err, http.StatusBadGateway, msg, args...)
+func (ctx *Context) BadGateway(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusBadGateway, msg, fields...)
 }
 
 // ServiceUnavailable handles an error by returning an HTTP error response with status code 503.
@@ -1077,11 +1130,11 @@ func (ctx *Context) BadGateway(err error, msg string, args ...any) {
 // Parameters:
 //   - err: The error to log and send to the client
 //   - msg: The error message to send to the client
-//   - args: Optional arguments for the error message
+//   - fields: Optional fields for the error message
 //
 // It is a shortcut for [Context.Error].
-func (ctx *Context) ServiceUnavailable(err error, msg string, args ...any) {
-	ctx.Error(err, http.StatusServiceUnavailable, msg, args...)
+func (ctx *Context) ServiceUnavailable(err error, msg string, fields ...any) {
+	ctx.Error(err, http.StatusServiceUnavailable, msg, fields...)
 }
 
 // Error handles errors by sending standardized HTTP error responses.
@@ -1101,9 +1154,9 @@ func (ctx *Context) ServiceUnavailable(err error, msg string, args ...any) {
 //   - err: The underlying error (logged but not always exposed to client)
 //   - code: HTTP status code (400, 401, 404, 500, etc.)
 //   - msg: User-friendly error message (can include format verbs)
-//   - args: Optional arguments for message formatting
+//   - fields: Optional key-value pairs for additional error context
 //
-// The response format is JSON: {"message": "error description"}
+// The response format is JSON: {"message": "error description", "field1": "value1", "field2": "value2"}
 //
 // Example:
 //
@@ -1111,35 +1164,39 @@ func (ctx *Context) ServiceUnavailable(err error, msg string, args ...any) {
 //	ctx.Error(err, 400, "Invalid request")
 //
 //	// Formatted error message
-//	ctx.Error(err, 404, "User with ID %s not found", userID)
+//	ctx.Error(err, 404, "User not found", "user_id", userID) -> {"message": "User not found", "user_id": "123"}
 //
 //	// Use helper methods for common cases
 //	ctx.BadRequest(err, "Invalid JSON payload")
 //	ctx.NotFound(err, "Resource not found")
-//	ctx.InternalServerError(err, "Database connection failed")
+//	ctx.InternalServerError(err, "Database connection failed", "database_name", "users") -> {"message": "Database connection failed", "database_name": "users"}
 //
 // Note: Do not modify the ResponseWriter after calling this method.
 // This method should typically be followed by a return statement.
-func (ctx *Context) Error(err error, code int, msg string, args ...any) {
-	if err == nil {
-		return
-	}
-	if len(args) > 0 {
-		msg = fmt.Sprintf(msg, args...)
-	}
-
-	ctx.setError(err, code, msg)
-
-	isSendErrorToClient := getValueFromContext[bool](ctx.r, sendErrorToClientKey{})
-	if isSendErrorToClient || ctx.isSendErrorToClient {
-		msg = fmt.Sprintf("%s: %s", msg, err.Error())
-	}
-
-	body := ErrorResponse{
-		Message: msg,
-	}
-	jsonBytes, err := json.Marshal(body)
+func (ctx *Context) Error(err error, code int, msg string, fields ...any) {
 	if err != nil {
+		ctx.setError(err, code, msg)
+
+		isSendErrorToClient := getValueFromContext[bool](ctx.r, sendErrorToClientKey{})
+		if isSendErrorToClient || ctx.isSendErrorToClient {
+			msg = fmt.Sprintf("%s: %s", msg, err.Error())
+		}
+	}
+
+	body := map[string]any{
+		"message": msg,
+	}
+	for i := 0; i < len(fields); i += 2 {
+		if i+1 >= len(fields) {
+			break
+		}
+		if key, ok := fields[i].(string); ok {
+			body[key] = fields[i+1]
+		}
+	}
+
+	jsonBytes, marshalErr := json.Marshal(body)
+	if marshalErr != nil {
 		jsonBytes = []byte(`{"message":"failed to marshal error response"}`)
 	}
 
@@ -1151,7 +1208,8 @@ func (ctx *Context) Error(err error, code int, msg string, args ...any) {
 		// Log the write error if possible (though Context doesn't have logger)
 		// Cannot call ctx.Error as headers are already written.
 		// We can potentially set the error in context for logging, though the request is mostly finished.
-		ctx.setError(fmt.Errorf("write error response: %w", writeErr), code, "failed to write error response body, original error: "+err.Error())
+		ctx.setError(fmt.Errorf("write error response: %w", writeErr), code,
+			"failed to write error response body, original error: "+err.Error())
 		// No return here, let the handler finish, but the response is likely broken.
 	}
 }
