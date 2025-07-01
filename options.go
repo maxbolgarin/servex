@@ -2336,8 +2336,8 @@ func WithHTTPSRedirectExcludePaths(paths ...string) Option {
 // If set, only requests to these paths will be redirected to HTTPS.
 //
 // If both IncludePaths and ExcludePaths are set:
-//   1. Paths must match IncludePaths to be considered for redirection
-//   2. Paths in ExcludePaths are then excluded from redirection
+//  1. Paths must match IncludePaths to be considered for redirection
+//  2. Paths in ExcludePaths are then excluded from redirection
 //
 // Example:
 //

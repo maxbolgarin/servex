@@ -8,6 +8,7 @@ Each tutorial builds on the previous ones, teaching new concepts while reinforci
 
 | # | Tutorial | Difficulty | What You'll Learn | Estimated Time |
 |---|----------|------------|-------------------|----------------|
+| 0 | [**Plain HTTP + Servex**](00-plain-http/) | 🟢 Beginner | Use Servex utilities with plain net/http | 15 min |
 | 1 | [**Hello World**](01-hello-world/) | 🟢 Beginner | Basic server creation, endpoints, JSON responses | 10 min |
 | 2 | [**Quickstart**](02-quickstart/) | 🟢 Beginner | Server presets, multiple configurations | 15 min |
 | 3 | [**Security Headers**](03-security-headers/) | 🟢 Beginner | Protect against XSS, clickjacking, and more | 20 min |
@@ -30,9 +31,16 @@ Each tutorial builds on the previous ones, teaching new concepts while reinforci
 ### 🐣 **Beginner Path** (Start here!)
 Perfect if you're new to Servex or web servers in Go:
 ```
-01 → 02 → 03 → 04 → 05
+00 → 01 → 02 → 03 → 04 → 05
 ```
 **Goal**: Build a secure, fast web server with caching and static files
+
+### 🔄 **Incremental Adoption Path**
+Already have a net/http server? See how to add Servex features gradually:
+```
+00 → 08 → 01 → 03 → 06
+```
+**Goal**: Enhance existing applications with Servex utilities
 
 ### 🔧 **API Developer Path**
 Building REST APIs and microservices:
@@ -59,7 +67,12 @@ Everything you need for production deployments:
 
 ### Option 1: Start the Tutorial
 ```bash
-# Begin with the first tutorial
+# Begin with the first tutorial (incremental adoption)
+cd 00-plain-http/
+go run main.go
+# Visit http://localhost:8080
+
+# Or start with full Servex server
 cd 01-hello-world/
 go run main.go
 # Visit http://localhost:8080
@@ -188,9 +201,11 @@ Once you complete the tutorials:
 
 ## 🚀 Ready to Start?
 
-🎯 **Begin your journey:** → [01-hello-world](01-hello-world/)
+🎯 **Begin your journey:** → [00-plain-http](00-plain-http/) or [01-hello-world](01-hello-world/)
 
-**New to web servers?** Start with tutorial 1 for a gentle introduction.
+**Have existing net/http code?** Start with [00-plain-http](00-plain-http/) to see incremental adoption.
+
+**New to web servers?** Start with [01-hello-world](01-hello-world/) for a gentle introduction.
 
 **Have experience?** Jump to any tutorial that interests you - they're all self-contained!
 

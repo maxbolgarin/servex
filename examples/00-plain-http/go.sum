@@ -14,6 +14,8 @@ github.com/maxbolgarin/lang v1.8.0 h1:Nf2tiNqMGPVzhy516tzDxfTz+xVSoG/Wu/CE4pbhhQ
 github.com/maxbolgarin/lang v1.8.0/go.mod h1:gZyHWP6Odm4E4ow7ebyaD7TCoZsuQyXh30zk8g7lmXc=
 github.com/maxbolgarin/servex/v2 v2.0.0 h1:0ePpBDnMdrRGoxo41+gGtBykrOl1uh+u7d8S8FiA8DA=
 github.com/maxbolgarin/servex/v2 v2.0.0/go.mod h1:6rcbjwvmaZkyaLd07Z9w3KIA7aLkrn2r88AEY4xQeVU=
+github.com/maxbolgarin/servex/v2 v2.1.0 h1:aLccIrd6nInmwNf/iU+AU6aqZSx8MRbYEcVk4/rmJvs=
+github.com/maxbolgarin/servex/v2 v2.1.0/go.mod h1:6rcbjwvmaZkyaLd07Z9w3KIA7aLkrn2r88AEY4xQeVU=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421 h1:ZqeYNhU3OHLH3mGKHDcjJRFFRrJa6eAM5H+CtDdOsPc=
 github.com/modern-go/concurrent v0.0.0-20180228061459-e0a39a4cb421/go.mod h1:6dJC0mAP4ikYIbvyc7fijjWJddQyLn8Ig3JB5CqoB9Q=
 github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd h1:TRLaZ9cD/w8PVh93nsPXa1VrQ6jlwL5oN8l14QlcNfg=
