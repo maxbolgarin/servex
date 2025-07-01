@@ -112,6 +112,20 @@ func NewWithOptions(opts Options) (*Server, error) {
 	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken, opts)
 	registerOptsMiddleware(s.router, opts)
 
+	// Register proxy middleware before auth but after security/filtering
+	proxyManager, err := RegisterProxyMiddleware(s.router, opts.Proxy, opts.Logger)
+	if err != nil {
+		return nil, fmt.Errorf("register proxy middleware: %w", err)
+	}
+	if proxyManager != nil {
+		// Store proxy manager for cleanup
+		s.cleanups = append(s.cleanups, func() {
+			if proxyManager.dumpWriter != nil {
+				proxyManager.dumpWriter.Close()
+			}
+		})
+	}
+
 	if s.opts.Auth.Enabled {
 		if s.opts.Auth.Database == nil {
 			return nil, errors.New("auth database is required")

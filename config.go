@@ -86,6 +86,9 @@ type Config struct {
 
 	// StaticFiles contains static file serving configuration
 	StaticFiles StaticFilesConfiguration `yaml:"static_files" json:"static_files"`
+
+	// Proxy contains reverse proxy configuration
+	Proxy ProxyConfiguration `yaml:"proxy" json:"proxy"`
 }
 
 // ServerConfig represents basic server configuration
@@ -468,6 +471,11 @@ func (c *Config) ToOptions() ([]Option, error) {
 			CacheRules:   c.StaticFiles.CacheRules,
 		}
 		opts = append(opts, WithStaticFileConfig(staticFileConfig))
+	}
+
+	// Proxy configuration
+	if c.Proxy.Enabled {
+		opts = append(opts, WithProxyConfig(c.Proxy))
 	}
 
 	return opts, nil

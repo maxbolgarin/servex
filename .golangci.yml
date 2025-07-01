@@ -242,9 +242,3 @@ issues:
   max-same-issues: 50
   max-issues-per-linter: 0
   new: false
-  exclude-generated: false
-
-linters-settings:
-  nakedret:
-    max-func-lines: 1
-    

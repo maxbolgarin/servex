@@ -449,6 +449,9 @@ type Options struct {
 
 	// EnableDefaultMetrics enables the default metrics endpoint.
 	EnableDefaultMetrics bool
+
+	// Proxy is the reverse proxy configuration
+	Proxy ProxyConfiguration
 }
 
 // AuthConfig holds the JWT-based authentication configuration with user management, roles, and JWT tokens.
@@ -5726,11 +5729,49 @@ func WithStaticFileCache(maxAge int, rules map[string]int) Option {
 //		servex.WithStaticFileExclusions("/api/*", "/auth/*"),
 //	)
 func WithStaticFileExclusions(paths ...string) Option {
-	return func(o *Options) {
-		if !o.StaticFiles.Enabled {
-			return // Only apply if static files are enabled
-		}
-		o.StaticFiles.ExcludePaths = append(o.StaticFiles.ExcludePaths, paths...)
+	return func(opts *Options) {
+		opts.StaticFiles.ExcludePaths = append(opts.StaticFiles.ExcludePaths, paths...)
+	}
+}
+
+// WithProxyConfig sets the reverse proxy configuration.
+// This enables L7 reverse proxy/API gateway functionality with load balancing,
+// traffic dumping, health checking, and advanced routing capabilities.
+//
+// Example:
+//
+//	proxyConfig := ProxyConfiguration{
+//	  Enabled: true,
+//	  Rules: []ProxyRule{
+//	    {
+//	      Name: "api-backend",
+//	      PathPrefix: "/api/",
+//	      Backends: []Backend{
+//	        {URL: "http://backend1:8080", Weight: 2},
+//	        {URL: "http://backend2:8080", Weight: 1},
+//	      },
+//	      LoadBalancing: WeightedRoundRobinStrategy,
+//	      StripPrefix: "/api",
+//	    },
+//	  },
+//	  TrafficDump: TrafficDumpConfig{
+//	    Enabled: true,
+//	    Directory: "./traffic_dumps",
+//	    IncludeBody: true,
+//	  },
+//	}
+//	server, _ := servex.New(servex.WithProxyConfig(proxyConfig))
+//
+// Features:
+//   - Multiple load balancing strategies (round-robin, weighted, least-connections, etc.)
+//   - Health checking with automatic backend failover
+//   - Traffic dumping for analysis and debugging
+//   - Path-based and header-based routing
+//   - Connection pooling and timeout management
+//   - RAW HTTP request logging
+func WithProxyConfig(proxy ProxyConfiguration) Option {
+	return func(opts *Options) {
+		opts.Proxy = proxy
 	}
 }
 

@@ -321,7 +321,7 @@ func TestPrepareServerWithCertFiles(t *testing.T) {
 // TestPrepareServerWithValidConfig tests the prepareServer function with valid config but no certificate files.
 func TestPrepareServerWithValidConfig(t *testing.T) {
 	cfg := BaseConfig{
-		HTTP: ":8080",
+		HTTP: ":12323",
 		// No certificate files specified
 	}
 

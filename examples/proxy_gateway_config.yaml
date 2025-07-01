@@ -1,0 +1,326 @@
+# Comprehensive Servex API Gateway Configuration
+# This configuration demonstrates L7 reverse proxy functionality
+# combined with security, filtering, rate limiting, and monitoring features
+
+# Basic server configuration
+server:
+  http: ":8080"
+  # https: ":8443"
+  # cert_file: "/etc/ssl/certs/gateway.crt"
+  # key_file: "/etc/ssl/private/gateway.key"
+  
+  # Timeouts
+  read_timeout: "30s"
+  read_header_timeout: "10s"
+  idle_timeout: "120s"
+  
+  # Health and metrics endpoints
+  enable_health_endpoint: true
+  health_path: "/health"
+  enable_default_metrics: true
+  metrics_path: "/metrics"
+  
+  # Request size limits
+  max_request_body_size: 67108864    # 64MB
+  max_json_body_size: 10485760       # 10MB
+  max_file_upload_size: 52428800     # 50MB
+  enable_request_size_limits: true
+
+# JWT-based authentication (optional)
+auth:
+  enabled: false
+  # Enable for user management and JWT tokens
+  # use_memory_database: true
+  # jwt_access_secret: "your-access-secret-key"
+  # jwt_refresh_secret: "your-refresh-secret-key"
+  # access_token_duration: "15m"
+  # refresh_token_duration: "24h"
+
+# Rate limiting to protect backends
+rate_limit:
+  enabled: true
+  requests_per_interval: 1000        # 1000 requests per minute
+  interval: "1m"
+  burst_size: 100                    # Allow bursts up to 100 requests
+  status_code: 429
+  message: "Rate limit exceeded. Please try again later."
+  
+  # Exclude monitoring endpoints from rate limiting
+  exclude_paths:
+    - "/health"
+    - "/metrics"
+    - "/info"
+    - "/proxy-status"
+  
+  # Trusted proxy IP ranges
+  trusted_proxies:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+
+# Request filtering for security
+filter:
+  # Block known bad bots and scrapers
+  blocked_user_agents_regex:
+    - "(?i)(bot|crawler|spider|scraper)"
+    - "(?i)(curl|wget|python-requests)"
+    - "(?i)(masscan|nmap|zmap)"
+  
+  # Block suspicious query parameters
+  blocked_query_params:
+    debug: ["true", "1", "on"]
+    test: ["true", "1", "on"]
+    admin: ["true", "1", "on"]
+  
+  # Block SQL injection attempts in query parameters
+  blocked_query_params_regex:
+    search: ["(?i)(union|select|drop|delete|insert|update)"]
+    query: ["(?i)(union|select|drop|delete|insert|update)"]
+    q: ["(?i)(union|select|drop|delete|insert|update)"]
+  
+  # Exclude monitoring endpoints from filtering
+  exclude_paths:
+    - "/health"
+    - "/metrics"
+    - "/info"
+  
+  status_code: 403
+  message: "Request blocked by security filter"
+  
+  trusted_proxies:
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+
+# Security headers
+security:
+  enabled: true
+  
+  # Security headers for web applications
+  content_security_policy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+  x_frame_options: "DENY"
+  x_content_type_options: "nosniff"
+  x_xss_protection: "1; mode=block"
+  referrer_policy: "strict-origin-when-cross-origin"
+  permissions_policy: "geolocation=(), microphone=(), camera=(), payment=(), usb=()"
+  
+  # CSRF protection for web applications
+  csrf_enabled: true
+  csrf_token_name: "X-CSRF-Token"
+  csrf_cookie_name: "csrf_token"
+  csrf_token_endpoint: "/api/csrf-token"
+  
+  # Exclude API endpoints from CSRF protection
+  exclude_paths:
+    - "/api/*"
+    - "/health"
+    - "/metrics"
+    - "/proxy-status"
+
+# Cache control
+cache:
+  enabled: true
+  cache_control: "no-cache, no-store, must-revalidate"  # No caching for gateway
+  
+  # Don't cache dynamic content
+  exclude_paths:
+    - "/api/*"
+    - "/auth/*"
+    - "/proxy-status"
+
+# Comprehensive logging
+logging:
+  disable_request_logging: false
+  no_log_client_errors: false        # Log all errors for monitoring
+  log_fields:
+    - "method"
+    - "url"
+    - "status"
+    - "duration"
+    - "ip"
+    - "user_agent"
+
+# L7 Reverse Proxy / API Gateway Configuration
+proxy:
+  enabled: true
+  
+  # Global proxy settings
+  global_timeout: "30s"
+  max_idle_conns: 200
+  max_idle_conns_per_host: 50
+  idle_conn_timeout: "90s"
+  
+  # Traffic dumping for analysis and debugging
+  traffic_dump:
+    enabled: true
+    directory: "./traffic_dumps"
+    max_file_size: 104857600          # 100MB per file
+    max_files: 20                     # Keep 20 files (2GB total)
+    include_body: true                # Include request/response bodies
+    max_body_size: 65536              # 64KB max body size in dumps
+    sample_rate: 0.1                  # Sample 10% of traffic to reduce storage
+  
+  # Health checking configuration
+  health_check:
+    enabled: true
+    default_interval: "30s"
+    timeout: "5s"
+    retry_count: 3
+  
+  # Proxy routing rules
+  rules:
+    # Main API backend with weighted load balancing
+    - name: "api-backend"
+      path_prefix: "/api/"
+      methods: ["GET", "POST", "PUT", "DELETE", "PATCH"]
+      backends:
+        - url: "http://api1.internal:8080"
+          weight: 3                   # Higher weight = more traffic
+          health_check_path: "/health"
+          health_check_interval: "30s"
+          max_connections: 100
+        - url: "http://api2.internal:8080"
+          weight: 2
+          health_check_path: "/health"
+          health_check_interval: "30s"
+          max_connections: 100
+        - url: "http://api3.internal:8080"
+          weight: 1
+          health_check_path: "/health"
+          health_check_interval: "30s"
+          max_connections: 50
+      load_balancing: "weighted_round_robin"
+      strip_prefix: "/api"            # Remove /api before forwarding
+      timeout: "25s"
+      enable_traffic_dump: true       # Dump all API traffic
+    
+    # Authentication service with least connections balancing
+    - name: "auth-service"
+      path_prefix: "/auth/"
+      methods: ["POST", "PUT"]
+      backends:
+        - url: "http://auth1.internal:8081"
+          weight: 1
+          health_check_path: "/ping"
+          health_check_interval: "15s"
+          max_connections: 50
+        - url: "http://auth2.internal:8081"
+          weight: 1
+          health_check_path: "/ping"
+          health_check_interval: "15s"
+          max_connections: 50
+      load_balancing: "least_connections"
+      strip_prefix: "/auth"
+      add_prefix: "/v1"               # Add /v1 prefix for backend
+      timeout: "10s"
+      enable_traffic_dump: true
+    
+    # User service with session affinity (IP hash)
+    - name: "user-service"
+      host: "users.example.com"       # Route based on Host header
+      backends:
+        - url: "http://users1.internal:8082"
+          weight: 1
+          health_check_path: "/status"
+          health_check_interval: "45s"
+          max_connections: 75
+        - url: "http://users2.internal:8082"
+          weight: 1
+          health_check_path: "/status"
+          health_check_interval: "45s"
+          max_connections: 75
+      load_balancing: "ip_hash"       # Session affinity
+      timeout: "20s"
+      enable_traffic_dump: false      # Don't dump user data
+    
+    # Static content delivery with random balancing
+    - name: "static-cdn"
+      path_prefix: "/static/"
+      methods: ["GET", "HEAD"]
+      backends:
+        - url: "http://cdn1.internal:8083"
+          weight: 1
+          max_connections: 200        # No health check for CDN
+        - url: "http://cdn2.internal:8083"
+          weight: 1
+          max_connections: 200
+        - url: "http://cdn3.internal:8083"
+          weight: 1
+          max_connections: 200
+      load_balancing: "random"
+      strip_prefix: "/static"
+      timeout: "15s"
+      enable_traffic_dump: false      # Don't dump static content
+    
+    # Microservice with header-based routing
+    - name: "payment-service"
+      path_prefix: "/payments/"
+      methods: ["POST", "GET"]
+      headers:
+        "X-API-Version": "v2"         # Only route v2 API calls
+      backends:
+        - url: "http://payments1.internal:8084"
+          weight: 1
+          health_check_path: "/health"
+          health_check_interval: "20s"
+          max_connections: 30
+        - url: "http://payments2.internal:8084"
+          weight: 1
+          health_check_path: "/health"
+          health_check_interval: "20s"
+          max_connections: 30
+      load_balancing: "round_robin"
+      strip_prefix: "/payments"
+      timeout: "30s"                  # Longer timeout for payments
+      enable_traffic_dump: true       # Important to log payment requests
+    
+    # WebSocket proxy (for real-time features)
+    - name: "websocket-service"
+      path_prefix: "/ws/"
+      backends:
+        - url: "http://websocket1.internal:8085"
+          weight: 1
+          health_check_path: "/health"
+          health_check_interval: "60s"
+          max_connections: 1000       # WebSockets need more connections
+        - url: "http://websocket2.internal:8085"
+          weight: 1
+          health_check_path: "/health"
+          health_check_interval: "60s"
+          max_connections: 1000
+      load_balancing: "ip_hash"       # Session affinity for WebSockets
+      strip_prefix: "/ws"
+      timeout: "300s"                 # Long timeout for WebSockets
+      enable_traffic_dump: false      # Don't dump WebSocket traffic
+
+# Static file serving (for serving frontend applications)
+static_files:
+  enabled: true
+  dir: "dist"                        # Frontend build directory
+  spa_mode: true                     # Enable SPA routing
+  index_file: "index.html"
+  
+  # Exclude proxy paths from static serving
+  exclude_paths:
+    - "/api/*"
+    - "/auth/*"
+    - "/payments/*"
+    - "/ws/*"
+    - "/health"
+    - "/metrics"
+    - "/proxy-status"
+  
+  # Cache static assets
+  cache_max_age: 86400               # 1 day default
+  cache_rules:
+    ".js": 31536000                  # 1 year for JS files
+    ".css": 31536000                 # 1 year for CSS files
+    ".html": 3600                    # 1 hour for HTML files
+    ".png": 2592000                  # 30 days for images
+    ".jpg": 2592000
+    ".jpeg": 2592000
+    ".gif": 2592000
+    ".svg": 2592000
+    ".ico": 31536000                 # 1 year for favicons
+    ".woff": 31536000                # 1 year for fonts
+    ".woff2": 31536000
+    ".ttf": 31536000 
