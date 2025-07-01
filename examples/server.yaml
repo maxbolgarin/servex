@@ -237,4 +237,49 @@ logging:
     - "status"
     - "duration"
     - "ip"
-    - "user_agent" 
+    - "user_agent"
+
+# Static file serving configuration
+static_files:
+  enabled: true
+  
+  # Directory containing static files (build output for SPAs)
+  dir: "build"
+  
+  # URL prefix for serving files (empty = serve from root)
+  url_prefix: ""
+  
+  # Enable SPA mode for client-side routing
+  spa_mode: true
+  
+  # Fallback file for SPA routing (default: index.html)
+  index_file: "index.html"
+  
+  # Prefix to strip from URL before file lookup
+  strip_prefix: ""
+  
+  # Paths to exclude from static file serving
+  exclude_paths:
+    - "/api/*"                      # API endpoints
+    - "/auth/*"                     # Authentication endpoints
+    - "/admin/*"                    # Admin interfaces
+    - "/ws/*"                       # WebSocket endpoints
+  
+  # Default cache duration for static files (in seconds)
+  cache_max_age: 86400              # 1 day
+  
+  # File-specific cache rules
+  cache_rules:
+    ".js": 31536000                 # 1 year for JavaScript files
+    ".css": 31536000                # 1 year for CSS files
+    ".html": 3600                   # 1 hour for HTML files
+    ".png": 2592000                 # 30 days for images
+    ".jpg": 2592000                 # 30 days for images
+    ".jpeg": 2592000                # 30 days for images
+    ".gif": 2592000                 # 30 days for images
+    ".svg": 2592000                 # 30 days for SVG files
+    ".ico": 31536000                # 1 year for favicons
+    ".woff": 31536000               # 1 year for fonts
+    ".woff2": 31536000              # 1 year for fonts
+    ".ttf": 31536000                # 1 year for fonts
+    ".eot": 31536000                # 1 year for fonts 

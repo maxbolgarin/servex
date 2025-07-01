@@ -306,6 +306,22 @@ type Options struct {
 	//   - CDN optimization
 	Cache CacheConfig
 
+	// StaticFiles is the static file serving configuration for serving web assets and SPAs.
+	// Set via WithStaticFiles(), WithSPAMode(), or WithStaticFileConfig().
+	//
+	// Use for:
+	//   - Serving React/Vue/Angular apps
+	//   - Static asset serving (CSS, JS, images)
+	//   - Single Page Application (SPA) routing
+	//   - Progressive Web App (PWA) support
+	//
+	// Common use cases:
+	//   - React app with API routes: Serve build/ folder with API at /api/*
+	//   - Documentation site: Serve docs/ folder
+	//   - Static website: Serve public/ folder
+	//   - Mixed SPA + API: Client routing with server API endpoints
+	StaticFiles StaticFileConfig
+
 	// MaxRequestBodySize is the maximum allowed request body size in bytes.
 	// This applies to all request bodies including JSON, form data, and file uploads.
 	// Set via WithMaxRequestBodySize().
@@ -1530,6 +1546,117 @@ type CacheConfig struct {
 	// Path matching supports wildcards (*) for pattern matching.
 	// Useful for applying cache headers only to specific content types.
 	IncludePaths []string
+}
+
+// StaticFileConfig holds configuration for serving static files and Single Page Applications (SPAs).
+type StaticFileConfig struct {
+	// Enabled determines whether static file serving is active.
+	// Must be set to true for static files to be served.
+	// Set via WithStaticFiles(), WithSPAMode(), or WithStaticFileConfig().
+	Enabled bool
+
+	// Dir is the directory containing static files to serve.
+	// This is typically the build output directory for React/Vue/Angular apps.
+	// Set via WithStaticFiles().
+	//
+	// Common examples:
+	//   - "build": React build output
+	//   - "dist": Vue/Angular build output
+	//   - "public": Static website files
+	//   - "static": General static assets
+	//
+	// Files in this directory will be served at the root path unless URLPrefix is set.
+	Dir string
+
+	// URLPrefix is the URL path prefix for serving static files.
+	// If empty, files are served from the root path.
+	// Set via WithStaticFiles() or WithStaticFileConfig().
+	//
+	// Examples:
+	//   - "" (empty): Files served from root (e.g., /app.js)
+	//   - "/static": Files served under /static (e.g., /static/app.js)
+	//   - "/assets": Files served under /assets (e.g., /assets/app.js)
+	//
+	// For SPAs, this is usually empty so the app is served from the root.
+	URLPrefix string
+
+	// SPAMode enables Single Page Application mode with client-side routing support.
+	// When enabled, requests that don't match existing files or API routes
+	// will be served the IndexFile to support client-side routing.
+	// Set via WithSPAMode().
+	//
+	// Use cases:
+	//   - React Router applications
+	//   - Vue Router applications
+	//   - Angular routing
+	//   - Any SPA with client-side routing
+	//
+	// When SPAMode is true, API routes should be registered before enabling static files.
+	SPAMode bool
+
+	// IndexFile is the fallback file to serve for SPA client-side routing.
+	// This file is served when a request doesn't match an existing file or API route.
+	// Only used when SPAMode is true. Set via WithSPAMode() or WithStaticFileConfig().
+	//
+	// Common values:
+	//   - "index.html": Standard for most SPAs
+	//   - "app.html": Custom entry point
+	//
+	// Default: "index.html" if SPAMode is true and this is empty.
+	IndexFile string
+
+	// StripPrefix removes the specified prefix from the URL before looking up files.
+	// This is useful when serving files from a subdirectory but accessing them via a different URL structure.
+	// Set via WithStaticFileConfig().
+	//
+	// Example:
+	//   - URLPrefix: "/app"
+	//   - StripPrefix: "/app"
+	//   - Request: "/app/index.html" → looks for file at "index.html" in Dir
+	StripPrefix string
+
+	// ExcludePaths are URL paths that should not be served as static files.
+	// These paths will be skipped by the static file handler, allowing other handlers to process them.
+	// Set via WithStaticFileConfig().
+	//
+	// Common exclusions:
+	//   - "/api/*": API endpoints
+	//   - "/auth/*": Authentication endpoints
+	//   - "/admin/*": Admin interfaces
+	//   - "/ws/*": WebSocket endpoints
+	//
+	// Path matching supports wildcards (*) for pattern matching.
+	// API routes registered before static files are automatically excluded.
+	ExcludePaths []string
+
+	// CacheMaxAge sets the Cache-Control max-age directive for static files (in seconds).
+	// This controls how long browsers and proxies cache static files.
+	// Set via WithStaticFileConfig().
+	//
+	// Common values:
+	//   - 3600: 1 hour (development)
+	//   - 86400: 1 day (staging)
+	//   - 31536000: 1 year (production, for versioned assets)
+	//   - 0: No caching
+	//
+	// Different file types can have different cache policies by using the CacheRules field.
+	CacheMaxAge int
+
+	// CacheRules defines cache policies for different file types or paths.
+	// The key is a file extension (e.g., ".js", ".css") or path pattern (e.g., "/images/*").
+	// The value is the max-age in seconds.
+	// Set via WithStaticFileConfig().
+	//
+	// Example:
+	//   map[string]int{
+	//     ".js":        31536000, // 1 year for JS files
+	//     ".css":       31536000, // 1 year for CSS files
+	//     ".html":      3600,     // 1 hour for HTML files
+	//     "/images/*":  2592000,  // 30 days for images
+	//   }
+	//
+	// More specific rules override general rules. CacheRules override CacheMaxAge.
+	CacheRules map[string]int
 }
 
 // WithCertificate sets the TLS certificate for the server from a pre-loaded tls.Certificate.
@@ -4766,6 +4893,171 @@ func parseOptions(opts []Option) Options {
 		opt(&out)
 	}
 	return out
+}
+
+// WithStaticFileConfig sets the static file serving configuration.
+// This provides full control over all static file serving options.
+// Use this when you need granular control over file serving behavior.
+//
+// For simpler setups, consider using WithStaticFiles() or WithSPAMode() instead.
+//
+// Example:
+//
+//	cfg := servex.StaticFileConfig{
+//		Enabled:      true,
+//		Dir:          "build",
+//		SPAMode:      true,
+//		IndexFile:    "index.html",
+//		CacheMaxAge:  3600,
+//		ExcludePaths: []string{"/api/*"},
+//		CacheRules: map[string]int{
+//			".js":  31536000, // 1 year
+//			".css": 31536000, // 1 year
+//			".html": 3600,    // 1 hour
+//		},
+//	}
+//	server, _ := servex.New(servex.WithStaticFileConfig(cfg))
+func WithStaticFileConfig(config StaticFileConfig) Option {
+	return func(o *Options) {
+		o.StaticFiles = config
+	}
+}
+
+// WithStaticFiles enables static file serving from the specified directory.
+// This is a simple way to serve static files from a directory.
+//
+// Parameters:
+//   - dir: Directory containing static files to serve
+//   - urlPrefix: URL path prefix (empty for root, e.g., "/static")
+//
+// For SPA support with client-side routing, use WithSPAMode() instead.
+//
+// Examples:
+//
+//	// Serve files from "public/" at root path
+//	servex.WithStaticFiles("public", "")
+//
+//	// Serve files from "assets/" under "/static" path
+//	servex.WithStaticFiles("assets", "/static")
+//
+//	// Complete example
+//	server, _ := servex.New(servex.WithStaticFiles("build", ""))
+func WithStaticFiles(dir, urlPrefix string) Option {
+	return func(o *Options) {
+		o.StaticFiles = StaticFileConfig{
+			Enabled:   true,
+			Dir:       dir,
+			URLPrefix: urlPrefix,
+			SPAMode:   false,
+		}
+	}
+}
+
+// WithSPAMode enables Single Page Application (SPA) mode for serving React, Vue, Angular apps.
+// This serves static files from the directory and provides fallback routing for client-side navigation.
+//
+// In SPA mode:
+//   - Static files are served normally (JS, CSS, images, etc.)
+//   - API routes continue to work (register them before calling this)
+//   - All other routes serve the index file for client-side routing
+//
+// Parameters:
+//   - dir: Directory containing SPA build files (e.g., "build", "dist")
+//   - indexFile: Fallback file for client-side routing (typically "index.html")
+//
+// Usage pattern:
+//  1. Register your API routes first
+//  2. Enable SPA mode last
+//
+// Examples:
+//
+//	// React app setup
+//	server, _ := servex.New(servex.WithSPAMode("build", "index.html"))
+//	server.GET("/api/users", handleUsers)      // API routes work
+//	server.GET("/about", handleUsers)          // Serves index.html for client routing
+//
+//	// Vue app setup
+//	server, _ := servex.New(servex.WithSPAMode("dist", "index.html"))
+func WithSPAMode(dir, indexFile string) Option {
+	return func(o *Options) {
+		if indexFile == "" {
+			indexFile = "index.html"
+		}
+		o.StaticFiles = StaticFileConfig{
+			Enabled:   true,
+			Dir:       dir,
+			SPAMode:   true,
+			IndexFile: indexFile,
+		}
+	}
+}
+
+// WithStaticFileCache sets cache policies for static files.
+// This controls how long browsers and proxies cache static files.
+//
+// Parameters:
+//   - maxAge: Default cache duration in seconds
+//   - rules: File extension or path-specific cache rules
+//
+// The rules map allows different cache durations for different file types:
+//   - Key: File extension (e.g., ".js", ".css") or path pattern (e.g., "/images/*")
+//   - Value: Cache duration in seconds
+//
+// Example:
+//
+//	// Basic cache setup
+//	servex.WithStaticFileCache(3600, nil) // 1 hour for all files
+//
+//	// Advanced cache setup with rules
+//	rules := map[string]int{
+//		".js":        31536000, // 1 year for JS files
+//		".css":       31536000, // 1 year for CSS files
+//		".html":      3600,     // 1 hour for HTML files
+//		"/images/*":  2592000,  // 30 days for images
+//	}
+//	servex.WithStaticFileCache(86400, rules) // 1 day default, custom rules
+func WithStaticFileCache(maxAge int, rules map[string]int) Option {
+	return func(o *Options) {
+		if !o.StaticFiles.Enabled {
+			return // Only apply if static files are enabled
+		}
+		o.StaticFiles.CacheMaxAge = maxAge
+		if rules != nil {
+			o.StaticFiles.CacheRules = rules
+		}
+	}
+}
+
+// WithStaticFileExclusions sets paths that should not be served as static files.
+// These paths will be skipped by the static file handler, allowing API routes to handle them.
+//
+// This is useful when you want to exclude certain paths from static file serving,
+// such as API endpoints that should be handled by custom handlers.
+//
+// Parameters:
+//   - paths: List of path patterns to exclude (supports wildcards with *)
+//
+// Common exclusions:
+//   - "/api/*": All API endpoints
+//   - "/auth/*": Authentication endpoints
+//   - "/admin/*": Admin interfaces
+//   - "/ws/*": WebSocket endpoints
+//
+// Note: API routes registered before static files are automatically excluded.
+//
+// Example:
+//
+//	server, _ := servex.New(
+//		servex.WithSPAMode("build", "index.html"),
+//		servex.WithStaticFileExclusions("/api/*", "/auth/*"),
+//	)
+func WithStaticFileExclusions(paths ...string) Option {
+	return func(o *Options) {
+		if !o.StaticFiles.Enabled {
+			return // Only apply if static files are enabled
+		}
+		o.StaticFiles.ExcludePaths = append(o.StaticFiles.ExcludePaths, paths...)
+	}
 }
 
 const (

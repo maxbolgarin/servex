@@ -27,7 +27,7 @@ type Server struct {
 	opts   Options
 
 	basePath string
-	cleanup  func()
+	cleanups []func()
 }
 
 // New creates a new instance of the [Server]. You can provide a list of options using With* methods.
@@ -66,7 +66,8 @@ func NewWithOptions(opts Options) (*Server, error) {
 		opts:   opts,
 	}
 
-	s.cleanup = RegisterRateLimitMiddleware(s.router, opts.RateLimit)
+	rateLimitCleanup := RegisterRateLimitMiddleware(s.router, opts.RateLimit)
+	s.cleanups = append(s.cleanups, rateLimitCleanup)
 	RegisterRequestSizeLimitMiddleware(s.router, opts)
 
 	filter, err := RegisterFilterMiddleware(s.router, opts.Filter)
@@ -87,6 +88,9 @@ func NewWithOptions(opts Options) (*Server, error) {
 	RegisterRecoverMiddleware(s.router, opts.Logger)
 	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken, opts)
 	registerOptsMiddleware(s.router, opts)
+
+	// Register static file middleware - should be registered after API routes but before health
+	RegisterStaticFileMiddleware(s.router, opts.StaticFiles)
 
 	// Register health
 	s.registerBuiltinEndpoints()
@@ -308,8 +312,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("shutdown HTTPS: %w", err))
 		}
 	}
-	if s.cleanup != nil {
-		s.cleanup()
+	// Run all cleanup functions
+	for _, cleanup := range s.cleanups {
+		if cleanup != nil {
+			cleanup()
+		}
 	}
 	return errors.Join(errs...)
 }

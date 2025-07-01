@@ -83,6 +83,9 @@ type Config struct {
 
 	// Logging contains logging configuration
 	Logging LoggingConfiguration `yaml:"logging" json:"logging"`
+
+	// StaticFiles contains static file serving configuration
+	StaticFiles StaticFilesConfiguration `yaml:"static_files" json:"static_files"`
 }
 
 // ServerConfig represents basic server configuration
@@ -191,6 +194,19 @@ type LoggingConfiguration struct {
 	DisableRequestLogging bool     `yaml:"disable_request_logging" json:"disable_request_logging" env:"SERVEX_LOGGING_DISABLE_REQUEST_LOGGING"`
 	NoLogClientErrors     bool     `yaml:"no_log_client_errors" json:"no_log_client_errors" env:"SERVEX_LOGGING_NO_LOG_CLIENT_ERRORS"`
 	LogFields             []string `yaml:"log_fields" json:"log_fields" env:"SERVEX_LOGGING_LOG_FIELDS"`
+}
+
+// StaticFilesConfiguration represents static file serving configuration
+type StaticFilesConfiguration struct {
+	Enabled      bool           `yaml:"enabled" json:"enabled" env:"SERVEX_STATIC_FILES_ENABLED"`
+	Dir          string         `yaml:"dir" json:"dir" env:"SERVEX_STATIC_FILES_DIR"`
+	URLPrefix    string         `yaml:"url_prefix" json:"url_prefix" env:"SERVEX_STATIC_FILES_URL_PREFIX"`
+	SPAMode      bool           `yaml:"spa_mode" json:"spa_mode" env:"SERVEX_STATIC_FILES_SPA_MODE"`
+	IndexFile    string         `yaml:"index_file" json:"index_file" env:"SERVEX_STATIC_FILES_INDEX_FILE"`
+	StripPrefix  string         `yaml:"strip_prefix" json:"strip_prefix" env:"SERVEX_STATIC_FILES_STRIP_PREFIX"`
+	ExcludePaths []string       `yaml:"exclude_paths" json:"exclude_paths" env:"SERVEX_STATIC_FILES_EXCLUDE_PATHS"`
+	CacheMaxAge  int            `yaml:"cache_max_age" json:"cache_max_age" env:"SERVEX_STATIC_FILES_CACHE_MAX_AGE"`
+	CacheRules   map[string]int `yaml:"cache_rules" json:"cache_rules"`
 }
 
 // LoadConfigFromFile loads configuration from a YAML file
@@ -401,6 +417,22 @@ func (c *Config) ToOptions() ([]Option, error) {
 	}
 	if len(c.Logging.LogFields) > 0 {
 		opts = append(opts, WithLogFields(c.Logging.LogFields...))
+	}
+
+	// Static files configuration
+	if c.StaticFiles.Enabled {
+		staticFileConfig := StaticFileConfig{
+			Enabled:      true,
+			Dir:          c.StaticFiles.Dir,
+			URLPrefix:    c.StaticFiles.URLPrefix,
+			SPAMode:      c.StaticFiles.SPAMode,
+			IndexFile:    c.StaticFiles.IndexFile,
+			StripPrefix:  c.StaticFiles.StripPrefix,
+			ExcludePaths: c.StaticFiles.ExcludePaths,
+			CacheMaxAge:  c.StaticFiles.CacheMaxAge,
+			CacheRules:   c.StaticFiles.CacheRules,
+		}
+		opts = append(opts, WithStaticFileConfig(staticFileConfig))
 	}
 
 	return opts, nil
