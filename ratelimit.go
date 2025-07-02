@@ -125,7 +125,7 @@ func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig, a
 	cfg.BurstSize = lang.Check(cfg.BurstSize, cfg.RequestsPerInterval)
 	cfg.Interval = lang.Check(cfg.Interval, defaultInterval)
 	cfg.StatusCode = lang.Check(cfg.StatusCode, http.StatusTooManyRequests)
-	cfg.Message = lang.Check(cfg.Message, "rate limit exceeded, try again later.")
+	cfg.Message = lang.Check(cfg.Message, "Rate limit exceeded, try again later.")
 
 	if cfg.KeyFunc == nil {
 		cfg.KeyFunc = getUsernameKeyFuncWithProxies(cfg.TrustedProxies)

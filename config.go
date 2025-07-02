@@ -67,7 +67,8 @@ type Config struct {
 	Server ServerConfig `yaml:"server" json:"server"`
 
 	// Auth contains authentication configuration
-	Auth AuthConfiguration `yaml:"auth" json:"auth"`
+	// TODO: refactor this to make it configurable
+	// Auth AuthConfiguration `yaml:"auth" json:"auth"`
 
 	// RateLimit contains rate limiting configuration
 	RateLimit RateLimitConfiguration `yaml:"rate_limit" json:"rate_limit"`
@@ -368,38 +369,38 @@ func (c *Config) ToOptions() ([]Option, error) {
 		}))
 	}
 
-	// Authentication configuration
-	if c.Auth.Enabled {
-		if c.Auth.UseMemoryDatabase {
-			opts = append(opts, WithAuthMemoryDatabase())
-		}
+	// // Authentication configuration
+	// if c.Auth.Enabled {
+	// 	if c.Auth.UseMemoryDatabase {
+	// 		opts = append(opts, WithAuthMemoryDatabase())
+	// 	}
 
-		if c.Auth.JWTAccessSecret != "" && c.Auth.JWTRefreshSecret != "" {
-			opts = append(opts, WithAuthKey(c.Auth.JWTAccessSecret, c.Auth.JWTRefreshSecret))
-		}
-		if c.Auth.AccessTokenDuration > 0 && c.Auth.RefreshTokenDuration > 0 {
-			opts = append(opts, WithAuthTokensDuration(c.Auth.AccessTokenDuration, c.Auth.RefreshTokenDuration))
-		}
-		if c.Auth.Issuer != "" {
-			opts = append(opts, WithAuthIssuer(c.Auth.Issuer))
-		}
-		if c.Auth.RefreshTokenCookieName != "" {
-			opts = append(opts, WithAuthRefreshTokenCookieName(c.Auth.RefreshTokenCookieName))
-		}
-		if c.Auth.BasePath != "" {
-			opts = append(opts, WithAuthBasePath(c.Auth.BasePath))
-		}
-		if len(c.Auth.InitialRoles) > 0 {
-			roles := make([]UserRole, len(c.Auth.InitialRoles))
-			for i, role := range c.Auth.InitialRoles {
-				roles[i] = UserRole(role)
-			}
-			opts = append(opts, WithAuthInitialRoles(roles...))
-		}
-		if c.Auth.NotRegisterRoutes {
-			opts = append(opts, WithAuthNotRegisterRoutes(true))
-		}
-	}
+	// 	if c.Auth.JWTAccessSecret != "" && c.Auth.JWTRefreshSecret != "" {
+	// 		opts = append(opts, WithAuthKey(c.Auth.JWTAccessSecret, c.Auth.JWTRefreshSecret))
+	// 	}
+	// 	if c.Auth.AccessTokenDuration > 0 && c.Auth.RefreshTokenDuration > 0 {
+	// 		opts = append(opts, WithAuthTokensDuration(c.Auth.AccessTokenDuration, c.Auth.RefreshTokenDuration))
+	// 	}
+	// 	if c.Auth.Issuer != "" {
+	// 		opts = append(opts, WithAuthIssuer(c.Auth.Issuer))
+	// 	}
+	// 	if c.Auth.RefreshTokenCookieName != "" {
+	// 		opts = append(opts, WithAuthRefreshTokenCookieName(c.Auth.RefreshTokenCookieName))
+	// 	}
+	// 	if c.Auth.BasePath != "" {
+	// 		opts = append(opts, WithAuthBasePath(c.Auth.BasePath))
+	// 	}
+	// 	if len(c.Auth.InitialRoles) > 0 {
+	// 		roles := make([]UserRole, len(c.Auth.InitialRoles))
+	// 		for i, role := range c.Auth.InitialRoles {
+	// 			roles[i] = UserRole(role)
+	// 		}
+	// 		opts = append(opts, WithAuthInitialRoles(roles...))
+	// 	}
+	// 	if c.Auth.NotRegisterRoutes {
+	// 		opts = append(opts, WithAuthNotRegisterRoutes(true))
+	// 	}
+	// }
 
 	// Rate limiting configuration
 	if c.RateLimit.Enabled {

@@ -38,9 +38,6 @@ RUN mkdir -p /opt/servex && chown -R servex:servex /opt/servex
 # Copy binary from builder
 COPY --from=builder /app/servex /usr/local/bin/servex
 
-# Copy example configuration
-COPY examples/server.yaml /opt/servex/server.example.yaml
-
 # Switch to non-root user
 USER servex
 
@@ -54,8 +51,7 @@ EXPOSE 8080 8443
 # Environment variables with defaults
 ENV SERVEX_SERVER_HTTP=":8080" \
     SERVEX_SERVER_HTTPS="" \
-    SERVEX_SERVER_ENABLE_HEALTH_ENDPOINT="true" \
-    SERVEX_SERVER_HEALTH_PATH="/health"
+    SERVEX_SERVER_ENABLE_HEALTH_ENDPOINT="true"
 
 # Default command
-CMD ["servex", "-config", "/opt/servex/server.example.yaml"] 
+ENTRYPOINT ["servex"] 

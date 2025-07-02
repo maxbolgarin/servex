@@ -1,0 +1,1127 @@
+# Servex Configuration Documentation
+# This file contains all available configuration options for Servex
+# with detailed documentation, examples, default values, and environment variable names
+
+# =============================================================================
+# SERVER CONFIGURATION
+# Basic server settings including HTTP/HTTPS listeners, timeouts, and limits
+# =============================================================================
+server:
+  # HTTP server address and port
+  # Format: "host:port" or ":port" for all interfaces
+  # Default: "" (disabled)
+  # Environment variable: SERVEX_SERVER_HTTP
+  # Example: ":8080", "localhost:8080", "0.0.0.0:8080"
+  http: ":8080"
+  
+  # HTTPS server address and port
+  # Requires cert_file and key_file to be set
+  # Default: "" (disabled)
+  # Environment variable: SERVEX_SERVER_HTTPS
+  # Example: ":8443", "localhost:8443"
+  https: ":8443"
+  
+  # Path to SSL certificate file (required for HTTPS)
+  # Default: ""
+  # Environment variable: SERVEX_SERVER_CERT_FILE
+  # Example: "/path/to/cert.pem", "./certs/server.crt"
+  cert_file: "/path/to/cert.pem"
+  
+  # Path to SSL private key file (required for HTTPS)
+  # Default: ""
+  # Environment variable: SERVEX_SERVER_KEY_FILE
+  # Example: "/path/to/key.pem", "./certs/server.key"
+  key_file: "/path/to/key.pem"
+  
+  # Maximum duration for reading the entire request, including the body
+  # Default: 60s
+  # Environment variable: SERVEX_SERVER_READ_TIMEOUT
+  # Example: "30s", "1m", "5m"
+  read_timeout: "30s"
+  
+  # Maximum duration for reading request headers
+  # Default: 60s
+  # Environment variable: SERVEX_SERVER_READ_HEADER_TIMEOUT
+  # Example: "10s", "30s"
+  read_header_timeout: "10s"
+  
+  # Maximum time to wait for the next request when keep-alives are enabled
+  # Default: 180s
+  # Environment variable: SERVEX_SERVER_IDLE_TIMEOUT
+  # Example: "120s", "2m"
+  idle_timeout: "180s"
+  
+  # Simple authentication token
+  # Default: ""
+  # Environment variable: SERVEX_SERVER_AUTH_TOKEN
+  # Example: "secret-api-key", "my-secure-token"
+  auth_token: "secret-api-key"
+
+  # Enable built-in health check endpoint
+  # Default: false
+  # Environment variable: SERVEX_SERVER_ENABLE_HEALTH_ENDPOINT
+  enable_health_endpoint: true
+  
+  # Custom path for health check endpoint
+  # Default: "/health"
+  # Environment variable: SERVEX_SERVER_HEALTH_PATH
+  # Example: "/healthz", "/status", "/ping"
+  health_path: "/health"
+
+  # Enable default servex metrics in prometheus format
+  # Default: false
+  # Environment variable: SERVEX_SERVER_ENABLE_DEFAULT_METRICS
+  enable_default_metrics: true
+  
+  # Custom path for metrics endpoint
+  # Default: "/metrics"
+  # Environment variable: SERVEX_SERVER_METRICS_PATH
+  # Example: "/metrics", "/prometheus", "/stats"
+  metrics_path: "/metrics"
+  
+  # Send detailed error messages to clients in response body
+  # Default: false
+  # Environment variable: SERVEX_SERVER_SEND_ERROR_TO_CLIENT
+  send_error_to_client: false
+  
+  # Enable request size limits middleware (limits before handlers based on Content-Length header)
+  # Default: false
+  # Environment variable: SERVEX_SERVER_ENABLE_REQUEST_SIZE_LIMITS
+  enable_request_size_limits: true
+  
+  # Maximum request body size in bytes
+  # Default: 33554432 (32MB)
+  # Environment variable: SERVEX_SERVER_MAX_REQUEST_BODY_SIZE
+  # Example: 1048576 (1MB), 10485760 (10MB)
+  max_request_body_size: 10485760
+
+  # Maximum JSON body size in bytes
+  # Default: 1048576 (1MB)
+  # Environment variable: SERVEX_SERVER_MAX_JSON_BODY_SIZE
+  # Example: 1048576 (1MB), 5242880 (5MB)
+  max_json_body_size: 1048576
+
+  # Maximum file upload size in bytes
+  # Default: 104857600 (100MB)
+  # Environment variable: SERVEX_SERVER_MAX_FILE_UPLOAD_SIZE
+  # Example: 10485760 (10MB), 104857600 (100MB)
+  max_file_upload_size: 104857600
+  
+  # Maximum multipart form memory in bytes
+  # Default: 10485760 (10MB)
+  # Environment variable: SERVEX_SERVER_MAX_MULTIPART_MEMORY
+  # Example: 1048576 (1MB), 10485760 (10MB)
+  max_multipart_memory: 10485760
+  
+  # HTTPS redirect configuration
+  https_redirect:
+    # Enable HTTPS redirection
+    # Default: false
+    # Environment variable: SERVEX_SERVER_HTTPS_REDIRECT_ENABLED
+    enabled: true
+    
+    # Use permanent redirect (301) instead of temporary (302)
+    # Default: false
+    # Environment variable: SERVEX_SERVER_HTTPS_REDIRECT_PERMANENT
+    permanent: false
+    
+    # List of trusted proxy IP addresses
+    # Used to determine real client IP for redirection headers
+    # Default: [] (empty)
+    # Environment variable: SERVEX_SERVER_HTTPS_REDIRECT_TRUSTED_PROXIES (comma-separated)
+    # Example: ["127.0.0.1", "10.0.0.0/8"]
+    trusted_proxies:
+      - "127.0.0.1"
+      - "10.0.0.0/8"
+    
+    # Paths to exclude from HTTPS redirection
+    # Default: [] (empty)
+    # Environment variable: SERVEX_SERVER_HTTPS_REDIRECT_EXCLUDE_PATHS (comma-separated)
+    # Example: ["/health", "/metrics"]
+    exclude_paths:
+      - "/health"
+      - "/metrics"
+    
+    # Paths to include for HTTPS redirection (empty means all paths)
+    # Default: [] (empty - all paths)
+    # Environment variable: SERVEX_SERVER_HTTPS_REDIRECT_INCLUDE_PATHS (comma-separated)
+    # Example: ["/api", "/secure"]
+    include_paths: []
+
+
+# =============================================================================
+# AUTHENTICATION CONFIGURATION
+# Note: Auth configuration is currently commented out in config.go but
+# these fields would have the following environment variables when enabled
+# =============================================================================
+# auth:
+#   # Enable authentication
+#   # Environment variable: SERVEX_AUTH_ENABLED
+#   enabled: true
+#   
+#   # JWT access token secret
+#   # Environment variable: SERVEX_AUTH_JWT_ACCESS_SECRET
+#   jwt_access_secret: "access-secret"
+#   
+#   # JWT refresh token secret
+#   # Environment variable: SERVEX_AUTH_JWT_REFRESH_SECRET
+#   jwt_refresh_secret: "refresh-secret"
+#   
+#   # Access token duration
+#   # Environment variable: SERVEX_AUTH_ACCESS_TOKEN_DURATION
+#   access_token_duration: "15m"
+#   
+#   # Refresh token duration
+#   # Environment variable: SERVEX_AUTH_REFRESH_TOKEN_DURATION
+#   refresh_token_duration: "7d"
+#   
+#   # Token issuer
+#   # Environment variable: SERVEX_AUTH_ISSUER
+#   issuer: "my-app"
+#   
+#   # Refresh token cookie name
+#   # Environment variable: SERVEX_AUTH_REFRESH_TOKEN_COOKIE_NAME
+#   refresh_token_cookie_name: "refresh_token"
+#   
+#   # Base path for auth endpoints
+#   # Environment variable: SERVEX_AUTH_BASE_PATH
+#   base_path: "/api/v1/auth"
+#   
+#   # Initial user roles
+#   # Environment variable: SERVEX_AUTH_INITIAL_ROLES (comma-separated)
+#   initial_roles: ["user"]
+#   
+#   # Don't register auth routes
+#   # Environment variable: SERVEX_AUTH_NOT_REGISTER_ROUTES
+#   not_register_routes: false
+#   
+#   # Use memory database
+#   # Environment variable: SERVEX_AUTH_USE_MEMORY_DATABASE
+#   use_memory_database: true
+
+
+# =============================================================================
+# RATE LIMITING CONFIGURATION
+# Token bucket rate limiting to prevent abuse
+# =============================================================================
+rate_limit:
+  # Enable rate limiting middleware
+  # Default: false
+  # Environment variable: SERVEX_RATE_LIMIT_ENABLED
+  enabled: true
+  
+  # Number of requests allowed per interval
+  # Default: required for running rate limiting middleware
+  # Environment variable: SERVEX_RATE_LIMIT_REQUESTS_PER_INTERVAL
+  # Example: 50, 200, 1000
+  requests_per_interval: 100
+  
+  # Time interval for rate limiting
+  # Default: "1m"
+  # Environment variable: SERVEX_RATE_LIMIT_INTERVAL
+  # Example: "30s", "2m", "1h"
+  interval: "1m"
+  
+  # Burst size (number of requests that can exceed the rate temporarily)
+  # Default: requests_per_interval
+  # Environment variable: SERVEX_RATE_LIMIT_BURST_SIZE
+  # Example: 10, 50, 100
+  burst_size: 20
+  
+  # HTTP status code returned when rate limit is exceeded
+  # Default: 429
+  # Environment variable: SERVEX_RATE_LIMIT_STATUS_CODE
+  # Common values: 429 (Too Many Requests), 503 (Service Unavailable)
+  status_code: 429
+  
+  # Message returned when rate limit is exceeded
+  # Default: "Rate limit exceeded, try again later."
+  # Environment variable: SERVEX_RATE_LIMIT_MESSAGE
+  message: "Rate limit exceeded. Please try again later."
+  
+  # Paths to exclude from rate limiting
+  # Default: [] (empty)
+  # Environment variable: SERVEX_RATE_LIMIT_EXCLUDE_PATHS (comma-separated)
+  # Example: ["/health", "/metrics", "/static"]
+  exclude_paths:
+    - "/health"
+    - "/metrics"
+  
+  # Paths to include for rate limiting (empty means all paths)
+  # Default: [] (empty - all paths)
+  # Environment variable: SERVEX_RATE_LIMIT_INCLUDE_PATHS (comma-separated)
+  # Example: ["/api", "/upload"]
+  include_paths: []
+  
+  # List of trusted proxy IP addresses
+  # Used to determine real client IP for rate limiting
+  # Default: [] (empty)
+  # Environment variable: SERVEX_RATE_LIMIT_TRUSTED_PROXIES (comma-separated)
+  trusted_proxies:
+    - "127.0.0.1"
+    - "10.0.0.0/8"
+
+
+# =============================================================================
+# REQUEST FILTERING CONFIGURATION
+# Filter requests based on IP, User-Agent, headers, and query parameters
+# =============================================================================
+filter:
+  # List of allowed IP addresses (CIDR notation supported)
+  # If specified, only these IPs are allowed
+  # Default: [] (empty - all IPs allowed)
+  # Environment variable: SERVEX_FILTER_ALLOWED_IPS (comma-separated)
+  # Example: ["192.168.1.0/24", "10.0.0.1"]
+  allowed_ips: []
+  
+  # List of blocked IP addresses (CIDR notation supported)
+  # Default: [] (empty)
+  # Environment variable: SERVEX_FILTER_BLOCKED_IPS (comma-separated)
+  # Example: ["192.168.1.100", "10.0.0.0/8"]
+  blocked_ips: []
+  
+  # List of allowed User-Agent strings (exact match)
+  # Default: [] (empty - all user agents allowed)
+  # Environment variable: SERVEX_FILTER_ALLOWED_USER_AGENTS (comma-separated)
+  # Example: ["Mozilla/5.0", "MyApp/1.0"]
+  allowed_user_agents: []
+  
+  # List of allowed User-Agent regex patterns
+  # Default: [] (empty)
+  # Environment variable: SERVEX_FILTER_ALLOWED_USER_AGENTS_REGEX (comma-separated)
+  # Example: ["Mozilla.*", "Chrome.*"]
+  allowed_user_agents_regex: []
+  
+  # List of blocked User-Agent strings (exact match)
+  # Default: [] (empty)
+  # Environment variable: SERVEX_FILTER_BLOCKED_USER_AGENTS (comma-separated)
+  # Example: ["BadBot", "Spam"]
+  blocked_user_agents:
+    - "BadBot"
+    - "Spam"
+  
+  # List of blocked User-Agent regex patterns
+  # Default: [] (empty)
+  # Environment variable: SERVEX_FILTER_BLOCKED_USER_AGENTS_REGEX (comma-separated)
+  # Example: [".*bot.*", ".*crawler.*"]
+  blocked_user_agents_regex:
+    - ".*bot.*"
+    - ".*crawler.*"
+  
+  # Map of allowed header name to allowed values
+  # Default: {} (empty)
+  # Note: Maps don't have direct environment variable support
+  # Example: {"X-API-Key": ["valid-key-1", "valid-key-2"]}
+  allowed_headers: {}
+  
+  # Map of allowed header name to regex patterns
+  # Default: {} (empty)
+  # Note: Maps don't have direct environment variable support
+  # Example: {"Authorization": ["Bearer .*"]}
+  allowed_headers_regex: {}
+  
+  # Map of blocked header name to blocked values
+  # Default: {} (empty)
+  # Note: Maps don't have direct environment variable support
+  # Example: {"X-Forwarded-For": ["malicious-ip"]}
+  blocked_headers: {}
+  
+  # Map of blocked header name to regex patterns
+  # Default: {} (empty)
+  # Note: Maps don't have direct environment variable support
+  # Example: {"User-Agent": [".*bot.*"]}
+  blocked_headers_regex: {}
+  
+  # Map of allowed query parameter name to allowed values
+  # Default: {} (empty)
+  # Note: Maps don't have direct environment variable support
+  # Example: {"version": ["v1", "v2"]}
+  allowed_query_params: {}
+  
+  # Map of allowed query parameter name to regex patterns
+  # Default: {} (empty)
+  # Note: Maps don't have direct environment variable support
+  # Example: {"id": ["[0-9]+"]}
+  allowed_query_params_regex: {}
+  
+  # Map of blocked query parameter name to blocked values
+  # Default: {} (empty)
+  # Note: Maps don't have direct environment variable support
+  # Example: {"debug": ["true"]}
+  blocked_query_params: {}
+  
+  # Map of blocked query parameter name to regex patterns
+  # Default: {} (empty)
+  # Note: Maps don't have direct environment variable support
+  # Example: {"token": [".*invalid.*"]}
+  blocked_query_params_regex: {}
+  
+  # Paths to exclude from filtering
+  # Default: [] (empty)
+  # Environment variable: SERVEX_FILTER_EXCLUDE_PATHS (comma-separated)
+  exclude_paths:
+    - "/health"
+    - "/public"
+  
+  # Paths to include for filtering (empty means all paths)
+  # Default: [] (empty - all paths)
+  # Environment variable: SERVEX_FILTER_INCLUDE_PATHS (comma-separated)
+  include_paths: []
+  
+  # HTTP status code returned when request is filtered
+  # Default: 403
+  # Environment variable: SERVEX_FILTER_STATUS_CODE
+  # Common values: 403 (Forbidden), 400 (Bad Request), 404 (Not Found)
+  status_code: 403
+  
+  # Message returned when request is filtered
+  # Default: "Access denied by filter"
+  # Environment variable: SERVEX_FILTER_MESSAGE
+  message: "Access denied"
+  
+  # List of trusted proxy IP addresses
+  # Default: [] (empty)
+  # Environment variable: SERVEX_FILTER_TRUSTED_PROXIES (comma-separated)
+  trusted_proxies:
+    - "127.0.0.1"
+
+
+# =============================================================================
+# SECURITY CONFIGURATION
+# Security headers and CSRF protection
+# =============================================================================
+security:
+  # Enable security middleware
+  # Default: false
+  # Environment variable: SERVEX_SECURITY_ENABLED
+  enabled: true
+  
+  # CSRF Protection Configuration
+  # Enable Cross-Site Request Forgery protection
+  # Default: false
+  # Environment variable: SERVEX_SECURITY_CSRF_ENABLED
+  csrf_enabled: true
+  
+  # Name of the CSRF token field in forms/headers
+  # Default: "X-CSRF-Token"
+  # Environment variable: SERVEX_SECURITY_CSRF_TOKEN_NAME
+  csrf_token_name: "X-CSRF-Token"
+  
+  # Name of the CSRF cookie
+  # Default: "csrf_token"
+  # Environment variable: SERVEX_SECURITY_CSRF_COOKIE_NAME
+  csrf_cookie_name: "csrf_token"
+  
+  # Make CSRF cookie HTTP-only (recommended)
+  # Default: false
+  # Environment variable: SERVEX_SECURITY_CSRF_COOKIE_HTTP_ONLY
+  csrf_cookie_http_only: true
+  
+  # CSRF cookie SameSite attribute
+  # Default: "Lax"
+  # Environment variable: SERVEX_SECURITY_CSRF_COOKIE_SAME_SITE
+  # Values: "Strict", "Lax", "None"
+  csrf_cookie_same_site: "Strict"
+  
+  # CSRF cookie Secure attribute (HTTPS only)
+  # Default: false
+  # Environment variable: SERVEX_SECURITY_CSRF_COOKIE_SECURE
+  csrf_cookie_secure: false
+  
+  # CSRF cookie path
+  # Default: "/"
+  # Environment variable: SERVEX_SECURITY_CSRF_COOKIE_PATH
+  csrf_cookie_path: "/"
+  
+  # CSRF cookie max age in seconds
+  # Default: 3600 (1 hour)
+  # Environment variable: SERVEX_SECURITY_CSRF_COOKIE_MAX_AGE
+  csrf_cookie_max_age: 3600
+  
+  # Endpoint to get CSRF token
+  # Default: "", endpoint is not registered if empty
+  # Environment variable: SERVEX_SECURITY_CSRF_TOKEN_ENDPOINT
+  csrf_token_endpoint: "/csrf-token"
+  
+  # Error message for CSRF failures
+  # Default: "CSRF token validation failed"
+  # Environment variable: SERVEX_SECURITY_CSRF_ERROR_MESSAGE
+  csrf_error_message: "CSRF token validation failed"
+  
+  # HTTP methods considered safe (no CSRF check)
+  # Default: ["GET", "HEAD", "OPTIONS", "TRACE"]
+  # Environment variable: SERVEX_SECURITY_CSRF_SAFE_METHODS (comma-separated)
+  csrf_safe_methods:
+    - "GET"
+    - "HEAD"
+    - "OPTIONS"
+  
+  # Security Headers Configuration
+  # Content Security Policy header
+  # Default: ""
+  # Environment variable: SERVEX_SECURITY_CONTENT_SECURITY_POLICY
+  # Example: "default-src 'self'; script-src 'self' 'unsafe-inline'"
+  content_security_policy: "default-src 'self'"
+  
+  # X-Content-Type-Options header
+  # Default: ""
+  # Environment variable: SERVEX_SECURITY_X_CONTENT_TYPE_OPTIONS
+  # Common value: "nosniff"
+  x_content_type_options: "nosniff"
+  
+  # X-Frame-Options header
+  # Default: ""
+  # Environment variable: SERVEX_SECURITY_X_FRAME_OPTIONS
+  # Values: "DENY", "SAMEORIGIN", "ALLOW-FROM uri"
+  x_frame_options: "DENY"
+  
+  # X-XSS-Protection header
+  # Default: ""
+  # Environment variable: SERVEX_SECURITY_X_XSS_PROTECTION
+  # Common value: "1; mode=block"
+  x_xss_protection: "1; mode=block"
+  
+  # Strict-Transport-Security header (HTTPS only)
+  # Default: ""
+  # Environment variable: SERVEX_SECURITY_STRICT_TRANSPORT_SECURITY
+  # Example: "max-age=31536000; includeSubDomains"
+  strict_transport_security: "max-age=31536000"
+  
+  # Referrer-Policy header
+  # Default: ""
+  # Environment variable: SERVEX_SECURITY_REFERRER_POLICY
+  # Values: "no-referrer", "strict-origin", "same-origin"
+  referrer_policy: "strict-origin"
+  
+  # Permissions-Policy header
+  # Default: ""
+  # Environment variable: SERVEX_SECURITY_PERMISSIONS_POLICY
+  # Example: "geolocation=(), microphone=()"
+  permissions_policy: "geolocation=(), microphone=()"
+  
+  # X-Permitted-Cross-Domain-Policies header
+  # Default: ""
+  # Environment variable: SERVEX_SECURITY_X_PERMITTED_CROSS_DOMAIN_POLICIES
+  # Common value: "none"
+  x_permitted_cross_domain_policies: "none"
+  
+  # Cross-Origin-Embedder-Policy header
+  # Default: ""
+  # Environment variable: SERVEX_SECURITY_CROSS_ORIGIN_EMBEDDER_POLICY
+  # Values: "unsafe-none", "require-corp"
+  cross_origin_embedder_policy: ""
+  
+  # Cross-Origin-Opener-Policy header
+  # Default: ""
+  # Environment variable: SERVEX_SECURITY_CROSS_ORIGIN_OPENER_POLICY
+  # Values: "unsafe-none", "same-origin-allow-popups", "same-origin"
+  cross_origin_opener_policy: ""
+  
+  # Cross-Origin-Resource-Policy header
+  # Default: ""
+  # Environment variable: SERVEX_SECURITY_CROSS_ORIGIN_RESOURCE_POLICY
+  # Values: "same-site", "same-origin", "cross-origin"
+  cross_origin_resource_policy: ""
+  
+  # Paths to exclude from security headers
+  # Default: [] (empty)
+  # Environment variable: SERVEX_SECURITY_EXCLUDE_PATHS (comma-separated)
+  exclude_paths:
+    - "/health"
+  
+  # Paths to include for security headers (empty means all paths)
+  # Default: [] (empty - all paths)
+  # Environment variable: SERVEX_SECURITY_INCLUDE_PATHS (comma-separated)
+  include_paths: []
+
+
+# =============================================================================
+# CACHE CONFIGURATION
+# HTTP cache control headers
+# =============================================================================
+cache:
+  # Enable cache control middleware
+  # Default: false
+  # Environment variable: SERVEX_CACHE_ENABLED
+  enabled: true
+  
+  # Cache-Control header value
+  # Default: ""
+  # Environment variable: SERVEX_CACHE_CONTROL
+  # Example: "public, max-age=3600", "no-cache", "private"
+  cache_control: "public, max-age=3600"
+  
+  # Expires header value
+  # Default: ""
+  # Environment variable: SERVEX_CACHE_EXPIRES
+  # Example: "Thu, 01 Dec 2024 16:00:00 GMT"
+  expires: ""
+  
+  # ETag header value
+  # Default: ""
+  # Environment variable: SERVEX_CACHE_ETAG
+  # Example: "\"1234567890\"", "W/\"weak-etag\""
+  etag: ""
+  
+  # Last-Modified header value
+  # Default: ""
+  # Environment variable: SERVEX_CACHE_LAST_MODIFIED
+  # Example: "Wed, 21 Oct 2015 07:28:00 GMT"
+  last_modified: ""
+  
+  # Vary header value
+  # Default: ""
+  # Environment variable: SERVEX_CACHE_VARY
+  # Example: "Accept-Encoding", "Accept-Language, Accept-Encoding"
+  vary: "Accept-Encoding"
+  
+  # Paths to exclude from cache headers
+  # Default: [] (empty)
+  # Environment variable: SERVEX_CACHE_EXCLUDE_PATHS (comma-separated)
+  exclude_paths:
+    - "/api"
+  
+  # Paths to include for cache headers (empty means all paths)
+  # Default: [] (empty - all paths)
+  # Environment variable: SERVEX_CACHE_INCLUDE_PATHS (comma-separated)
+  include_paths:
+    - "/static"
+
+
+# =============================================================================
+# COMPRESSION CONFIGURATION
+# HTTP response compression (gzip)
+# =============================================================================
+compression:
+  # Enable compression middleware
+  # Default: false
+  # Environment variable: SERVEX_COMPRESSION_ENABLED
+  enabled: true
+  
+  # Compression level (1-9, where 9 is best compression)
+  # Default: 6
+  # Environment variable: SERVEX_COMPRESSION_LEVEL
+  # Range: 1 (fastest) to 9 (best compression)
+  level: 6
+  
+  # Minimum response size to compress (in bytes)
+  # Default: 1024
+  # Environment variable: SERVEX_COMPRESSION_MIN_SIZE
+  # Example: 500, 2048
+  min_size: 1024
+  
+  # MIME types to compress
+  # Default: ["text/html", "text/css", "text/javascript", "application/json", "application/xml", "text/plain", "image/svg+xml"]
+  # Environment variable: SERVEX_COMPRESSION_TYPES (comma-separated)
+  types:
+    - "text/html"
+    - "text/css"
+    - "text/javascript"
+    - "application/json"
+    - "application/xml"
+    - "text/plain"
+  
+  # Paths to exclude from compression
+  # Default: [] (empty)
+  # Environment variable: SERVEX_COMPRESSION_EXCLUDE_PATHS (comma-separated)
+  exclude_paths:
+    - "/api/upload"
+  
+  # Paths to include for compression (empty means all paths)
+  # Default: [] (empty - all paths)
+  # Environment variable: SERVEX_COMPRESSION_INCLUDE_PATHS (comma-separated)
+  include_paths: []
+
+
+# =============================================================================
+# LOGGING CONFIGURATION
+# Request logging and error handling
+# =============================================================================
+logging:
+  # Disable automatic request logging
+  # Default: false
+  # Environment variable: SERVEX_LOGGING_DISABLE_REQUEST_LOGGING
+  disable_request_logging: false
+  
+  # Don't log 4xx client errors
+  # Default: false
+  # Environment variable: SERVEX_LOGGING_NO_LOG_CLIENT_ERRORS
+  no_log_client_errors: false
+  
+  # Custom log fields to include in request logs
+  # Default: [] (all fields)
+  # Environment variable: SERVEX_LOGGING_LOG_FIELDS (comma-separated)
+  # Available fields: "method", "uri", "status", "size", "duration", "ip", "user_agent"
+  log_fields:
+    - "method"
+    - "uri"
+    - "status"
+    - "duration"
+    - "ip"
+
+
+# =============================================================================
+# CORS CONFIGURATION
+# Cross-Origin Resource Sharing settings
+# =============================================================================
+cors:
+  # Enable CORS middleware
+  # Default: false
+  # Environment variable: SERVEX_CORS_ENABLED
+  enabled: true
+  
+  # List of allowed origins
+  # Default: [] (empty)
+  # Environment variable: SERVEX_CORS_ALLOW_ORIGINS (comma-separated)
+  # Example: ["https://example.com", "http://localhost:3000"]
+  # Use ["*"] to allow all origins (not recommended for production)
+  allow_origins:
+    - "https://example.com"
+    - "http://localhost:3000"
+  
+  # List of allowed HTTP methods
+  # Default: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+  # Environment variable: SERVEX_CORS_ALLOW_METHODS (comma-separated)
+  allow_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+    - "PATCH"
+    - "OPTIONS"
+  
+  # List of allowed request headers
+  # Default: [] (empty)
+  # Environment variable: SERVEX_CORS_ALLOW_HEADERS (comma-separated)
+  # Example: ["Authorization", "Content-Type", "X-Requested-With"]
+  allow_headers:
+    - "Authorization"
+    - "Content-Type"
+    - "X-Requested-With"
+  
+  # List of headers to expose to the client
+  # Default: [] (empty)
+  # Environment variable: SERVEX_CORS_EXPOSE_HEADERS (comma-separated)
+  # Example: ["X-Total-Count", "X-Page-Count"]
+  expose_headers:
+    - "X-Total-Count"
+  
+  # Allow credentials (cookies, authorization headers)
+  # Default: false
+  # Environment variable: SERVEX_CORS_ALLOW_CREDENTIALS
+  allow_credentials: true
+  
+  # Preflight cache duration in seconds
+  # Default: 0
+  # Environment variable: SERVEX_CORS_MAX_AGE
+  # Example: 3600 (1 hour), 86400 (1 day)
+  max_age: 3600
+  
+  # Paths to exclude from CORS
+  # Default: [] (empty)
+  # Environment variable: SERVEX_CORS_EXCLUDE_PATHS (comma-separated)
+  exclude_paths:
+    - "/health"
+  
+  # Paths to include for CORS (empty means all paths)
+  # Default: [] (empty - all paths)
+  # Environment variable: SERVEX_CORS_INCLUDE_PATHS (comma-separated)
+  include_paths: []
+
+
+# =============================================================================
+# STATIC FILES CONFIGURATION
+# Static file serving and SPA support
+# =============================================================================
+static_files:
+  # Enable static file serving
+  # Default: false
+  # Environment variable: SERVEX_STATIC_FILES_ENABLED
+  enabled: true
+  
+  # Directory containing static files
+  # Default: os.Getwd()
+  # Environment variable: SERVEX_STATIC_FILES_DIR
+  # Example: "./public", "/var/www/html", "./assets"
+  dir: "./static"
+  
+  # URL prefix for static files
+  # Default: ""
+  # Environment variable: SERVEX_STATIC_FILES_URL_PREFIX
+  # Example: "/", "/assets/", "/public/"
+  url_prefix: "/static/"
+  
+  # Enable Single Page Application mode
+  # Serves index.html for all non-file requests
+  # Default: false
+  # Environment variable: SERVEX_STATIC_FILES_SPA_MODE
+  spa_mode: false
+  
+  # Name of the index file for directories
+  # Default: "index.html"
+  # Environment variable: SERVEX_STATIC_FILES_INDEX_FILE
+  # Example: "default.html", "home.html"
+  index_file: "index.html"
+  
+  # Prefix to strip from request path
+  # Default: ""
+  # Environment variable: SERVEX_STATIC_FILES_STRIP_PREFIX
+  # Example: "/app", "/v1"
+  strip_prefix: ""
+  
+  # Paths to exclude from static file serving
+  # Default: [] (empty)
+  # Environment variable: SERVEX_STATIC_FILES_EXCLUDE_PATHS (comma-separated)
+  exclude_paths:
+    - "/api"
+  
+  # Default cache max age for static files (in seconds)
+  # Default: 0 (no caching)
+  # Environment variable: SERVEX_STATIC_FILES_CACHE_MAX_AGE
+  # Example: 3600 (1 hour), 86400 (1 day)
+  cache_max_age: 86400
+  
+  # Cache rules for specific file extensions
+  # Map of file extension to cache max age in seconds
+  # Default: {} (empty)
+  # Note: Maps don't have direct environment variable support
+  cache_rules:
+    ".js": 604800    # 1 week
+    ".css": 604800   # 1 week
+    ".png": 2592000  # 30 days
+    ".jpg": 2592000  # 30 days
+    ".gif": 2592000  # 30 days
+    ".ico": 2592000  # 30 days
+
+
+
+# =============================================================================
+# PROXY CONFIGURATION
+# Reverse proxy settings for forwarding requests to backend servers
+# Note: Proxy configuration does not support environment variables due to its
+# complex nested structure. Use YAML/JSON configuration files instead.
+# =============================================================================
+proxy:
+  # Enable proxy functionality
+  # Default: false
+  enabled: true
+  
+  # Global timeout for all proxy requests
+  # Default: "30s"
+  # Example: "10s", "1m", "5m"
+  global_timeout: "30s"
+  
+  # Maximum idle connections in the connection pool
+  # Default: 100
+  # Example: 50, 200, 500
+  max_idle_conns: 100
+  
+  # Maximum idle connections per host
+  # Default: 10
+  # Example: 5, 20, 50
+  max_idle_conns_per_host: 10
+  
+  # Timeout for idle connections
+  # Default: "90s"
+  # Example: "60s", "2m", "5m"
+  idle_conn_timeout: "90s"
+  
+  # Skip TLS certificate verification (not recommended for production)
+  # Default: false
+  insecure_skip_verify: false
+  
+  # Traffic dumping configuration
+  traffic_dump:
+    # Enable traffic dumping globally
+    # Default: false
+    enabled: false
+    
+    # Directory to store traffic dumps
+    # Default: ""
+    # Example: "./traffic-dumps", "/var/log/proxy"
+    directory: "./traffic-dumps"
+    
+    # Maximum file size before rotation (in bytes)
+    # Default: 104857600 (100MB)
+    # Example: 52428800 (50MB), 209715200 (200MB)
+    max_file_size: 104857600
+    
+    # Maximum number of files to keep
+    # Default: 10
+    # Example: 5, 20, 50
+    max_files: 10
+    
+    # Include request/response bodies in dumps
+    # Default: false
+    include_body: true
+    
+    # Maximum body size to dump (in bytes)
+    # Default: 65536 (64KB)
+    # Example: 32768 (32KB), 131072 (128KB)
+    max_body_size: 65536
+    
+    # Sample rate for traffic dumping (0.0-1.0)
+    # Default: 1.0 (dump all traffic)
+    # Example: 0.1 (10%), 0.5 (50%)
+    sample_rate: 1.0
+  
+  # Health check configuration
+  health_check:
+    # Enable health checking
+    # Default: false
+    enabled: true
+    
+    # Default interval for health checks
+    # Default: "30s"
+    # Example: "10s", "1m", "2m"
+    default_interval: "30s"
+    
+    # Timeout for health check requests
+    # Default: "5s"
+    # Example: "3s", "10s", "15s"
+    timeout: "5s"
+    
+    # Number of retries before marking backend as unhealthy
+    # Default: 3
+    # Example: 1, 5, 10
+    retry_count: 3
+  
+  # Proxy routing rules
+  rules:
+    - # Unique name for this rule
+      # Required field
+      name: "api-service"
+      
+      # Path prefix to match (e.g., "/api" matches "/api/users")
+      # Default: ""
+      # Example: "/api", "/v1", "/static"
+      path_prefix: "/api"
+      
+      # Regex pattern for path matching (alternative to path_prefix)
+      # Default: ""
+      # Example: "^/api/v[0-9]+/.*", ".*\\.json$"
+      path_regex: ""
+      
+      # Host header to match
+      # Default: ""
+      # Example: "api.example.com", "localhost"
+      host: ""
+      
+      # HTTP methods to match (empty means all methods)
+      # Default: [] (all methods)
+      # Available: ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+      methods:
+        - "GET"
+        - "POST"
+      
+      # Headers that must match
+      # Default: {} (empty)
+      # Example: {"Authorization": "Bearer token", "X-API-Version": "v1"}
+      headers: {}
+      
+      # Load balancing strategy for this rule
+      # Default: "round_robin"
+      # Options: "round_robin", "weighted_round_robin", "least_connections", "random", "weighted_random", "ip_hash"
+      load_balancing: "round_robin"
+      
+      # Prefix to strip from path before forwarding
+      # Default: ""
+      # Example: "/api" (removes /api from /api/users -> /users)
+      strip_prefix: "/api"
+      
+      # Prefix to add to path before forwarding
+      # Default: ""
+      # Example: "/v1" (adds /v1 to /users -> /v1/users)
+      add_prefix: ""
+      
+      # Timeout for requests to backends for this rule
+      # Default: uses global_timeout
+      # Example: "10s", "30s", "1m"
+      timeout: "15s"
+      
+      # Enable traffic dumping for this specific rule
+      # Default: false
+      enable_traffic_dump: false
+      
+      # Directory for traffic dumps (uses global if empty)
+      # Default: ""
+      dump_directory: ""
+      
+      # Backend servers for this rule
+      backends:
+        - # Backend server URL
+          # Required field
+          # Example: "http://localhost:3000", "https://api.backend.com"
+          url: "http://localhost:3001"
+          
+          # Weight for weighted load balancing strategies
+          # Default: 1
+          # Example: 1, 5, 10 (higher weight = more traffic)
+          weight: 1
+          
+          # Health check path for this backend
+          # Default: ""
+          # Example: "/health", "/ping", "/status"
+          health_check_path: "/health"
+          
+          # Health check interval for this backend
+          # Default: uses global default_interval
+          # Example: "10s", "1m", "2m"
+          health_check_interval: "30s"
+          
+          # Maximum concurrent connections to this backend
+          # Default: 0 (unlimited)
+          # Example: 100, 500, 1000
+          max_connections: 0
+        
+        - # Second backend server (for redundancy/load balancing)
+          url: "http://localhost:3002"
+          weight: 1
+          health_check_path: "/health"
+          health_check_interval: "30s"
+          max_connections: 0
+    
+    - # Example rule for static files
+      name: "static-files"
+      path_prefix: "/static"
+      methods: ["GET"]
+      load_balancing: "round_robin"
+      backends:
+        - url: "http://cdn.example.com"
+          weight: 2
+        - url: "http://backup-cdn.example.com"
+          weight: 1
+    
+    - # Example rule with regex and specific host
+      name: "api-versioned"
+      path_regex: "^/api/v[0-9]+/.*"
+      host: "api.example.com"
+      methods: ["GET", "POST", "PUT", "DELETE"]
+      load_balancing: "least_connections"
+      strip_prefix: "/api/v1"
+      add_prefix: ""
+      timeout: "20s"
+      enable_traffic_dump: true
+      backends:
+        - url: "http://api-v1.internal:8080"
+          weight: 1
+          health_check_path: "/health"
+          max_connections: 200
+
+
+# =============================================================================
+# ENVIRONMENT VARIABLES
+# All configuration options can be overridden using environment variables
+# Environment variables follow the pattern: SERVEX_<SECTION>_<FIELD>
+# =============================================================================
+
+# Examples of environment variable usage:
+# export SERVEX_SERVER_HTTP=":8080"
+# export SERVEX_SERVER_HTTPS=":8443"
+# export SERVEX_SERVER_AUTH_TOKEN="my-secret-token"
+# export SERVEX_RATE_LIMIT_ENABLED="true"
+# export SERVEX_RATE_LIMIT_REQUESTS_PER_INTERVAL="100"
+# export SERVEX_RATE_LIMIT_INTERVAL="1m"
+# export SERVEX_SECURITY_ENABLED="true"
+# export SERVEX_SECURITY_CSRF_ENABLED="true"
+# export SERVEX_CORS_ENABLED="true"
+# export SERVEX_CORS_ALLOW_ORIGINS="https://example.com,http://localhost:3000"
+# export SERVEX_STATIC_FILES_ENABLED="true"
+# export SERVEX_STATIC_FILES_DIR="./public"
+# export SERVEX_COMPRESSION_ENABLED="true"
+# export SERVEX_LOGGING_DISABLE_REQUEST_LOGGING="false"
+
+# =============================================================================
+# USAGE EXAMPLES
+# =============================================================================
+
+# Example 1: Simple HTTP server with basic security
+# server:
+#   http: ":8080"
+#   enable_health_endpoint: true
+# security:
+#   enabled: true
+#   x_frame_options: "DENY"
+#   x_content_type_options: "nosniff"
+
+# Example 2: API server with rate limiting and CORS
+# server:
+#   http: ":8080"
+# rate_limit:
+#   enabled: true
+#   requests_per_interval: 1000
+#   interval: "1m"
+# cors:
+#   enabled: true
+#   allow_origins: ["https://myapp.com"]
+#   allow_credentials: true
+
+# Example 3: Static file server with SPA support
+# server:
+#   http: ":8080"
+# static_files:
+#   enabled: true
+#   dir: "./dist"
+#   url_prefix: "/"
+#   spa_mode: true
+#   cache_max_age: 86400
+
+# Example 4: Reverse proxy configuration
+# server:
+#   http: ":8080"
+# proxy:
+#   enabled: true
+#   rules:
+#     - name: "api"
+#       path_prefix: "/api"
+#       strip_prefix: "/api"
+#       backends:
+#         - url: "http://api-server:3000"
+
+# =============================================================================
+# CONFIGURATION FILE LOADING
+# =============================================================================
+
+# You can load configuration in several ways:
+# 1. From YAML file only:
+#    config, err := servex.LoadConfigFromFile("config.yaml")
+#
+# 2. From environment variables only:
+#    config, err := servex.LoadConfigFromEnv()
+#
+# 3. From YAML file with environment variable overrides:
+#    config, err := servex.LoadConfig("config.yaml")
+#
+# 4. Create server from configuration:
+#    server, err := servex.NewServerFromConfig(config)
+#
+# 5. Start server directly from config file:
+#    shutdown, err := servex.StartServerFromConfig("config.yaml", func(router *mux.Router) {
+#        // Configure your routes here
+#    })
+
+# =============================================================================
+# NOTES
+# =============================================================================
+
+# 1. Duration values use Go's time.Duration format:
+#    - "300ms", "1.5h", "2h45m", "10s", "1m30s"
+#
+# 2. Size values are in bytes:
+#    - 1024 = 1KB, 1048576 = 1MB, 1073741824 = 1GB
+#
+# 3. IP addresses support CIDR notation:
+#    - "192.168.1.0/24", "10.0.0.0/8", "127.0.0.1/32"
+#
+# 4. Regular expressions use Go's regexp syntax:
+#    - "^/api/v[0-9]+/.*", ".*\\.json$", "(?i)mozilla.*"
+#
+# 5. Empty arrays/maps mean "no restrictions" in most cases
+#
+# 6. Boolean values: true/false (YAML) or "true"/"false" (env vars)
+#
+# 7. String slices in env vars are comma-separated:
+#    - SERVEX_CORS_ALLOW_ORIGINS="https://a.com,https://b.com"
+#
+# 8. Maps (like allowed_headers, cache_rules) don't support environment variables
+#    Use YAML/JSON configuration files for complex nested structures

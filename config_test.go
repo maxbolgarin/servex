@@ -60,19 +60,19 @@ rate_limit:
 		t.Error("Expected EnableHealthEndpoint to be true")
 	}
 
-	// Verify auth configuration
-	if !config.Auth.Enabled {
-		t.Error("Expected Auth.Enabled to be true")
-	}
-	if !config.Auth.UseMemoryDatabase {
-		t.Error("Expected Auth.UseMemoryDatabase to be true")
-	}
-	if config.Auth.Issuer != "test-app" {
-		t.Errorf("Expected Auth.Issuer test-app, got %s", config.Auth.Issuer)
-	}
-	if config.Auth.AccessTokenDuration != 15*time.Minute {
-		t.Errorf("Expected Auth.AccessTokenDuration 15m, got %v", config.Auth.AccessTokenDuration)
-	}
+	// // Verify auth configuration
+	// if !config.Auth.Enabled {
+	// 	t.Error("Expected Auth.Enabled to be true")
+	// }
+	// if !config.Auth.UseMemoryDatabase {
+	// 	t.Error("Expected Auth.UseMemoryDatabase to be true")
+	// }
+	// if config.Auth.Issuer != "test-app" {
+	// 	t.Errorf("Expected Auth.Issuer test-app, got %s", config.Auth.Issuer)
+	// }
+	// if config.Auth.AccessTokenDuration != 15*time.Minute {
+	// 	t.Errorf("Expected Auth.AccessTokenDuration 15m, got %v", config.Auth.AccessTokenDuration)
+	// }
 
 	// Verify rate limit configuration
 	if !config.RateLimit.Enabled {
@@ -139,18 +139,18 @@ func TestLoadConfigFromEnv(t *testing.T) {
 	}
 
 	// Verify auth configuration
-	if !config.Auth.Enabled {
-		t.Error("Expected Auth.Enabled to be true")
-	}
-	if !config.Auth.UseMemoryDatabase {
-		t.Error("Expected Auth.UseMemoryDatabase to be true")
-	}
-	if config.Auth.Issuer != "env-app" {
-		t.Errorf("Expected Auth.Issuer env-app, got %s", config.Auth.Issuer)
-	}
-	if config.Auth.AccessTokenDuration != 20*time.Minute {
-		t.Errorf("Expected Auth.AccessTokenDuration 20m, got %v", config.Auth.AccessTokenDuration)
-	}
+	// if !config.Auth.Enabled {
+	// 	t.Error("Expected Auth.Enabled to be true")
+	// }
+	// if !config.Auth.UseMemoryDatabase {
+	// 	t.Error("Expected Auth.UseMemoryDatabase to be true")
+	// }
+	// if config.Auth.Issuer != "env-app" {
+	// 	t.Errorf("Expected Auth.Issuer env-app, got %s", config.Auth.Issuer)
+	// }
+	// if config.Auth.AccessTokenDuration != 20*time.Minute {
+	// 	t.Errorf("Expected Auth.AccessTokenDuration 20m, got %v", config.Auth.AccessTokenDuration)
+	// }
 
 	// Verify rate limit configuration
 	if !config.RateLimit.Enabled {
@@ -225,12 +225,12 @@ rate_limit:
 	if config.Server.HTTPS != ":8443" {
 		t.Errorf("Expected HTTPS :8443 (from env), got %s", config.Server.HTTPS)
 	}
-	if config.Auth.Issuer != "env-app" {
-		t.Errorf("Expected Auth.Issuer env-app (env override), got %s", config.Auth.Issuer)
-	}
-	if config.Auth.AccessTokenDuration != 25*time.Minute {
-		t.Errorf("Expected Auth.AccessTokenDuration 25m (env override), got %v", config.Auth.AccessTokenDuration)
-	}
+	// if config.Auth.Issuer != "env-app" {
+	// 	t.Errorf("Expected Auth.Issuer env-app (env override), got %s", config.Auth.Issuer)
+	// }
+	// if config.Auth.AccessTokenDuration != 25*time.Minute {
+	// 	t.Errorf("Expected Auth.AccessTokenDuration 25m (env override), got %v", config.Auth.AccessTokenDuration)
+	// }
 	if config.RateLimit.RequestsPerInterval != 150 {
 		t.Errorf("Expected RateLimit.RequestsPerInterval 150 (env override), got %d", config.RateLimit.RequestsPerInterval)
 	}
@@ -256,14 +256,14 @@ func TestConfigToOptions(t *testing.T) {
 			MaxRequestBodySize:      32 << 20, // 32MB
 			EnableRequestSizeLimits: true,
 		},
-		Auth: AuthConfiguration{
-			Enabled:              true,
-			UseMemoryDatabase:    true,
-			AccessTokenDuration:  15 * time.Minute,
-			RefreshTokenDuration: 7 * 24 * time.Hour,
-			Issuer:               "test-app",
-			InitialRoles:         []string{"user", "admin"},
-		},
+		// Auth: AuthConfiguration{
+		// 	Enabled:              true,
+		// 	UseMemoryDatabase:    true,
+		// 	AccessTokenDuration:  15 * time.Minute,
+		// 	RefreshTokenDuration: 7 * 24 * time.Hour,
+		// 	Issuer:               "test-app",
+		// 	InitialRoles:         []string{"user", "admin"},
+		// },
 		RateLimit: RateLimitConfiguration{
 			Enabled:             true,
 			RequestsPerInterval: 100,
@@ -330,11 +330,11 @@ func TestNewFromConfig(t *testing.T) {
 			MaxRequestBodySize:      32 << 20,
 			EnableRequestSizeLimits: true,
 		},
-		Auth: AuthConfiguration{
-			Enabled:           true,
-			UseMemoryDatabase: true,
-			Issuer:            "test-app",
-		},
+		// Auth: AuthConfiguration{
+		// 	Enabled:           true,
+		// 	UseMemoryDatabase: true,
+		// 	Issuer:            "test-app",
+		// },
 	}
 
 	_, err := NewServerFromConfig(config)
@@ -358,13 +358,13 @@ func TestEnvironmentVariableParsing(t *testing.T) {
 			expected: true,
 			checkFn:  func(c *Config) any { return c.Server.EnableHealthEndpoint },
 		},
-		{
-			name:     "boolean false",
-			envVar:   "SERVEX_AUTH_ENABLED",
-			envValue: "false",
-			expected: false,
-			checkFn:  func(c *Config) any { return c.Auth.Enabled },
-		},
+		// {
+		// 	name:     "boolean false",
+		// 	envVar:   "SERVEX_AUTH_ENABLED",
+		// 	envValue: "false",
+		// 	expected: false,
+		// 	checkFn:  func(c *Config) any { return c.Auth.Enabled },
+		// },
 		{
 			name:     "integer",
 			envVar:   "SERVEX_RATE_LIMIT_REQUESTS_PER_INTERVAL",
@@ -379,13 +379,13 @@ func TestEnvironmentVariableParsing(t *testing.T) {
 			expected: 45 * time.Second,
 			checkFn:  func(c *Config) any { return c.Server.ReadTimeout },
 		},
-		{
-			name:     "string",
-			envVar:   "SERVEX_AUTH_ISSUER",
-			envValue: "test-issuer",
-			expected: "test-issuer",
-			checkFn:  func(c *Config) any { return c.Auth.Issuer },
-		},
+		// {
+		// 	name:     "string",
+		// 	envVar:   "SERVEX_AUTH_ISSUER",
+		// 	envValue: "test-issuer",
+		// 	expected: "test-issuer",
+		// 	checkFn:  func(c *Config) any { return c.Auth.Issuer },
+		// },
 	}
 
 	for _, tt := range tests {

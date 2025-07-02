@@ -371,7 +371,7 @@ func RegisterCSRFMiddleware(router MiddlewareRouter, cfg SecurityConfig) {
 
 	safeMethods := cfg.CSRFSafeMethods
 	if len(safeMethods) == 0 {
-		safeMethods = []string{GET, "HEAD", OPTIONS, "TRACE"}
+		safeMethods = []string{GET, HEAD, OPTIONS, TRACE}
 	}
 
 	// Create safe methods map for faster lookup
@@ -425,6 +425,9 @@ func RegisterCSRFMiddleware(router MiddlewareRouter, cfg SecurityConfig) {
 
 // registerCSRFTokenEndpoint creates an endpoint that returns CSRF tokens for SPAs and AJAX applications.
 func registerCSRFTokenEndpoint(router MiddlewareRouter, endpoint, cookieName, cookiePath string, cfg SecurityConfig) {
+	if endpoint == "" {
+		endpoint = "/csrf-token"
+	}
 	// We need to add the endpoint to the router if it's a *mux.Router
 	if muxRouter, ok := router.(*mux.Router); ok {
 		muxRouter.HandleFunc(endpoint, func(w http.ResponseWriter, r *http.Request) {

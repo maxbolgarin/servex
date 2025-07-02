@@ -1,8 +1,18 @@
-# Servex - Lightweight HTTP(S) Server Package
+# Servex - Swiss Army Knife for Go HTTP(S) Server
 
 [![Go Version][version-img]][doc] [![GoDoc][doc-img]][doc] [![Build][ci-img]][ci] [![GoReport][report-img]][report]
 
-**Servex** is a lightweight HTTP(S) server package built using Go's [net/http](https://pkg.go.dev/net/http) and [gorilla/mux](https://github.com/gorilla/mux). This package is designed to easy integrate into existing `net/http` servers. By using `gorilla/mux`, it offers flexible routing capabilities with the integrated middleware for logging, authentication and panic recovery.
+**Servex** is the HTTP server package that eliminates boilerplate and lets you focus on what matters—your business logic. Whether you're building APIs, web applications, or need a powerful reverse proxy, Servex provides the technical foundation so you don't have to. It's built using Go's [net/http](https://pkg.go.dev/net/http) and [gorilla/mux](https://github.com/gorilla/mux). This package is designed to easy integrate into existing `net/http` servers.
+
+## ✨ Why Choose Servex?
+
+Servex gives you production-ready features out of the box:
+
+🚀 **Zero Boilerplate** - Configure once, code business logic  
+🔒 **Security First** - JWT auth, rate limiting, security headers included  
+🌐 **Dual Purpose** - Use as a library OR standalone proxy server  
+⚡ **Native Compatibility** - Works seamlessly with existing `net/http` code  
+🎯 **Gorilla/Mux Powered** - Flexible routing with middleware support  
 
 
 ## Table of Contents

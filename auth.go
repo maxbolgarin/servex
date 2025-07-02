@@ -102,12 +102,6 @@ type (
 // NewAuthManager creates a new [AuthManager] with the provided configuration.
 // It initializes default values for configuration fields if they are not provided.
 func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, error) {
-	cfg.RefreshTokenCookieName = lang.Check(cfg.RefreshTokenCookieName, refreshTokenCookieName)
-	cfg.AuthBasePath = lang.Check(cfg.AuthBasePath, authBasePath)
-	cfg.AccessTokenDuration = lang.Check(cfg.AccessTokenDuration, accessTokenDuration)
-	cfg.RefreshTokenDuration = lang.Check(cfg.RefreshTokenDuration, refreshTokenDuration)
-	cfg.IssuerNameInJWT = lang.Check(cfg.IssuerNameInJWT, "testing")
-
 	if cfg.JWTAccessSecret == "" {
 		return nil, errors.New("JWT access secret is required")
 	}
@@ -127,6 +121,12 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 		return nil, fmt.Errorf("decode refresh secret: %w", err)
 	}
 	cfg.refreshSecret = refreshSecret
+
+	cfg.RefreshTokenCookieName = lang.Check(cfg.RefreshTokenCookieName, refreshTokenCookieName)
+	cfg.AuthBasePath = lang.Check(cfg.AuthBasePath, authBasePath)
+	cfg.AccessTokenDuration = lang.Check(cfg.AccessTokenDuration, accessTokenDuration)
+	cfg.RefreshTokenDuration = lang.Check(cfg.RefreshTokenDuration, refreshTokenDuration)
+	cfg.IssuerNameInJWT = lang.Check(cfg.IssuerNameInJWT, "servex")
 
 	// Get audit logger (optional parameter)
 	var audit AuditLogger = &NoopAuditLogger{}
