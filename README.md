@@ -1413,7 +1413,7 @@ Servex is licensed under the MIT License. See the [LICENSE](LICENSE) file for mo
 [version-img]: https://img.shields.io/badge/Go-%3E%3D%201.24-%23007d9c
 [doc-img]: https://pkg.go.dev/badge/github.com/maxbolgarin/servex/v2
 [doc]: https://pkg.go.dev/github.com/maxbolgarin/servex/v2
-[ci-img]: https://github.com/maxbolgarin/servex/v2/actions/workflows/go.yml/badge.svg
-[ci]: https://github.com/maxbolgarin/servex/v2/actions
+[ci-img]: https://github.com/maxbolgarin/servex/actions/workflows/go.yml/badge.svg
+[ci]: https://github.com/maxbolgarin/servex/actions
 [report-img]: https://goreportcard.com/badge/github.com/maxbolgarin/servex/v2
 [report]: https://goreportcard.com/report/github.com/maxbolgarin/servex/v2
