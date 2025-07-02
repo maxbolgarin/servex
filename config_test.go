@@ -286,8 +286,8 @@ func TestConfigToOptions(t *testing.T) {
 
 	// Create server with the options to verify they work
 	_, err = NewServerWithOptions(parseOptions(opts))
-	if err == nil {
-		t.Fatalf("Expected error, got nil")
+	if err != nil {
+		t.Fatalf("Failed to create server with options: %v", err)
 	}
 }
 
@@ -338,8 +338,8 @@ func TestNewFromConfig(t *testing.T) {
 	}
 
 	_, err := NewServerFromConfig(config)
-	if err == nil {
-		t.Fatalf("Expected error, got nil")
+	if err != nil {
+		t.Fatalf("Expected no error, got %v", err)
 	}
 }
 
