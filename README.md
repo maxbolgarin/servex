@@ -1,6 +1,8 @@
 # Servex - Swiss Army Knife for Go HTTP(S) Server
 
-[![Go Version][version-img]][doc] [![GoDoc][doc-img]][doc] [![Build][ci-img]][ci] [![GoReport][report-img]][report]
+[![Go Version][version-img]][doc] [![GoDoc][doc-img]][doc] [![Build][ci-img]][ci] [![GoReport][report-img]][report] [![MIT][mit-img]][mit]
+
+![Servex](./.github/assets/pic.png)
 
 **Servex** is the HTTP server package that eliminates boilerplate and lets you focus on what matters—your business logic. Whether you're building APIs, web applications, or need a powerful reverse proxy, Servex provides the technical foundation so you don't have to. It's built using Go's [net/http](https://pkg.go.dev/net/http) and [gorilla/mux](https://github.com/gorilla/mux). This package is designed to easy integrate into existing `net/http` servers.
 
@@ -1417,3 +1419,5 @@ Servex is licensed under the MIT License. See the [LICENSE](LICENSE) file for mo
 [ci]: https://github.com/maxbolgarin/servex/actions
 [report-img]: https://goreportcard.com/badge/github.com/maxbolgarin/servex/v2
 [report]: https://goreportcard.com/report/github.com/maxbolgarin/servex/v2
+[mit-img]: https://img.shields.io/badge/License-MIT-blue.svg
+[mit]: https://github.com/maxbolgarin/servex/blob/v2/LICENSE
