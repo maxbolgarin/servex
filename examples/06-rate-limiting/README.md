@@ -48,9 +48,6 @@ curl http://localhost:8080/api/test
 
 # Check rate limit headers
 curl -I http://localhost:8080/api/test
-
-# Rapid requests (will trigger rate limiting)
-for i in {1..10}; do curl http://localhost:8080/api/test; done
 ```
 
 ### Expected Responses
@@ -168,11 +165,11 @@ servex.WithRPM(10000)
 ### Gradual Limits
 ```go
 // Stricter for write operations
-server.HandleFunc("/api/create", handler).Methods("POST")
+server.HandleFunc("/api/create", handler).Methods(POST)
 // with lower limits
 
 // More lenient for read operations  
-server.HandleFunc("/api/read", handler).Methods("GET")
+server.HandleFunc("/api/read", handler).Methods(GET)
 // with higher limits
 ```
 

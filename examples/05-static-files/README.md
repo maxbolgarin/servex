@@ -82,44 +82,6 @@ curl -H "Accept-Encoding: gzip" -I http://localhost:8080/static/app.js
 curl http://localhost:8080/api/files
 ```
 
-## Code Walkthrough
-
-### 1. Server Configuration
-```go
-server, err := servex.NewServer(
-    servex.WithSecurityHeaders(),        // Security for static content
-    servex.WithCacheStaticAssets(86400), // Cache for 24 hours
-    servex.WithCompression(),            // Enable gzip compression
-)
-```
-
-### 2. Static File Handler
-```go
-server.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
-    filepath := r.URL.Path[8:] // Remove "/static/" prefix
-    fullPath := "./static/" + filepath
-    
-    // Check if file exists
-    if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-        http.NotFound(w, r)
-        return
-    }
-    
-    // Serve the file with proper headers
-    http.ServeFile(w, r, fullPath)
-})
-```
-
-### 3. File Listing API
-```go
-server.HandleFunc("/api/files", func(w http.ResponseWriter, r *http.Request) {
-    files, err := listStaticFiles()
-    ctx.Response(200, map[string]interface{}{
-        "files": files,
-        "base_url": "http://localhost:8080/static/",
-    })
-})
-```
 
 ## Cache Strategy
 
@@ -128,7 +90,6 @@ The example uses a 24-hour cache strategy optimized for static assets:
 - **Cache-Control**: `public, max-age=86400` (24 hours)
 - **ETag**: Automatic generation for cache validation
 - **Last-Modified**: File modification time
-- **Compression**: Gzip for text-based files
 
 ## Security Features
 

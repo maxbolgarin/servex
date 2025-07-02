@@ -1,0 +1,115 @@
+# Servex Server Configuration
+# This file demonstrates proper YAML configuration for Servex
+
+server:
+  http: ":8080"
+  # https: ":8443"  # Uncomment and set cert_file/key_file for HTTPS
+  # cert_file: "/path/to/cert.pem"
+  # key_file: "/path/to/key.pem"
+  
+  read_timeout: "30s"
+  read_header_timeout: "10s"
+  idle_timeout: "120s"
+  
+  # Simple token-based authentication
+  # auth_token: "your-secret-api-key-change-in-production"
+  
+  # Built-in endpoints
+  enable_health_endpoint: true
+  health_path: "/health"
+  enable_default_metrics: true
+  metrics_path: "/metrics"
+  
+  # Request size limits
+  enable_request_size_limits: true
+  max_request_body_size: 33554432    # 32MB
+  max_json_body_size: 1048576        # 1MB
+  max_file_upload_size: 10485760     # 10MB
+  max_multipart_memory: 10485760     # 10MB
+  
+  # Error handling (false for production)
+  send_error_to_client: false
+
+# Rate limiting configuration
+rate_limit:
+  enabled: true
+  requests_per_interval: 10
+  interval: "1m"
+  burst_size: 20
+  status_code: 429
+  message: "Rate limit exceeded"
+  exclude_paths:
+    - "/health"
+    - "/metrics"
+
+# Request filtering
+filter:
+  blocked_user_agents:
+    - "badbot"
+    - "scraper"
+  blocked_ips:
+    - "192.0.2.1"  # Example blocked IP
+  exclude_paths:
+    - "/health"
+    - "/metrics"
+
+# Security headers
+security:
+  enabled: true
+  content_security_policy: "default-src 'self'"
+  x_frame_options: "DENY"
+  x_content_type_options: "nosniff"
+  strict_transport_security: "max-age=31536000"
+  referrer_policy: "strict-origin-when-cross-origin"
+
+# Cache control
+cache:
+  enabled: true
+  cache_control: "public, max-age=3600"
+  exclude_paths:
+    - "/api/*"
+
+# Response compression
+compression:
+  enabled: true
+  level: 6
+  min_size: 1024
+  types:
+    - "text/html"
+    - "text/css"
+    - "application/javascript"
+    - "application/json"
+
+# Request logging
+logging:
+  disable_request_logging: false
+  no_log_client_errors: false
+  log_fields:
+    - "method"
+    - "url"
+    - "status"
+    - "duration_ms"
+    - "ip"
+
+# CORS configuration
+cors:
+  enabled: true
+  allow_origins:
+    - "*"
+  allow_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+    - "OPTIONS"
+  allow_headers:
+    - "Content-Type"
+    - "Authorization"
+  max_age: 86400
+
+# Static file serving
+static_files:
+  enabled: false
+  # dir: "./static"
+  # url_prefix: "/static/"
+  # cache_max_age: 86400

@@ -1,0 +1,13 @@
+
+Servex Static Files Tutorial
+===========================
+
+This is a sample text file served statically by Servex.
+
+Features demonstrated:
+- Static file serving
+- Cache headers
+- Compression
+- Security headers
+
+The file is served with appropriate cache headers for performance!

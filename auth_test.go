@@ -186,7 +186,7 @@ func newTestAuthManager(db servex.AuthDatabase, t *testing.T) (*servex.AuthManag
 }
 
 // Helper function to create a request with a JSON body
-func newJsonRequest(method, target string, body interface{}) *http.Request {
+func newJsonRequest(method, target string, body any) *http.Request {
 	var reqBody io.Reader
 	if body != nil {
 		jsonBytes, _ := json.Marshal(body)
@@ -200,7 +200,7 @@ func newJsonRequest(method, target string, body interface{}) *http.Request {
 }
 
 // Helper function to decode JSON response
-func decodeJsonResponse(t *testing.T, rr *httptest.ResponseRecorder, target interface{}) {
+func decodeJsonResponse(t *testing.T, rr *httptest.ResponseRecorder, target any) {
 	bodyBytes, err := io.ReadAll(rr.Body)
 	if err != nil {
 		t.Fatalf("Failed to read response body: %v", err)

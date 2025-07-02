@@ -47,13 +47,11 @@ func main() {
 					{
 						URL:                 "http://localhost:8081",
 						Weight:              2,
-						HealthCheckPath:     "/health",
 						HealthCheckInterval: 30 * time.Second,
 					},
 					{
 						URL:                 "http://localhost:8082",
 						Weight:              1,
-						HealthCheckPath:     "/health",
 						HealthCheckInterval: 30 * time.Second,
 					},
 				},
@@ -89,9 +87,18 @@ func main() {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
+	server.GET("/api", func(w http.ResponseWriter, r *http.Request) {
+		servex.C(w, r).JSON(map[string]any{
+			"proxy_enabled": true,
+			"rules":         len(proxyConfig.Rules),
+			"timestamp":     time.Now().Format(time.RFC3339),
+			"message":       "Proxy server is running",
+		})
+	})
+
 	// Add a status endpoint
 	server.GET("/status", func(w http.ResponseWriter, r *http.Request) {
-		servex.C(w, r).JSON(map[string]interface{}{
+		servex.C(w, r).JSON(map[string]any{
 			"proxy_enabled": true,
 			"rules":         len(proxyConfig.Rules),
 			"timestamp":     time.Now().Format(time.RFC3339),
@@ -317,7 +324,7 @@ python3 -m http.server 8083 &
 	log.Println("Quick start backends: python3 -m http.server 8081 &")
 	log.Println("Press Ctrl+C to stop")
 
-	if err := server.StartWithShutdown(ctx, ":8080", ""); err != nil {
+	if err := server.StartWithWaitSignalsHTTP(ctx, ":8080"); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

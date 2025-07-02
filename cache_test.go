@@ -104,7 +104,7 @@ func TestCacheControlPathMatching(t *testing.T) {
 			})
 
 			// Create request and response recorder
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest(servex.GET, tt.path, nil)
 			w := httptest.NewRecorder()
 
 			// Execute request
@@ -226,7 +226,7 @@ func TestCacheControlMiddleware(t *testing.T) {
 			router.HandleFunc("/{rest:.*}", handler)
 
 			// Create request and response recorder
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest(servex.GET, tt.path, nil)
 			w := httptest.NewRecorder()
 
 			// Execute request
@@ -309,7 +309,7 @@ func TestCacheControlMiddlewareWithETagValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/test", nil)
+			req := httptest.NewRequest(servex.GET, "/test", nil)
 			if tt.ifNoneMatchHeader != "" {
 				req.Header.Set("If-None-Match", tt.ifNoneMatchHeader)
 			}
@@ -382,7 +382,7 @@ func TestCacheControlMiddlewareWithLastModifiedValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/test", nil)
+			req := httptest.NewRequest(servex.GET, "/test", nil)
 			if tt.ifModifiedSinceHeader != "" {
 				req.Header.Set("If-Modified-Since", tt.ifModifiedSinceHeader)
 			}
@@ -427,7 +427,7 @@ func TestCacheControlDisabled(t *testing.T) {
 	// Add the test handler
 	router.HandleFunc("/{rest:.*}", handler)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(servex.GET, "/test", nil)
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)

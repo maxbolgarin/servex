@@ -526,6 +526,15 @@ server := servex.NewWithOptions(servex.Options{
 - **Limited Database Options**: Currently supports only in-memory database for auth out of the box. You should implement it's own database it you want to use auth.
 - **Auth limitations**: Auth handling is very basic.
 
+## Roadmap
+
+1. New logging — add logging configuration options, separate `Logger`, `Request logger`, `Error logger`, `Proxy logger`, add log level and logging to file.
+2. Better proxy — dynamic rules, callbacks functions to rules, custom selector of backends, better logging and dumping, mTLS and different auth methods.
+3. Better auth — more fields and roles, email and phone integration, 2FA, etc.
+4. Add native tracing support
+5. Add UI and CLI for API gateway and service discovery configuration
+
+
 ## Contributing
 
 If you'd like to contribute to **servex**, submit a pull request or open an issue.

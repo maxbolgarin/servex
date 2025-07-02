@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
 
 	"github.com/maxbolgarin/servex/v2"
 )
@@ -19,20 +22,11 @@ func main() {
 	}
 
 	// Add a simple hello endpoint
-	server.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	server.GET("/", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]string{
+		ctx.JSON(map[string]string{
 			"message":  "Hello from Servex! 👋",
 			"tutorial": "01-hello-world",
-		})
-	})
-
-	// Add a health check endpoint
-	server.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]string{
-			"status": "healthy",
-			"server": "servex",
 		})
 	})
 
@@ -40,9 +34,18 @@ func main() {
 	fmt.Println("🌐 Server starting on http://localhost:8080")
 	fmt.Println("Try these URLs:")
 	fmt.Println("  → http://localhost:8080/")
-	fmt.Println("  → http://localhost:8080/health")
 	fmt.Println("")
 	fmt.Println("Press Ctrl+C to stop")
 
-	server.Start(":8080", "")
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer cancel()
+
+	err = server.StartHTTP(":8080")
+	if err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
+	defer server.Shutdown(ctx)
+
+	<-ctx.Done()
+	fmt.Println("👋 Server stopped")
 }

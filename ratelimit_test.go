@@ -155,7 +155,7 @@ func TestRateLimitMiddleware_ExcludePaths(t *testing.T) {
 	}
 
 	for i := 0; i < cfg.RequestsPerInterval; i++ {
-		req, _ := http.NewRequest("GET", server.URL+"/normal", nil)
+		req, _ := http.NewRequest(GET, server.URL+"/normal", nil)
 		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
@@ -168,7 +168,7 @@ func TestRateLimitMiddleware_ExcludePaths(t *testing.T) {
 	}
 
 	// Another request to the rate-limited path should be blocked
-	req, _ := http.NewRequest("GET", server.URL+"/normal", nil)
+	req, _ := http.NewRequest(GET, server.URL+"/normal", nil)
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("Failed to make request: %v", err)
@@ -181,7 +181,7 @@ func TestRateLimitMiddleware_ExcludePaths(t *testing.T) {
 
 	// Requests to excluded path should not be rate limited
 	for i := 0; i < cfg.RequestsPerInterval*2; i++ {
-		req, _ := http.NewRequest("GET", server.URL+"/excluded", nil)
+		req, _ := http.NewRequest(GET, server.URL+"/excluded", nil)
 		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
@@ -225,7 +225,7 @@ func TestRateLimitMiddleware_IncludePaths(t *testing.T) {
 
 	// Requests to non-included path should not be rate limited
 	for i := 0; i < cfg.RequestsPerInterval*2; i++ {
-		req, _ := http.NewRequest("GET", server.URL+"/not-included", nil)
+		req, _ := http.NewRequest(GET, server.URL+"/not-included", nil)
 		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
@@ -239,7 +239,7 @@ func TestRateLimitMiddleware_IncludePaths(t *testing.T) {
 
 	// Make requests to an included path (should be rate limited)
 	for i := 0; i < cfg.RequestsPerInterval; i++ {
-		req, _ := http.NewRequest("GET", server.URL+"/included", nil)
+		req, _ := http.NewRequest(GET, server.URL+"/included", nil)
 		resp, err := client.Do(req)
 		if err != nil {
 			t.Fatalf("Failed to make request: %v", err)
@@ -252,7 +252,7 @@ func TestRateLimitMiddleware_IncludePaths(t *testing.T) {
 	}
 
 	// Another request to the included path should be blocked
-	req, _ := http.NewRequest("GET", server.URL+"/included", nil)
+	req, _ := http.NewRequest(GET, server.URL+"/included", nil)
 	resp, err := client.Do(req)
 	if err != nil {
 		t.Fatalf("Failed to make request: %v", err)
@@ -303,7 +303,7 @@ func TestRateLimitMiddleware_KeyFunction(t *testing.T) {
 
 		// Each user should be able to make requests up to the limit
 		for i := 0; i < cfg.RequestsPerInterval; i++ {
-			req, _ := http.NewRequest("GET", server.URL, nil)
+			req, _ := http.NewRequest(GET, server.URL, nil)
 			req.Header.Set("X-User-ID", userKey)
 			resp, err := client.Do(req)
 			if err != nil {
@@ -317,7 +317,7 @@ func TestRateLimitMiddleware_KeyFunction(t *testing.T) {
 		}
 
 		// Another request from the same user should be blocked
-		req, _ := http.NewRequest("GET", server.URL, nil)
+		req, _ := http.NewRequest(GET, server.URL, nil)
 		req.Header.Set("X-User-ID", userKey)
 		resp, err := client.Do(req)
 		if err != nil {
@@ -439,7 +439,7 @@ func TestRateLimitMiddleware_CleanupInterval(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			req, _ := http.NewRequest("GET", server.URL, nil)
+			req, _ := http.NewRequest(GET, server.URL, nil)
 			req.Header.Set("X-Forwarded-For", fmt.Sprintf("192.168.1.%d", id))
 			resp, err := client.Do(req)
 			if err != nil {
@@ -1076,7 +1076,7 @@ func TestLocationBasedRateLimitMiddleware(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create request
-			req := httptest.NewRequest("GET", tc.path, nil)
+			req := httptest.NewRequest(GET, tc.path, nil)
 			req.RemoteAddr = tc.clientIP
 
 			// Create response recorder
@@ -1131,7 +1131,7 @@ func TestLocationBasedRateLimitMiddleware_NoMatchingConfig(t *testing.T) {
 	}()
 
 	// Test a path that doesn't match any config
-	req := httptest.NewRequest("GET", "/public/test", nil)
+	req := httptest.NewRequest(GET, "/public/test", nil)
 	req.RemoteAddr = "192.168.1.100:12345"
 	rr := httptest.NewRecorder()
 

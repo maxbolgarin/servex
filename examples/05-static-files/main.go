@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -19,29 +20,15 @@ func main() {
 
 	// Create server with caching optimized for static files
 	server, err := servex.NewServer(
-		// Basic security and performance for static files
-		servex.WithSecurityHeaders(),
-		servex.WithCacheStaticAssets(86400), // Cache for 24 hours
+	// Basic security and performance for static files
+	// servex.WithSecurityHeaders(),
+	// servex.WithStaticFiles("./static", "/static"),
+	// servex.WithStaticFileCache(86400),
+	// servex.WithCompression(),
 	)
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
 	}
-
-	// Serve static files from ./static directory
-	server.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
-		// Remove "/static/" prefix and serve file
-		filepath := r.URL.Path[8:] // Remove "/static/"
-		fullPath := "./static/" + filepath
-
-		// Check if file exists
-		if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-			http.NotFound(w, r)
-			return
-		}
-
-		// Serve the file
-		http.ServeFile(w, r, fullPath)
-	})
 
 	// API endpoint to list available files
 	server.HandleFunc("/api/files", func(w http.ResponseWriter, r *http.Request) {
@@ -49,14 +36,11 @@ func main() {
 
 		files, err := listStaticFiles()
 		if err != nil {
-			ctx.Response(500, map[string]string{
-				"error":   "Failed to list files",
-				"details": err.Error(),
-			})
+			ctx.InternalServerError(err, "Failed to list files", "details", err.Error())
 			return
 		}
 
-		ctx.Response(200, map[string]interface{}{
+		ctx.JSON(map[string]any{
 			"files":    files,
 			"base_url": "http://localhost:8080/static/",
 			"tutorial": "05-static-files",
@@ -64,7 +48,7 @@ func main() {
 	})
 
 	// Demo page showing static files
-	server.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		html := `
 <!DOCTYPE html>
 <html>
@@ -110,14 +94,13 @@ curl http://localhost:8080/api/files
     </div>
 </body>
 </html>`
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, html)
+		servex.C(w, r).Response(200, html)
 	})
 
 	// Health check
-	server.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]string{
+		ctx.Response(200, map[string]any{
 			"status":   "healthy",
 			"tutorial": "05-static-files",
 		})
@@ -134,7 +117,10 @@ curl http://localhost:8080/api/files
 	fmt.Println("Test caching with: curl -I http://localhost:8080/static/style.css")
 	fmt.Println("Press Ctrl+C to stop")
 
-	server.Start(":8080", "")
+	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
+	if err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
 }
 
 // setupStaticFiles creates the static directory and sample files

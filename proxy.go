@@ -360,6 +360,7 @@ func (pm *proxyManager) createErrorHandler(backend *Backend) func(http.ResponseW
 // proxyMiddleware is the main proxy middleware
 func (pm *proxyManager) proxyMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		pm.logger.Debug("proxyMiddleware", "path", r.URL.Path)
 		// Find matching rule
 		rule := pm.findMatchingRule(r)
 		if rule == nil {

@@ -92,7 +92,7 @@ func main() {
 func addManagementEndpoints(server *servex.Server, config *servex.Config) {
 	// Proxy status endpoint
 	server.GET("/proxy/status", func(w http.ResponseWriter, r *http.Request) {
-		status := map[string]interface{}{
+		status := map[string]any{
 			"service":       "servex-proxy",
 			"version":       appVersion,
 			"timestamp":     time.Now().Format(time.RFC3339),
@@ -112,30 +112,30 @@ func addManagementEndpoints(server *servex.Server, config *servex.Config) {
 
 	// Backend status endpoint
 	server.GET("/proxy/backends", func(w http.ResponseWriter, r *http.Request) {
-		backends := make(map[string]interface{})
+		backends := make(map[string]any)
 
 		for i := range config.Proxy.Rules {
 			rule := &config.Proxy.Rules[i]
-			ruleInfo := map[string]interface{}{
+			ruleInfo := map[string]any{
 				"name":           rule.Name,
 				"path_prefix":    rule.PathPrefix,
 				"host":           rule.Host,
 				"load_balancing": rule.LoadBalancing,
 				"timeout":        rule.Timeout.String(),
 				"backend_count":  len(rule.Backends),
-				"backends":       make([]map[string]interface{}, 0),
+				"backends":       make([]map[string]any, 0),
 			}
 
 			for i := range rule.Backends {
 				backend := &rule.Backends[i]
-				backendInfo := map[string]interface{}{
+				backendInfo := map[string]any{
 					"url":                   backend.URL,
 					"weight":                backend.Weight,
 					"max_connections":       backend.MaxConnections,
 					"health_check_path":     backend.HealthCheckPath,
 					"health_check_interval": backend.HealthCheckInterval.String(),
 				}
-				ruleInfo["backends"] = append(ruleInfo["backends"].([]map[string]interface{}), backendInfo)
+				ruleInfo["backends"] = append(ruleInfo["backends"].([]map[string]any), backendInfo)
 			}
 
 			backends[rule.Name] = ruleInfo
@@ -147,8 +147,8 @@ func addManagementEndpoints(server *servex.Server, config *servex.Config) {
 	// Configuration endpoint (for debugging)
 	server.GET("/proxy/config", func(w http.ResponseWriter, r *http.Request) {
 		// Return sanitized configuration (without sensitive data)
-		sanitizedConfig := map[string]interface{}{
-			"proxy": map[string]interface{}{
+		sanitizedConfig := map[string]any{
+			"proxy": map[string]any{
 				"enabled":                 config.Proxy.Enabled,
 				"global_timeout":          config.Proxy.GlobalTimeout.String(),
 				"max_idle_conns":          config.Proxy.MaxIdleConns,
@@ -158,15 +158,15 @@ func addManagementEndpoints(server *servex.Server, config *servex.Config) {
 				"health_check":            config.Proxy.HealthCheck,
 				"rules_count":             len(config.Proxy.Rules),
 			},
-			"rate_limit": map[string]interface{}{
+			"rate_limit": map[string]any{
 				"enabled":               config.RateLimit.Enabled,
 				"requests_per_interval": config.RateLimit.RequestsPerInterval,
 				"interval":              config.RateLimit.Interval.String(),
 			},
-			"security": map[string]interface{}{
+			"security": map[string]any{
 				"enabled": config.Security.Enabled,
 			},
-			"filter": map[string]interface{}{
+			"filter": map[string]any{
 				"blocked_user_agents_regex": config.Filter.BlockedUserAgentsRegex,
 			},
 		}
@@ -176,23 +176,23 @@ func addManagementEndpoints(server *servex.Server, config *servex.Config) {
 
 	// Health endpoint with backend health
 	server.GET("/proxy/health", func(w http.ResponseWriter, r *http.Request) {
-		health := map[string]interface{}{
+		health := map[string]any{
 			"status":    "healthy",
 			"timestamp": time.Now().Format(time.RFC3339),
 			"uptime":    time.Since(time.Now()).String(), // This would be calculated from start time
-			"rules":     make(map[string]interface{}),
+			"rules":     make(map[string]any),
 		}
 
 		for i := range config.Proxy.Rules {
 			rule := &config.Proxy.Rules[i]
-			ruleHealth := map[string]interface{}{
+			ruleHealth := map[string]any{
 				"total_backends":     len(rule.Backends),
 				"healthy_backends":   0, // This would be calculated from actual backend health
 				"unhealthy_backends": 0,
 			}
 
 			// Note: In a real implementation, you'd get actual health status from the proxy manager
-			health["rules"].(map[string]interface{})[rule.Name] = ruleHealth
+			health["rules"].(map[string]any)[rule.Name] = ruleHealth
 		}
 
 		servex.C(w, r).JSON(health)

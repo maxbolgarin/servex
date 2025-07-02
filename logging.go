@@ -80,12 +80,6 @@ func putLogFields(fields []any) {
 	}
 }
 
-// appendFieldPair efficiently appends a key-value pair to the fields slice.
-// This helper reduces code duplication and ensures consistent field handling.
-func appendFieldPair(fields []any, key string, value any) []any {
-	return append(fields, key, value)
-}
-
 // Logger is an interface for logger to log messages.
 type Logger interface {
 	// Debug is using to log successful requests.

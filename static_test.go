@@ -92,7 +92,7 @@ func TestStaticFileMiddleware(t *testing.T) {
 			}
 
 			// Create test request
-			req := httptest.NewRequest("GET", tt.requestPath, nil)
+			req := httptest.NewRequest(GET, tt.requestPath, nil)
 			rr := httptest.NewRecorder()
 
 			// Execute request
@@ -185,7 +185,7 @@ func TestSPAMode(t *testing.T) {
 			}
 
 			// Create test request
-			req := httptest.NewRequest("GET", tt.requestPath, nil)
+			req := httptest.NewRequest(GET, tt.requestPath, nil)
 			rr := httptest.NewRecorder()
 
 			// Execute request
@@ -271,7 +271,7 @@ func TestStaticFileExclusions(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.requestPath, nil)
+			req := httptest.NewRequest(GET, tt.requestPath, nil)
 			rr := httptest.NewRecorder()
 
 			server.Router().ServeHTTP(rr, req)
@@ -347,7 +347,7 @@ func TestStaticFileCaching(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.requestPath, nil)
+			req := httptest.NewRequest(GET, tt.requestPath, nil)
 			rr := httptest.NewRecorder()
 
 			server.Router().ServeHTTP(rr, req)
@@ -404,7 +404,7 @@ func TestStaticFileWithURLPrefix(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.requestPath, nil)
+			req := httptest.NewRequest(GET, tt.requestPath, nil)
 			rr := httptest.NewRecorder()
 
 			server.Router().ServeHTTP(rr, req)
@@ -481,7 +481,7 @@ func TestStaticFileDirectoryTraversal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.requestPath, nil)
+			req := httptest.NewRequest(GET, tt.requestPath, nil)
 			rr := httptest.NewRecorder()
 
 			server.Router().ServeHTTP(rr, req)
@@ -495,7 +495,7 @@ func TestStaticFileDirectoryTraversal(t *testing.T) {
 					// Follow the redirect and test the final result
 					location := rr.Header().Get("Location")
 					if location != "" {
-						req2 := httptest.NewRequest("GET", location, nil)
+						req2 := httptest.NewRequest(GET, location, nil)
 						rr2 := httptest.NewRecorder()
 						server.Router().ServeHTTP(rr2, req2)
 
@@ -585,7 +585,7 @@ func TestStaticFileOptions(t *testing.T) {
 				t.Fatalf("Failed to create server: %v", err)
 			}
 
-			req := httptest.NewRequest("GET", tt.requestPath, nil)
+			req := httptest.NewRequest(GET, tt.requestPath, nil)
 			rr := httptest.NewRecorder()
 
 			server.Router().ServeHTTP(rr, req)
@@ -627,12 +627,12 @@ func TestStaticFileIntegrationWithAPI(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"users": []}`))
-	}, "GET")
+	}, GET)
 
 	server.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
-	}, "GET")
+	}, GET)
 
 	tests := []struct {
 		name           string
@@ -670,7 +670,7 @@ func TestStaticFileIntegrationWithAPI(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.requestPath, nil)
+			req := httptest.NewRequest(GET, tt.requestPath, nil)
 			rr := httptest.NewRecorder()
 
 			server.Router().ServeHTTP(rr, req)
@@ -762,7 +762,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				Dir:     tempDir,
 			},
 			requestPath:    "/index.html",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusOK,
 			expectedBody:   testFiles["index.html"],
 			expectedHeader: map[string]string{
@@ -777,7 +777,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				Dir:     tempDir,
 			},
 			requestPath:    "/app.js",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusOK,
 			expectedBody:   testFiles["app.js"],
 			expectedHeader: map[string]string{
@@ -792,7 +792,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				Dir:     tempDir,
 			},
 			requestPath:    "/styles.css",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusOK,
 			expectedBody:   testFiles["styles.css"],
 			expectedHeader: map[string]string{
@@ -807,7 +807,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				Dir:     tempDir,
 			},
 			requestPath:    "/nested/deep.html",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusOK,
 			expectedBody:   testFiles["nested/deep.html"],
 			expectedHeader: map[string]string{
@@ -823,7 +823,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				Dir:     tempDir,
 			},
 			requestPath:    "/data.json",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusOK,
 			expectedHeader: map[string]string{
 				"Content-Type": "application/json",
@@ -836,7 +836,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				Dir:     tempDir,
 			},
 			requestPath:    "/image.png",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusOK,
 			expectedHeader: map[string]string{
 				"Content-Type": "image/png",
@@ -849,7 +849,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				Dir:     tempDir,
 			},
 			requestPath:    "/logo.svg",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusOK,
 			expectedHeader: map[string]string{
 				"Content-Type": "image/svg+xml",
@@ -876,7 +876,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				Dir:     tempDir,
 			},
 			requestPath:    "/index.html",
-			requestMethod:  "POST",
+			requestMethod:  POST,
 			expectedStatus: http.StatusNotFound, // No POST handler, so 404
 		},
 		{
@@ -886,7 +886,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				Dir:     tempDir,
 			},
 			requestPath:    "/index.html",
-			requestMethod:  "PUT",
+			requestMethod:  PUT,
 			expectedStatus: http.StatusNotFound, // No PUT handler, so 404
 		},
 		// Non-existent files
@@ -897,7 +897,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				Dir:     tempDir,
 			},
 			requestPath:    "/nonexistent.html",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusNotFound,
 		},
 		// URL prefix handling
@@ -909,7 +909,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				URLPrefix: "/static",
 			},
 			requestPath:    "/static/app.js",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusOK,
 			expectedBody:   testFiles["app.js"],
 			checkContent:   true,
@@ -922,7 +922,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				URLPrefix: "/static",
 			},
 			requestPath:    "/app.js",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusNotFound,
 		},
 		// SPA mode
@@ -935,7 +935,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				IndexFile: "index.html",
 			},
 			requestPath:    "/app.js",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusOK,
 			expectedBody:   testFiles["app.js"],
 			checkContent:   true,
@@ -949,7 +949,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				IndexFile: "index.html",
 			},
 			requestPath:    "/user/profile/settings",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusOK,
 			expectedBody:   testFiles["index.html"],
 			expectedHeader: map[string]string{
@@ -966,7 +966,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				IndexFile: "index.html",
 			},
 			requestPath:    "/",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusOK,
 			expectedBody:   testFiles["index.html"],
 			checkContent:   true,
@@ -984,10 +984,10 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusOK)
 					w.Write([]byte(`{"api": "response"}`))
-				}, "GET")
+				}, GET)
 			},
 			requestPath:    "/api/test",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusOK,
 			expectedBody:   `{"api": "response"}`,
 			expectedHeader: map[string]string{
@@ -1006,7 +1006,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				ExcludePaths: []string{"/admin/*", "/api/*"},
 			},
 			requestPath:    "/admin/dashboard",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusNotFound, // No handler for excluded path
 		},
 		// Disabled static files
@@ -1017,7 +1017,7 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 				Dir:     tempDir,
 			},
 			requestPath:    "/index.html",
-			requestMethod:  "GET",
+			requestMethod:  GET,
 			expectedStatus: http.StatusNotFound,
 		},
 	}
@@ -1139,7 +1139,7 @@ func TestStaticMiddlewareCaching(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.requestPath, nil)
+			req := httptest.NewRequest(GET, tt.requestPath, nil)
 			rr := httptest.NewRecorder()
 
 			server.Router().ServeHTTP(rr, req)
@@ -1221,7 +1221,7 @@ func TestStaticMiddlewareSecurityEdgeCases(t *testing.T) {
 
 	for _, tt := range securityTests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.requestPath, nil)
+			req := httptest.NewRequest(GET, tt.requestPath, nil)
 			rr := httptest.NewRecorder()
 
 			server.Router().ServeHTTP(rr, req)
@@ -1239,7 +1239,7 @@ func TestStaticMiddlewareSecurityEdgeCases(t *testing.T) {
 			if rr.Code == http.StatusMovedPermanently {
 				location := rr.Header().Get("Location")
 				if location != "" {
-					req2 := httptest.NewRequest("GET", location, nil)
+					req2 := httptest.NewRequest(GET, location, nil)
 					rr2 := httptest.NewRecorder()
 					server.Router().ServeHTTP(rr2, req2)
 

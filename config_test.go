@@ -348,43 +348,43 @@ func TestEnvironmentVariableParsing(t *testing.T) {
 		name     string
 		envVar   string
 		envValue string
-		expected interface{}
-		checkFn  func(*Config) interface{}
+		expected any
+		checkFn  func(*Config) any
 	}{
 		{
 			name:     "boolean true",
 			envVar:   "SERVEX_SERVER_ENABLE_HEALTH_ENDPOINT",
 			envValue: "true",
 			expected: true,
-			checkFn:  func(c *Config) interface{} { return c.Server.EnableHealthEndpoint },
+			checkFn:  func(c *Config) any { return c.Server.EnableHealthEndpoint },
 		},
 		{
 			name:     "boolean false",
 			envVar:   "SERVEX_AUTH_ENABLED",
 			envValue: "false",
 			expected: false,
-			checkFn:  func(c *Config) interface{} { return c.Auth.Enabled },
+			checkFn:  func(c *Config) any { return c.Auth.Enabled },
 		},
 		{
 			name:     "integer",
 			envVar:   "SERVEX_RATE_LIMIT_REQUESTS_PER_INTERVAL",
 			envValue: "250",
 			expected: 250,
-			checkFn:  func(c *Config) interface{} { return c.RateLimit.RequestsPerInterval },
+			checkFn:  func(c *Config) any { return c.RateLimit.RequestsPerInterval },
 		},
 		{
 			name:     "duration",
 			envVar:   "SERVEX_SERVER_READ_TIMEOUT",
 			envValue: "45s",
 			expected: 45 * time.Second,
-			checkFn:  func(c *Config) interface{} { return c.Server.ReadTimeout },
+			checkFn:  func(c *Config) any { return c.Server.ReadTimeout },
 		},
 		{
 			name:     "string",
 			envVar:   "SERVEX_AUTH_ISSUER",
 			envValue: "test-issuer",
 			expected: "test-issuer",
-			checkFn:  func(c *Config) interface{} { return c.Auth.Issuer },
+			checkFn:  func(c *Config) any { return c.Auth.Issuer },
 		},
 	}
 

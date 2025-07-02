@@ -447,8 +447,125 @@ type Options struct {
 	// When true, all HTTP requests will be automatically redirected to HTTPS.
 	HTTPSRedirect HTTPSRedirectConfig
 
+	// CORS is the Cross-Origin Resource Sharing configuration for handling cross-origin requests.
+	// Set via WithCORS(), WithCORSAllowOrigins(), or WithCORSConfig().
+	//
+	// CORS enables web applications running at one domain to access resources from another domain.
+	// This is essential for modern web applications, SPAs, and APIs that serve different frontends.
+	//
+	// Use for:
+	//   - API servers serving web applications
+	//   - Microservices accessed by different frontends
+	//   - Public APIs accessed by third-party applications
+	//   - Development servers with frontend/backend separation
+	CORS CORSConfig
+
 	// Proxy is the reverse proxy configuration
 	Proxy ProxyConfiguration
+
+	// Compression is the HTTP response compression configuration.
+	// Set via WithCompression(), WithCompressionConfig(), or other compression options.
+	//
+	// Controls automatic compression of HTTP response bodies using gzip or deflate encoding.
+	// Compression reduces bandwidth usage and improves performance for text-based content.
+	//
+	// Use for:
+	//   - API responses (JSON, XML)
+	//   - Static assets (CSS, JS, HTML)
+	//   - Large text responses
+	//   - Bandwidth optimization
+	Compression CompressionConfig
+}
+
+// CompressionConfig holds the HTTP response compression configuration.
+// This configuration enables automatic compression of response bodies
+// using gzip or deflate encoding based on client Accept-Encoding headers.
+//
+// Example configuration:
+//
+//	compression := CompressionConfig{
+//		Enabled: true,
+//		Level: 6,
+//		MinSize: 1024,
+//		Types: []string{"text/html", "application/json", "text/css", "application/javascript"},
+//		ExcludePaths: []string{"/api/binary/*", "/downloads/*"},
+//	}
+type CompressionConfig struct {
+	// Enabled determines whether response compression is active.
+	// Must be set to true for compression to be applied.
+	// Set via WithCompression() or WithCompressionConfig().
+	Enabled bool
+
+	// Level sets the compression level for gzip encoding.
+	// Valid range: 1-9 where 1 is fastest and 9 is best compression.
+	// Set via WithCompressionLevel().
+	//
+	// Recommended values:
+	//   - 1: Fastest compression, lower CPU usage
+	//   - 6: Default balance of speed and compression (recommended)
+	//   - 9: Best compression, higher CPU usage
+	//
+	// Default: 6 if not set.
+	Level int
+
+	// MinSize is the minimum response size in bytes to trigger compression.
+	// Responses smaller than this size will not be compressed.
+	// Set via WithCompressionMinSize().
+	//
+	// Common values:
+	//   - 1024: 1KB (good default)
+	//   - 512: Compress smaller responses
+	//   - 4096: Only compress larger responses
+	//   - 0: Compress all responses regardless of size
+	//
+	// Default: 1024 bytes if not set.
+	MinSize int
+
+	// Types is a list of MIME types that should be compressed.
+	// Only responses with these content types will be compressed.
+	// Set via WithCompressionTypes().
+	//
+	// Common MIME types for compression:
+	//   - "text/html": HTML pages
+	//   - "text/css": CSS stylesheets
+	//   - "application/javascript": JavaScript files
+	//   - "application/json": JSON API responses
+	//   - "text/xml": XML responses
+	//   - "text/plain": Plain text
+	//   - "image/svg+xml": SVG images
+	//
+	// If empty, defaults to common text-based types.
+	Types []string
+
+	// ExcludePaths are paths that should be excluded from compression.
+	// Responses for these paths will not be compressed regardless of other settings.
+	// Set via WithCompressionExcludePaths().
+	//
+	// Common exclusions:
+	//   - "/api/binary/*": Binary API endpoints
+	//   - "/downloads/*": File download endpoints
+	//   - "/images/*": Image files (already compressed)
+	//   - "/videos/*": Video files (already compressed)
+	//
+	// Path matching supports wildcards (*) for pattern matching.
+	ExcludePaths []string
+
+	// IncludePaths are paths that should have compression applied.
+	// If set, only responses for these paths will be compressed.
+	// Set via WithCompressionIncludePaths().
+	//
+	// If both IncludePaths and ExcludePaths are set:
+	//   1. Paths must match IncludePaths to be considered for compression
+	//   2. Paths in ExcludePaths are then excluded from compression
+	//
+	// Use cases:
+	//   - Compress only API endpoints: "/api/*"
+	//   - Compress only static assets: "/static/*"
+	//   - Compress specific content: "/docs/*", "/help/*"
+	//
+	// Path matching supports wildcards (*) for pattern matching.
+	// Leave empty to apply compression to all paths (default behavior).
+	IncludePaths []string
 }
 
 // AuthConfig holds the JWT-based authentication configuration with user management, roles, and JWT tokens.
@@ -1366,7 +1483,7 @@ type SecurityConfig struct {
 	// CSRFSafeMethods lists HTTP methods that bypass CSRF validation.
 	// Set via WithCSRFSafeMethods() or WithSecurityConfig().
 	//
-	// Default: ["GET", "HEAD", "OPTIONS", "TRACE"]
+	// Default: [GET, "HEAD", OPTIONS, "TRACE"]
 	//
 	// These methods are considered safe because they shouldn't have side effects.
 	// POST, PUT, PATCH, DELETE require CSRF tokens by default.
@@ -1835,6 +1952,8 @@ type StaticFileConfig struct {
 	//
 	// More specific rules override general rules. CacheRules override CacheMaxAge.
 	CacheRules map[string]int
+
+	securityHeadersForStaticFiles SecurityConfig
 }
 
 // HTTPSRedirectConfig holds configuration for automatic HTTP to HTTPS redirection.
@@ -1920,6 +2039,161 @@ type HTTPSRedirectConfig struct {
 	//
 	// Path matching supports wildcards (*) for pattern matching.
 	// Leave empty to redirect all paths (recommended for production).
+	IncludePaths []string
+}
+
+// CORSConfig holds configuration for Cross-Origin Resource Sharing (CORS).
+// This enables web applications running at one domain to access resources from another domain.
+// This is essential for modern web applications, SPAs, and APIs that serve different frontends.
+//
+// Example configuration:
+//
+//	corsConfig := CORSConfig{
+//		Enabled: true,
+//		AllowOrigins: []string{"https://example.com", "https://app.example.com"},
+//		AllowMethods: []string{GET, POST, PUT, DELETE, OPTIONS},
+//		AllowHeaders: []string{"Content-Type", "Authorization"},
+//		AllowCredentials: true,
+//		MaxAge: 3600,
+//	}
+type CORSConfig struct {
+	// Enabled determines whether CORS middleware is active.
+	// Must be set to true for any CORS headers to be applied.
+	// Set via WithCORS(), WithCORSAllowOrigins(), or WithCORSConfig().
+	Enabled bool
+
+	// AllowOrigins is a list of origins that are allowed to access the resource.
+	// Origins should include the protocol, domain, and port (if not standard).
+	// Set via WithCORSAllowOrigins().
+	//
+	// Examples:
+	//   - []string{"*"}: Allow all origins (not recommended for production with credentials)
+	//   - []string{"https://example.com"}: Allow specific origin
+	//   - []string{"https://app.example.com", "https://admin.example.com"}: Multiple origins
+	//   - []string{"http://localhost:3000", "http://localhost:8080"}: Development origins
+	//
+	// Security considerations:
+	//   - Use specific origins instead of "*" when possible
+	//   - Never use "*" with AllowCredentials: true
+	//   - Include protocol (https://) and port if non-standard
+	//
+	// If empty, defaults to "*" (all origins allowed).
+	AllowOrigins []string
+
+	// AllowMethods is a list of HTTP methods that are allowed for cross-origin requests.
+	// Set via WithCORSAllowMethods().
+	//
+	// Common values:
+	//   - []string{GET, POST, PUT, DELETE, OPTIONS}: Full REST API
+	//   - []string{GET, POST, OPTIONS}: Read and create operations
+	//   - []string{GET, OPTIONS}: Read-only API
+	//
+	// Notes:
+	//   - OPTIONS is automatically included for preflight requests
+	//   - HEAD and GET are considered "simple" methods by browsers
+	//   - Other methods trigger preflight requests
+	//
+	// If empty, defaults to common REST methods: GET, POST, PUT, DELETE, OPTIONS.
+	AllowMethods []string
+
+	// AllowHeaders is a list of headers that are allowed in cross-origin requests.
+	// Set via WithCORSAllowHeaders().
+	//
+	// Common headers:
+	//   - []string{"Content-Type", "Authorization"}: Basic API headers
+	//   - []string{"Content-Type", "Authorization", "X-Requested-With"}: AJAX headers
+	//   - []string{"*"}: Allow all headers (less secure)
+	//
+	// Standard headers that don't require explicit allowance:
+	//   - Accept, Accept-Language, Content-Language
+	//   - Content-Type (for simple values like text/plain, application/x-www-form-urlencoded)
+	//
+	// Custom headers and complex Content-Type values need explicit allowance.
+	//
+	// If empty, defaults to common headers: Content-Type, Authorization, X-Requested-With.
+	AllowHeaders []string
+
+	// ExposeHeaders is a list of headers that are exposed to the client.
+	// These headers can be accessed by JavaScript in the browser.
+	// Set via WithCORSExposeHeaders().
+	//
+	// Common headers to expose:
+	//   - []string{"Content-Length", "Content-Range"}: File download information
+	//   - []string{"X-Total-Count", "X-Page-Count"}: Pagination metadata
+	//   - []string{"Location"}: Resource creation location
+	//
+	// By default, only simple response headers are exposed to clients.
+	// Custom headers need to be explicitly listed here to be accessible.
+	//
+	// If empty, no additional headers are exposed beyond the defaults.
+	ExposeHeaders []string
+
+	// AllowCredentials indicates whether credentials (cookies, HTTP authentication, client-side SSL certificates)
+	// are allowed to be included in cross-origin requests.
+	// Set via WithCORSAllowCredentials().
+	//
+	// Security implications:
+	//   - When true, browsers include cookies and authorization headers
+	//   - Cannot use "*" for AllowOrigins when this is true
+	//   - Enables authenticated cross-origin requests
+	//   - Increases CSRF risk if not properly handled
+	//
+	// Use cases:
+	//   - APIs that use session cookies for authentication
+	//   - Applications with cross-origin authenticated requests
+	//   - Single sign-on systems
+	//
+	// Default: false (safer for public APIs)
+	AllowCredentials bool
+
+	// MaxAge is the maximum number of seconds that the results of a preflight request can be cached.
+	// This affects how long browsers cache CORS preflight responses.
+	// Set via WithCORSMaxAge().
+	//
+	// Common values:
+	//   - 3600: 1 hour (good for development)
+	//   - 86400: 1 day (good for production)
+	//   - 0: No caching (forces preflight for every request)
+	//
+	// Benefits of longer caching:
+	//   - Fewer preflight requests (better performance)
+	//   - Reduced server load
+	//
+	// Benefits of shorter caching:
+	//   - Faster policy changes take effect
+	//   - Better for development
+	//
+	// Default: 3600 seconds (1 hour) if not set.
+	MaxAge int
+
+	// ExcludePaths are paths that should be excluded from CORS headers.
+	// Requests to these paths will not have CORS headers applied.
+	// Set via WithCORSExcludePaths().
+	//
+	// Common exclusions:
+	//   - "/internal/*": Internal endpoints not meant for browsers
+	//   - "/admin/*": Admin endpoints with different CORS needs
+	//   - "/webhooks/*": Webhook endpoints that don't need CORS
+	//
+	// Path matching supports wildcards (*) for pattern matching.
+	// Use when different endpoints need different CORS policies.
+	ExcludePaths []string
+
+	// IncludePaths are paths that should have CORS headers applied.
+	// If set, only requests to these paths will receive CORS headers.
+	// Set via WithCORSIncludePaths().
+	//
+	// If both IncludePaths and ExcludePaths are set:
+	//   1. Paths must match IncludePaths to receive CORS headers
+	//   2. Paths in ExcludePaths are then excluded from CORS headers
+	//
+	// Use cases:
+	//   - Apply CORS only to API endpoints: "/api/*"
+	//   - CORS for specific services: "/auth/*", "/users/*"
+	//   - Public endpoints only: "/public/*"
+	//
+	// Path matching supports wildcards (*) for pattern matching.
+	// Leave empty to apply CORS to all paths (default behavior).
 	IncludePaths []string
 }
 
@@ -2257,7 +2531,7 @@ func WithHTTPSRedirectTemporary() Option {
 }
 
 // WithHTTPSRedirectConfig sets the complete HTTPS redirection configuration.
-// This allows fine-grained control over all HTTPS redirection settings.
+// This allows fine-grained control over all HTTPS redirect settings.
 //
 // Example:
 //
@@ -4370,7 +4644,7 @@ func WithCSRFProtection() Option {
 		op.Security.CSRFCookiePath = "/"
 		op.Security.CSRFCookieMaxAge = 86400 // 24 hours
 		op.Security.CSRFErrorMessage = "CSRF token validation failed"
-		op.Security.CSRFSafeMethods = []string{"GET", "HEAD", "OPTIONS", "TRACE"}
+		op.Security.CSRFSafeMethods = []string{GET, "HEAD", OPTIONS, "TRACE"}
 	}
 }
 
@@ -4704,19 +4978,19 @@ func WithCSRFErrorMessage(message string) Option {
 //	// Default safe methods (recommended)
 //	server := servex.New(
 //		servex.WithCSRFProtection(),
-//		servex.WithCSRFSafeMethods("GET", "HEAD", "OPTIONS", "TRACE"),
+//		servex.WithCSRFSafeMethods(GET, "HEAD", OPTIONS, "TRACE"),
 //	)
 //
 //	// More restrictive (only GET and HEAD)
 //	server := servex.New(
 //		servex.WithCSRFProtection(),
-//		servex.WithCSRFSafeMethods("GET", "HEAD"),
+//		servex.WithCSRFSafeMethods(GET, "HEAD"),
 //	)
 //
 //	// Allow additional methods (use with caution)
 //	server := servex.New(
 //		servex.WithCSRFProtection(),
-//		servex.WithCSRFSafeMethods("GET", "HEAD", "OPTIONS", "TRACE", "PROPFIND"),
+//		servex.WithCSRFSafeMethods(GET, "HEAD", OPTIONS, "TRACE", "PROPFIND"),
 //	)
 //
 // Default safe methods: GET, HEAD, OPTIONS, TRACE
@@ -4818,6 +5092,385 @@ func WithCustomHeaders(headers map[string]string) Option {
 func WithRemoveHeaders(headers ...string) Option {
 	return func(op *Options) {
 		op.HeadersToRemove = append(op.HeadersToRemove, headers...)
+	}
+}
+
+// WithCORSConfig sets the complete CORS configuration.
+// This allows fine-grained control over all CORS settings at once.
+//
+// Example:
+//
+//	corsConfig := servex.CORSConfig{
+//		Enabled: true,
+//		AllowOrigins: []string{"https://example.com", "https://app.example.com"},
+//		AllowMethods: []string{GET, POST, PUT, DELETE, OPTIONS},
+//		AllowHeaders: []string{"Content-Type", "Authorization"},
+//		AllowCredentials: true,
+//		MaxAge: 3600,
+//	}
+//
+//	server := servex.New(servex.WithCORSConfig(corsConfig))
+//
+// Use this when you need to configure multiple CORS settings at once
+// or when loading configuration from files or environment variables.
+func WithCORSConfig(cors CORSConfig) Option {
+	return func(op *Options) {
+		op.CORS = cors
+	}
+}
+
+// WithCORS enables CORS with permissive defaults suitable for development.
+// This allows all origins, methods, and headers with credentials disabled.
+//
+// Example:
+//
+//	// Enable CORS with permissive defaults
+//	server := servex.New(servex.WithCORS())
+//
+//	// Equivalent to:
+//	server := servex.New(servex.WithCORSConfig(servex.CORSConfig{
+//		Enabled: true,
+//		AllowOrigins: []string{"*"},
+//		AllowMethods: []string{GET, POST, PUT, DELETE, OPTIONS},
+//		AllowHeaders: []string{"Content-Type", "Authorization", "X-Requested-With"},
+//		AllowCredentials: false,
+//		MaxAge: 3600,
+//	}))
+//
+// Security considerations:
+//   - This is permissive and suitable for development
+//   - For production, use specific origins with WithCORSAllowOrigins()
+//   - Never use this with credentials in production
+//
+// For production use, configure specific origins:
+//
+//	server := servex.New(
+//		servex.WithCORS(),
+//		servex.WithCORSAllowOrigins("https://myapp.com"),
+//		servex.WithCORSAllowCredentials(true),
+//	)
+func WithCORS() Option {
+	return func(op *Options) {
+		op.CORS.Enabled = true
+		op.CORS.AllowOrigins = []string{"*"}
+		op.CORS.AllowMethods = []string{GET, POST, PUT, DELETE, OPTIONS}
+		op.CORS.AllowHeaders = []string{"Content-Type", "Authorization", "X-Requested-With"}
+		op.CORS.AllowCredentials = false
+		op.CORS.MaxAge = 3600
+	}
+}
+
+// WithCORSAllowOrigins sets the allowed origins for CORS requests.
+// This specifies which domains are allowed to make cross-origin requests to your server.
+//
+// Example:
+//
+//	// Allow specific origins
+//	server := servex.New(servex.WithCORSAllowOrigins(
+//		"https://myapp.com",
+//		"https://admin.myapp.com",
+//	))
+//
+//	// Development setup with local origins
+//	server := servex.New(servex.WithCORSAllowOrigins(
+//		"http://localhost:3000",
+//		"http://localhost:8080",
+//		"https://dev.myapp.com",
+//	))
+//
+//	// Production API serving multiple frontends
+//	server := servex.New(servex.WithCORSAllowOrigins(
+//		"https://app.example.com",
+//		"https://admin.example.com",
+//		"https://mobile.example.com",
+//	))
+//
+// Security best practices:
+//   - Always specify exact origins in production
+//   - Include protocol (https://) and port if non-standard
+//   - Never use "*" with credentials enabled
+//   - Use environment variables for different environments
+//
+// This automatically enables CORS if not already enabled.
+func WithCORSAllowOrigins(origins ...string) Option {
+	return func(op *Options) {
+		op.CORS.Enabled = true
+		op.CORS.AllowOrigins = origins
+	}
+}
+
+// WithCORSAllowMethods sets the allowed HTTP methods for CORS requests.
+// This specifies which HTTP methods are allowed in cross-origin requests.
+//
+// Example:
+//
+//	// Full REST API support
+//	server := servex.New(servex.WithCORSAllowMethods(
+//		GET, POST, PUT, DELETE, PATCH, OPTIONS,
+//	))
+//
+//	// Read-only API
+//	server := servex.New(servex.WithCORSAllowMethods(GET, "HEAD", OPTIONS))
+//
+//	// Create and read operations only
+//	server := servex.New(servex.WithCORSAllowMethods(GET, POST, OPTIONS))
+//
+// Common method combinations:
+//   - REST API: GET, POST, PUT, DELETE, PATCH, OPTIONS
+//   - Read-only: GET, HEAD, OPTIONS
+//   - Read/Create: GET, POST, OPTIONS
+//   - File API: GET, POST, PUT, DELETE, OPTIONS
+//
+// Notes:
+//   - OPTIONS is automatically handled for preflight requests
+//   - GET and HEAD are "simple" methods that don't trigger preflight
+//   - Other methods (POST, PUT, DELETE, PATCH) trigger preflight requests
+//
+// This automatically enables CORS if not already enabled.
+func WithCORSAllowMethods(methods ...string) Option {
+	return func(op *Options) {
+		op.CORS.Enabled = true
+		op.CORS.AllowMethods = methods
+	}
+}
+
+// WithCORSAllowHeaders sets the allowed headers for CORS requests.
+// This specifies which headers can be sent in cross-origin requests.
+//
+// Example:
+//
+//	// API with authentication and custom headers
+//	server := servex.New(servex.WithCORSAllowHeaders(
+//		"Content-Type",
+//		"Authorization",
+//		"X-API-Key",
+//		"X-Requested-With",
+//	))
+//
+//	// Basic web application headers
+//	server := servex.New(servex.WithCORSAllowHeaders(
+//		"Content-Type",
+//		"Authorization",
+//		"X-CSRF-Token",
+//	))
+//
+//	// Allow all headers (less secure but convenient for development)
+//	server := servex.New(servex.WithCORSAllowHeaders("*"))
+//
+// Common header combinations:
+//   - Basic API: Content-Type, Authorization
+//   - Web app: Content-Type, Authorization, X-Requested-With, X-CSRF-Token
+//   - File upload: Content-Type, Authorization, X-Filename
+//   - Custom API: Content-Type, Authorization, X-API-Key, X-Client-Version
+//
+// Standard headers that don't need explicit allowance:
+//   - Accept, Accept-Language, Content-Language
+//   - Content-Type (for simple values)
+//
+// This automatically enables CORS if not already enabled.
+func WithCORSAllowHeaders(headers ...string) Option {
+	return func(op *Options) {
+		op.CORS.Enabled = true
+		op.CORS.AllowHeaders = headers
+	}
+}
+
+// WithCORSExposeHeaders sets which response headers are exposed to client-side JavaScript.
+// This allows browsers to access specific response headers in cross-origin requests.
+//
+// Example:
+//
+//	// Expose pagination headers
+//	server := servex.New(servex.WithCORSExposeHeaders(
+//		"X-Total-Count",
+//		"X-Page-Count",
+//		"X-Per-Page",
+//	))
+//
+//	// Expose file download headers
+//	server := servex.New(servex.WithCORSExposeHeaders(
+//		"Content-Length",
+//		"Content-Range",
+//		"Content-Disposition",
+//	))
+//
+//	// Expose custom API metadata
+//	server := servex.New(servex.WithCORSExposeHeaders(
+//		"X-Rate-Limit-Remaining",
+//		"X-Rate-Limit-Reset",
+//		"Location",
+//	))
+//
+// Common headers to expose:
+//   - Pagination: X-Total-Count, X-Page-Count, X-Per-Page
+//   - Rate limiting: X-Rate-Limit-Remaining, X-Rate-Limit-Reset
+//   - File operations: Content-Length, Content-Range, Content-Disposition
+//   - Resource creation: Location
+//   - API metadata: X-API-Version, X-Request-ID
+//
+// This automatically enables CORS if not already enabled.
+func WithCORSExposeHeaders(headers ...string) Option {
+	return func(op *Options) {
+		op.CORS.Enabled = true
+		op.CORS.ExposeHeaders = headers
+	}
+}
+
+// WithCORSAllowCredentials enables sending credentials (cookies, auth headers) in CORS requests.
+// When enabled, browsers will include credentials in cross-origin requests.
+//
+// Example:
+//
+//	// Enable credentials for authenticated API
+//	server := servex.New(
+//		servex.WithCORSAllowOrigins("https://app.example.com"),
+//		servex.WithCORSAllowCredentials(true),
+//	)
+//
+//	// Session-based authentication with cookies
+//	server := servex.New(
+//		servex.WithCORSAllowOrigins("https://frontend.example.com"),
+//		servex.WithCORSAllowCredentials(true),
+//		servex.WithCORSAllowHeaders("Content-Type", "X-CSRF-Token"),
+//	)
+//
+// Security requirements when enabled:
+//   - Cannot use "*" for AllowOrigins (must specify exact origins)
+//   - Increases CSRF attack surface (implement CSRF protection)
+//   - Consider implementing additional security measures
+//
+// Use cases:
+//   - Session-based authentication with cookies
+//   - APIs that require Authorization headers
+//   - Single sign-on (SSO) systems
+//   - Applications with cross-domain user sessions
+//
+// This automatically enables CORS if not already enabled.
+func WithCORSAllowCredentials() Option {
+	return func(op *Options) {
+		op.CORS.Enabled = true
+		op.CORS.AllowCredentials = true
+	}
+}
+
+// WithCORSMaxAge sets how long browsers can cache CORS preflight responses.
+// This reduces the number of preflight requests by caching the CORS policy.
+//
+// Example:
+//
+//	// Cache for 1 hour (good for development)
+//	server := servex.New(servex.WithCORSMaxAge(3600))
+//
+//	// Cache for 1 day (good for production)
+//	server := servex.New(servex.WithCORSMaxAge(86400))
+//
+//	// No caching (force preflight for every request)
+//	server := servex.New(servex.WithCORSMaxAge(0))
+//
+//	// Cache for 1 week (very stable API)
+//	server := servex.New(servex.WithCORSMaxAge(604800))
+//
+// Common values:
+//   - Development: 3600 (1 hour) - allows quick policy changes
+//   - Production: 86400 (1 day) - good balance of performance and flexibility
+//   - Stable API: 604800 (1 week) - maximum performance
+//   - Testing: 0 - no caching for immediate policy changes
+//
+// Benefits of longer caching:
+//   - Fewer preflight requests (better performance)
+//   - Reduced server load
+//   - Better user experience
+//
+// Benefits of shorter caching:
+//   - Policy changes take effect quickly
+//   - Better for development and testing
+//   - More responsive to security updates
+//
+// This automatically enables CORS if not already enabled.
+func WithCORSMaxAge(seconds int) Option {
+	return func(op *Options) {
+		op.CORS.Enabled = true
+		op.CORS.MaxAge = seconds
+	}
+}
+
+// WithCORSExcludePaths sets paths that should be excluded from CORS headers.
+// Requests to these paths will not have CORS headers applied.
+//
+// Example:
+//
+//	// Exclude internal and admin endpoints
+//	server := servex.New(
+//		servex.WithCORS(),
+//		servex.WithCORSExcludePaths("/internal/*", "/admin/*"),
+//	)
+//
+//	// Exclude non-browser endpoints
+//	server := servex.New(
+//		servex.WithCORS(),
+//		servex.WithCORSExcludePaths("/webhooks/*", "/api/internal/*"),
+//	)
+//
+// Common exclusions:
+//   - Internal APIs: "/internal/*", "/private/*"
+//   - Admin interfaces: "/admin/*", "/management/*"
+//   - Webhooks: "/webhooks/*", "/callbacks/*"
+//   - Health checks: "/health", "/ping", "/metrics"
+//   - Server-to-server: "/api/internal/*"
+//
+// Path matching supports wildcards (*) for pattern matching.
+// Use when different endpoints need different CORS policies or
+// when some endpoints should not be accessible to browsers.
+//
+// This automatically enables CORS if not already enabled.
+func WithCORSExcludePaths(paths ...string) Option {
+	return func(op *Options) {
+		op.CORS.Enabled = true
+		op.CORS.ExcludePaths = paths
+	}
+}
+
+// WithCORSIncludePaths sets paths that should have CORS headers applied.
+// If set, only requests to these paths will receive CORS headers.
+//
+// Example:
+//
+//	// CORS only for API endpoints
+//	server := servex.New(
+//		servex.WithCORS(),
+//		servex.WithCORSIncludePaths("/api/*"),
+//	)
+//
+//	// CORS for specific services
+//	server := servex.New(
+//		servex.WithCORS(),
+//		servex.WithCORSIncludePaths("/api/public/*", "/auth/*"),
+//	)
+//
+//	// CORS for user-facing endpoints only
+//	server := servex.New(
+//		servex.WithCORS(),
+//		servex.WithCORSIncludePaths("/app/*", "/public/*"),
+//	)
+//
+// Use cases:
+//   - Mixed application: Only API endpoints need CORS
+//   - Gradual CORS adoption: Start with specific endpoints
+//   - Security: Limit CORS to necessary endpoints only
+//   - Performance: Reduce header overhead on internal endpoints
+//
+// If both IncludePaths and ExcludePaths are set:
+//  1. Paths must match IncludePaths to receive CORS headers
+//  2. Paths in ExcludePaths are then excluded from CORS headers
+//
+// Path matching supports wildcards (*) for pattern matching.
+// Leave empty to apply CORS to all paths (default behavior).
+//
+// This automatically enables CORS if not already enabled.
+func WithCORSIncludePaths(paths ...string) Option {
+	return func(op *Options) {
+		op.CORS.Enabled = true
+		op.CORS.IncludePaths = paths
 	}
 }
 
@@ -5912,14 +6565,14 @@ func WithSPAMode(dir, indexFile string) Option {
 //		"/images/*":  2592000,  // 30 days for images
 //	}
 //	servex.WithStaticFileCache(86400, rules) // 1 day default, custom rules
-func WithStaticFileCache(maxAge int, rules map[string]int) Option {
+func WithStaticFileCache(maxAge int, rules ...map[string]int) Option {
 	return func(o *Options) {
 		if !o.StaticFiles.Enabled {
 			return // Only apply if static files are enabled
 		}
 		o.StaticFiles.CacheMaxAge = maxAge
-		if rules != nil {
-			o.StaticFiles.CacheRules = rules
+		if len(rules) > 0 {
+			o.StaticFiles.CacheRules = rules[0]
 		}
 	}
 }
@@ -5991,6 +6644,233 @@ func WithStaticFileExclusions(paths ...string) Option {
 func WithProxyConfig(proxy ProxyConfiguration) Option {
 	return func(opts *Options) {
 		opts.Proxy = proxy
+	}
+}
+
+// WithCompressionConfig sets the complete compression configuration.
+// This provides full control over all compression settings.
+//
+// Example:
+//
+//	compressionConfig := servex.CompressionConfig{
+//		Enabled: true,
+//		Level: 6,
+//		MinSize: 1024,
+//		Types: []string{"text/html", "application/json", "text/css"},
+//		ExcludePaths: []string{"/api/binary/*"},
+//	}
+//	server, _ := servex.New(servex.WithCompressionConfig(compressionConfig))
+//
+// For simpler setups, consider using WithCompression() instead.
+func WithCompressionConfig(compression CompressionConfig) Option {
+	return func(opts *Options) {
+		opts.Compression = compression
+	}
+}
+
+// WithCompression enables HTTP response compression with sensible defaults.
+// This automatically compresses text-based responses using gzip encoding.
+//
+// Default configuration:
+//   - Compression level: 6 (balanced speed/compression)
+//   - Minimum size: 1KB
+//   - Types: HTML, CSS, JS, JSON, XML, plain text, SVG
+//   - All paths included unless specifically excluded
+//
+// Example:
+//
+//	// Enable compression with defaults
+//	server, _ := servex.New(servex.WithCompression())
+//
+//	// Enable compression with custom minimum size
+//	server, _ := servex.New(
+//		servex.WithCompression(),
+//		servex.WithCompressionMinSize(512),
+//	)
+//
+// Benefits:
+//   - Reduces bandwidth usage by 60-80% for text content
+//   - Improves page load times
+//   - Lower hosting costs
+//   - Better user experience
+func WithCompression() Option {
+	return func(opts *Options) {
+		opts.Compression = CompressionConfig{
+			Enabled: true,
+			Level:   6,    // Balanced compression
+			MinSize: 1024, // 1KB minimum
+			Types: []string{
+				"text/html",
+				"text/css",
+				"text/plain",
+				"text/xml",
+				"application/json",
+				"application/javascript",
+				"application/xml",
+				"image/svg+xml",
+			},
+		}
+	}
+}
+
+// WithCompressionLevel sets the compression level for gzip encoding.
+// Higher levels provide better compression but use more CPU.
+//
+// Valid range: 1-9
+//   - 1: Fastest compression, lower CPU usage
+//   - 6: Default balance (recommended)
+//   - 9: Best compression, higher CPU usage
+//
+// Example:
+//
+//	// Fast compression for high-traffic servers
+//	server, _ := servex.New(
+//		servex.WithCompression(),
+//		servex.WithCompressionLevel(1),
+//	)
+//
+//	// Maximum compression for bandwidth-constrained environments
+//	server, _ := servex.New(
+//		servex.WithCompression(),
+//		servex.WithCompressionLevel(9),
+//	)
+func WithCompressionLevel(level int) Option {
+	return func(opts *Options) {
+		if level < 1 {
+			level = 1
+		} else if level > 9 {
+			level = 9
+		}
+		opts.Compression.Enabled = true
+		opts.Compression.Level = level
+	}
+}
+
+// WithCompressionMinSize sets the minimum response size to trigger compression.
+// Responses smaller than this size will not be compressed.
+//
+// Parameters:
+//   - size: Minimum size in bytes (0 to compress all responses)
+//
+// Example:
+//
+//	// Only compress responses larger than 2KB
+//	server, _ := servex.New(
+//		servex.WithCompression(),
+//		servex.WithCompressionMinSize(2048),
+//	)
+//
+//	// Compress all responses regardless of size
+//	server, _ := servex.New(
+//		servex.WithCompression(),
+//		servex.WithCompressionMinSize(0),
+//	)
+//
+// Considerations:
+//   - Small responses may not benefit from compression
+//   - Compression adds CPU overhead
+//   - Network overhead for small responses may negate benefits
+func WithCompressionMinSize(size int) Option {
+	return func(opts *Options) {
+		if size < 0 {
+			size = 0
+		}
+		opts.Compression.Enabled = true
+		opts.Compression.MinSize = size
+	}
+}
+
+// WithCompressionTypes sets the MIME types that should be compressed.
+// Only responses with these content types will be compressed.
+//
+// Parameters:
+//   - types: List of MIME types to compress
+//
+// Common types:
+//   - "text/html": HTML pages
+//   - "text/css": CSS stylesheets
+//   - "application/javascript": JavaScript files
+//   - "application/json": JSON API responses
+//   - "text/xml": XML responses
+//   - "text/plain": Plain text files
+//   - "image/svg+xml": SVG images
+//
+// Example:
+//
+//	// Compress only JSON and HTML
+//	server, _ := servex.New(
+//		servex.WithCompression(),
+//		servex.WithCompressionTypes("application/json", "text/html"),
+//	)
+//
+//	// Add additional types to defaults
+//	server, _ := servex.New(
+//		servex.WithCompression(),
+//		servex.WithCompressionTypes("application/pdf", "text/csv"),
+//	)
+func WithCompressionTypes(types ...string) Option {
+	return func(opts *Options) {
+		opts.Compression.Enabled = true
+		opts.Compression.Types = append(opts.Compression.Types, types...)
+	}
+}
+
+// WithCompressionExcludePaths sets paths that should be excluded from compression.
+// Responses for these paths will not be compressed regardless of other settings.
+//
+// Parameters:
+//   - paths: List of path patterns to exclude (supports wildcards with *)
+//
+// Common exclusions:
+//   - "/api/binary/*": Binary API endpoints
+//   - "/downloads/*": File download endpoints
+//   - "/images/*": Image files (already compressed)
+//   - "/videos/*": Video files (already compressed)
+//
+// Example:
+//
+//	// Exclude binary and media endpoints
+//	server, _ := servex.New(
+//		servex.WithCompression(),
+//		servex.WithCompressionExcludePaths("/api/binary/*", "/downloads/*", "/media/*"),
+//	)
+//
+// Path matching supports wildcards (*) for pattern matching.
+func WithCompressionExcludePaths(paths ...string) Option {
+	return func(opts *Options) {
+		opts.Compression.ExcludePaths = append(opts.Compression.ExcludePaths, paths...)
+	}
+}
+
+// WithCompressionIncludePaths sets paths that should have compression applied.
+// If set, only responses for these paths will be compressed.
+//
+// Parameters:
+//   - paths: List of path patterns to include (supports wildcards with *)
+//
+// If both IncludePaths and ExcludePaths are set:
+//  1. Paths must match IncludePaths to be considered for compression
+//  2. Paths in ExcludePaths are then excluded from compression
+//
+// Example:
+//
+//	// Compress only API and static assets
+//	server, _ := servex.New(
+//		servex.WithCompression(),
+//		servex.WithCompressionIncludePaths("/api/*", "/static/*"),
+//	)
+//
+//	// Compress specific content areas
+//	server, _ := servex.New(
+//		servex.WithCompression(),
+//		servex.WithCompressionIncludePaths("/docs/*", "/help/*", "/blog/*"),
+//	)
+//
+// Path matching supports wildcards (*) for pattern matching.
+// Leave empty to apply compression to all paths (default behavior).
+func WithCompressionIncludePaths(paths ...string) Option {
+	return func(opts *Options) {
+		opts.Compression.IncludePaths = append(opts.Compression.IncludePaths, paths...)
 	}
 }
 

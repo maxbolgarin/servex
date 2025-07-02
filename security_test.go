@@ -36,7 +36,7 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	})
 
 	// Create a test request
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(servex.GET, "/test", nil)
 	rr := httptest.NewRecorder()
 
 	// Execute the request
@@ -86,7 +86,7 @@ func TestSecurityHeadersDisabled(t *testing.T) {
 		w.Write([]byte("test response"))
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(servex.GET, "/test", nil)
 	rr := httptest.NewRecorder()
 
 	router.ServeHTTP(rr, req)
@@ -143,7 +143,7 @@ func TestSecurityHeadersPathExclusion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest(servex.GET, tt.path, nil)
 			rr := httptest.NewRecorder()
 
 			router.ServeHTTP(rr, req)
@@ -191,7 +191,7 @@ func TestSecurityHeadersPathInclusion(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest(servex.GET, tt.path, nil)
 			rr := httptest.NewRecorder()
 
 			router.ServeHTTP(rr, req)
@@ -239,7 +239,7 @@ func TestSecurityHeadersIncludeAndExcludePaths(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest(servex.GET, tt.path, nil)
 			rr := httptest.NewRecorder()
 
 			router.ServeHTTP(rr, req)
@@ -296,7 +296,7 @@ func TestSecurityHeadersWildcardPatterns(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest(servex.GET, tt.path, nil)
 			rr := httptest.NewRecorder()
 
 			router.ServeHTTP(rr, req)
@@ -326,7 +326,7 @@ func TestCustomHeadersMiddleware(t *testing.T) {
 		w.Write([]byte("test response"))
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(servex.GET, "/test", nil)
 	rr := httptest.NewRecorder()
 
 	router.ServeHTTP(rr, req)
@@ -358,7 +358,7 @@ func TestHeaderRemovalMiddleware(t *testing.T) {
 		w.Write([]byte("test response"))
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(servex.GET, "/test", nil)
 	rr := httptest.NewRecorder()
 
 	router.ServeHTTP(rr, req)
@@ -392,7 +392,7 @@ func TestSecurityHeadersPartialConfig(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(servex.GET, "/test", nil)
 	rr := httptest.NewRecorder()
 
 	router.ServeHTTP(rr, req)
@@ -448,7 +448,7 @@ func TestSecurityAndCustomHeadersIntegration(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(servex.GET, "/test", nil)
 	rr := httptest.NewRecorder()
 
 	router.ServeHTTP(rr, req)

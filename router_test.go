@@ -123,7 +123,7 @@ func TestServer_AddMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})
 
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest(GET, "/test", nil)
 		rr := httptest.NewRecorder()
 		server.router.ServeHTTP(rr, req)
 
@@ -161,7 +161,7 @@ func TestServer_AddMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})
 
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest(GET, "/test", nil)
 		rr := httptest.NewRecorder()
 		server2.router.ServeHTTP(rr, req)
 
@@ -188,7 +188,7 @@ func TestServer_AddMiddleware(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})
 
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest(GET, "/test", nil)
 		rr := httptest.NewRecorder()
 		server3.router.ServeHTTP(rr, req)
 
@@ -213,39 +213,39 @@ func TestServer_Handle(t *testing.T) {
 			path:         "/test",
 			methods:      nil,
 			reqPath:      "/test",
-			reqMethod:    "GET",
+			reqMethod:    GET,
 			expectStatus: http.StatusOK,
 		},
 		{
 			name:         "handle with GET method",
 			path:         "/test",
-			methods:      []string{"GET"},
+			methods:      []string{GET},
 			reqPath:      "/test",
-			reqMethod:    "GET",
+			reqMethod:    GET,
 			expectStatus: http.StatusOK,
 		},
 		{
 			name:         "handle with POST method",
 			path:         "/test",
-			methods:      []string{"POST"},
+			methods:      []string{POST},
 			reqPath:      "/test",
-			reqMethod:    "POST",
+			reqMethod:    POST,
 			expectStatus: http.StatusOK,
 		},
 		{
 			name:         "handle with multiple methods",
 			path:         "/test",
-			methods:      []string{"GET", "POST"},
+			methods:      []string{GET, POST},
 			reqPath:      "/test",
-			reqMethod:    "GET",
+			reqMethod:    GET,
 			expectStatus: http.StatusOK,
 		},
 		{
 			name:         "method not allowed",
 			path:         "/test",
-			methods:      []string{"POST"},
+			methods:      []string{POST},
 			reqPath:      "/test",
-			reqMethod:    "GET",
+			reqMethod:    GET,
 			expectStatus: http.StatusMethodNotAllowed,
 		},
 	}
@@ -287,12 +287,12 @@ func TestServer_Handle(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		})
 
-		route := server.H("/test", handler, "GET")
+		route := server.H("/test", handler, GET)
 		if route == nil {
 			t.Error("H should return a non-nil route")
 		}
 
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest(GET, "/test", nil)
 		rr := httptest.NewRecorder()
 		server.router.ServeHTTP(rr, req)
 
@@ -317,23 +317,23 @@ func TestServer_HandleFunc(t *testing.T) {
 			path:         "/test",
 			methods:      nil,
 			reqPath:      "/test",
-			reqMethod:    "GET",
+			reqMethod:    GET,
 			expectStatus: http.StatusOK,
 		},
 		{
 			name:         "handlefunc with GET method",
 			path:         "/test",
-			methods:      []string{"GET"},
+			methods:      []string{GET},
 			reqPath:      "/test",
-			reqMethod:    "GET",
+			reqMethod:    GET,
 			expectStatus: http.StatusOK,
 		},
 		{
 			name:         "handlefunc with POST method",
 			path:         "/test",
-			methods:      []string{"POST"},
+			methods:      []string{POST},
 			reqPath:      "/test",
-			reqMethod:    "POST",
+			reqMethod:    POST,
 			expectStatus: http.StatusOK,
 		},
 	}
@@ -375,12 +375,12 @@ func TestServer_HandleFunc(t *testing.T) {
 			w.WriteHeader(http.StatusOK)
 		}
 
-		route := server.HF("/test", handlerFunc, "GET")
+		route := server.HF("/test", handlerFunc, GET)
 		if route == nil {
 			t.Error("HF should return a non-nil route")
 		}
 
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest(GET, "/test", nil)
 		rr := httptest.NewRecorder()
 		server.router.ServeHTTP(rr, req)
 
@@ -425,7 +425,7 @@ func TestServer_BasePathIntegration(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest(GET, tt.path, nil)
 			rr := httptest.NewRecorder()
 			server.router.ServeHTTP(rr, req)
 
@@ -454,14 +454,14 @@ func TestServer_HTTPMethodHandlers(t *testing.T) {
 		{
 			name:         "Get method",
 			setupRoute:   (*Server).Get,
-			method:       "GET",
+			method:       GET,
 			path:         "/get",
 			expectStatus: http.StatusOK,
 		},
 		{
 			name:         "GET method (alias)",
 			setupRoute:   (*Server).GET,
-			method:       "GET",
+			method:       GET,
 			path:         "/get-alias",
 			expectStatus: http.StatusOK,
 		},
@@ -469,14 +469,14 @@ func TestServer_HTTPMethodHandlers(t *testing.T) {
 		{
 			name:         "Post method",
 			setupRoute:   (*Server).Post,
-			method:       "POST",
+			method:       POST,
 			path:         "/post",
 			expectStatus: http.StatusOK,
 		},
 		{
 			name:         "POST method (alias)",
 			setupRoute:   (*Server).POST,
-			method:       "POST",
+			method:       POST,
 			path:         "/post-alias",
 			expectStatus: http.StatusOK,
 		},
@@ -484,14 +484,14 @@ func TestServer_HTTPMethodHandlers(t *testing.T) {
 		{
 			name:         "Put method",
 			setupRoute:   (*Server).Put,
-			method:       "PUT",
+			method:       PUT,
 			path:         "/put",
 			expectStatus: http.StatusOK,
 		},
 		{
 			name:         "PUT method (alias)",
 			setupRoute:   (*Server).PUT,
-			method:       "PUT",
+			method:       PUT,
 			path:         "/put-alias",
 			expectStatus: http.StatusOK,
 		},
@@ -499,14 +499,14 @@ func TestServer_HTTPMethodHandlers(t *testing.T) {
 		{
 			name:         "Patch method",
 			setupRoute:   (*Server).Patch,
-			method:       "PATCH",
+			method:       PATCH,
 			path:         "/patch",
 			expectStatus: http.StatusOK,
 		},
 		{
 			name:         "PATCH method (alias)",
 			setupRoute:   (*Server).PATCH,
-			method:       "PATCH",
+			method:       PATCH,
 			path:         "/patch-alias",
 			expectStatus: http.StatusOK,
 		},
@@ -514,14 +514,14 @@ func TestServer_HTTPMethodHandlers(t *testing.T) {
 		{
 			name:         "Delete method",
 			setupRoute:   (*Server).Delete,
-			method:       "DELETE",
+			method:       DELETE,
 			path:         "/delete",
 			expectStatus: http.StatusOK,
 		},
 		{
 			name:         "DELETE method (alias)",
 			setupRoute:   (*Server).DELETE,
-			method:       "DELETE",
+			method:       DELETE,
 			path:         "/delete-alias",
 			expectStatus: http.StatusOK,
 		},
@@ -529,14 +529,14 @@ func TestServer_HTTPMethodHandlers(t *testing.T) {
 		{
 			name:         "Options method",
 			setupRoute:   (*Server).Options,
-			method:       "OPTIONS",
+			method:       OPTIONS,
 			path:         "/options",
 			expectStatus: http.StatusOK,
 		},
 		{
 			name:         "OPTIONS method (alias)",
 			setupRoute:   (*Server).OPTIONS,
-			method:       "OPTIONS",
+			method:       OPTIONS,
 			path:         "/options-alias",
 			expectStatus: http.StatusOK,
 		},
@@ -634,7 +634,7 @@ func TestServer_HTTPMethodHandlers_WrongMethod(t *testing.T) {
 	})
 
 	// Try to access with POST
-	req := httptest.NewRequest("POST", "/test", nil)
+	req := httptest.NewRequest(POST, "/test", nil)
 	rr := httptest.NewRecorder()
 	server.router.ServeHTTP(rr, req)
 
@@ -694,7 +694,7 @@ func TestServer_WithAuth(t *testing.T) {
 		}
 
 		// Test that it rejects requests without auth (this verifies auth integration)
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest(GET, "/test", nil)
 		rr := httptest.NewRecorder()
 		wrappedHandler(rr, req)
 
@@ -718,7 +718,7 @@ func TestServer_WithAuth(t *testing.T) {
 
 		wrappedHandler := server.WithAuth(originalHandler, UserRole("admin"))
 
-		req := httptest.NewRequest("GET", "/test", nil)
+		req := httptest.NewRequest(GET, "/test", nil)
 		rr := httptest.NewRecorder()
 		wrappedHandler(rr, req)
 
@@ -764,7 +764,7 @@ func TestServer_HandleWithAuth(t *testing.T) {
 		}
 
 		// Test that route requires auth (should reject without auth header)
-		req := httptest.NewRequest("GET", "/auth-test", nil)
+		req := httptest.NewRequest(GET, "/auth-test", nil)
 		rr := httptest.NewRecorder()
 		server.router.ServeHTTP(rr, req)
 
@@ -785,7 +785,7 @@ func TestServer_HandleWithAuth(t *testing.T) {
 		}
 
 		// Test that route requires auth (should reject without auth header)
-		req := httptest.NewRequest("GET", "/ha-test", nil)
+		req := httptest.NewRequest(GET, "/ha-test", nil)
 		rr := httptest.NewRecorder()
 		server.router.ServeHTTP(rr, req)
 
@@ -819,7 +819,7 @@ func TestServer_HandleFuncWithAuth(t *testing.T) {
 		}
 
 		// Test that route requires auth (should reject without auth header)
-		req := httptest.NewRequest("GET", "/auth-func-test", nil)
+		req := httptest.NewRequest(GET, "/auth-func-test", nil)
 		rr := httptest.NewRecorder()
 		server.router.ServeHTTP(rr, req)
 
@@ -840,7 +840,7 @@ func TestServer_HandleFuncWithAuth(t *testing.T) {
 		}
 
 		// Test that route requires auth (should reject without auth header)
-		req := httptest.NewRequest("GET", "/hfa-test", nil)
+		req := httptest.NewRequest(GET, "/hfa-test", nil)
 		rr := httptest.NewRecorder()
 		server.router.ServeHTTP(rr, req)
 
@@ -861,37 +861,37 @@ func TestServer_HTTPMethodHandlersWithAuth(t *testing.T) {
 		{
 			name:       "GetWithAuth",
 			setupRoute: (*Server).GetWithAuth,
-			method:     "GET",
+			method:     GET,
 			path:       "/get-auth",
 		},
 		{
 			name:       "PostWithAuth",
 			setupRoute: (*Server).PostWithAuth,
-			method:     "POST",
+			method:     POST,
 			path:       "/post-auth",
 		},
 		{
 			name:       "PutWithAuth",
 			setupRoute: (*Server).PutWithAuth,
-			method:     "PUT",
+			method:     PUT,
 			path:       "/put-auth",
 		},
 		{
 			name:       "PatchWithAuth",
 			setupRoute: (*Server).PatchWithAuth,
-			method:     "PATCH",
+			method:     PATCH,
 			path:       "/patch-auth",
 		},
 		{
 			name:       "DeleteWithAuth",
 			setupRoute: (*Server).DeleteWithAuth,
-			method:     "DELETE",
+			method:     DELETE,
 			path:       "/delete-auth",
 		},
 		{
 			name:       "OptionsWithAuth",
 			setupRoute: (*Server).OptionsWithAuth,
-			method:     "OPTIONS",
+			method:     OPTIONS,
 			path:       "/options-auth",
 		},
 		{
@@ -966,7 +966,7 @@ func TestServer_RouteChaining(t *testing.T) {
 	}
 
 	// Test request to wrong host should fail
-	req := httptest.NewRequest("GET", "/chain-test", nil)
+	req := httptest.NewRequest(GET, "/chain-test", nil)
 	req.Host = "wronghost.com"
 	rr := httptest.NewRecorder()
 	server.router.ServeHTTP(rr, req)
@@ -976,7 +976,7 @@ func TestServer_RouteChaining(t *testing.T) {
 	}
 
 	// Test request to correct host should succeed
-	req2 := httptest.NewRequest("GET", "/chain-test", nil)
+	req2 := httptest.NewRequest(GET, "/chain-test", nil)
 	req2.Host = "example.com"
 	rr2 := httptest.NewRecorder()
 	server.router.ServeHTTP(rr2, req2)

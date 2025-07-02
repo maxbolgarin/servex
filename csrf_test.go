@@ -16,7 +16,7 @@ func TestCSRFProtection(t *testing.T) {
 		RegisterSecurityHeadersMiddleware(router, SecurityConfig{Enabled: true})
 
 		// Create a POST request without CSRF token
-		req := httptest.NewRequest("POST", "/test", strings.NewReader("data=test"))
+		req := httptest.NewRequest(POST, "/test", strings.NewReader("data=test"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 		w := httptest.NewRecorder()
@@ -40,10 +40,10 @@ func TestCSRFProtection(t *testing.T) {
 		router.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("success"))
-		}).Methods("POST")
+		}).Methods(POST)
 
 		// Create a POST request without CSRF token
-		req := httptest.NewRequest("POST", "/test", strings.NewReader("data=test"))
+		req := httptest.NewRequest(POST, "/test", strings.NewReader("data=test"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 		w := httptest.NewRecorder()
@@ -71,10 +71,10 @@ func TestCSRFProtection(t *testing.T) {
 		router.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("success"))
-		}).Methods("GET", "POST")
+		}).Methods(GET, POST)
 
 		// Test safe methods
-		safeMethods := []string{"GET", "HEAD", "OPTIONS", "TRACE"}
+		safeMethods := []string{GET, "HEAD", OPTIONS, "TRACE"}
 		for _, method := range safeMethods {
 			req := httptest.NewRequest(method, "/test", nil)
 			w := httptest.NewRecorder()
@@ -96,7 +96,7 @@ func TestCSRFProtection(t *testing.T) {
 		RegisterSecurityHeadersMiddleware(router, config)
 
 		// Request CSRF token
-		req := httptest.NewRequest("GET", "/csrf-token", nil)
+		req := httptest.NewRequest(GET, "/csrf-token", nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 
@@ -147,10 +147,10 @@ func TestCSRFProtection(t *testing.T) {
 		router.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("success"))
-		}).Methods("POST")
+		}).Methods(POST)
 
 		// First, get a CSRF token
-		tokenReq := httptest.NewRequest("GET", "/csrf-token", nil)
+		tokenReq := httptest.NewRequest(GET, "/csrf-token", nil)
 		tokenW := httptest.NewRecorder()
 		router.ServeHTTP(tokenW, tokenReq)
 
@@ -169,7 +169,7 @@ func TestCSRFProtection(t *testing.T) {
 		}
 
 		// Now make a POST request with the token in header
-		req := httptest.NewRequest("POST", "/test", strings.NewReader("data=test"))
+		req := httptest.NewRequest(POST, "/test", strings.NewReader("data=test"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("X-CSRF-Token", token)
 		req.AddCookie(&http.Cookie{Name: "csrf_token", Value: token})
@@ -199,10 +199,10 @@ func TestCSRFProtection(t *testing.T) {
 		router.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("success"))
-		}).Methods("POST")
+		}).Methods(POST)
 
 		// Get CSRF token
-		tokenReq := httptest.NewRequest("GET", "/csrf-token", nil)
+		tokenReq := httptest.NewRequest(GET, "/csrf-token", nil)
 		tokenW := httptest.NewRecorder()
 		router.ServeHTTP(tokenW, tokenReq)
 
@@ -220,7 +220,7 @@ func TestCSRFProtection(t *testing.T) {
 		formData.Set("X-CSRF-Token", token)
 		formData.Set("data", "test")
 
-		req := httptest.NewRequest("POST", "/test", strings.NewReader(formData.Encode()))
+		req := httptest.NewRequest(POST, "/test", strings.NewReader(formData.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.AddCookie(&http.Cookie{Name: "csrf_token", Value: token})
 
@@ -248,10 +248,10 @@ func TestCSRFProtection(t *testing.T) {
 		router.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("success"))
-		}).Methods("POST")
+		}).Methods(POST)
 
 		// Test custom endpoint
-		tokenReq := httptest.NewRequest("GET", "/custom-token", nil)
+		tokenReq := httptest.NewRequest(GET, "/custom-token", nil)
 		tokenW := httptest.NewRecorder()
 		router.ServeHTTP(tokenW, tokenReq)
 
@@ -274,7 +274,7 @@ func TestCSRFProtection(t *testing.T) {
 		}
 
 		// Test custom error message
-		req := httptest.NewRequest("POST", "/test", strings.NewReader("data=test"))
+		req := httptest.NewRequest(POST, "/test", strings.NewReader("data=test"))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 		w := httptest.NewRecorder()
@@ -298,15 +298,15 @@ func TestCSRFProtection(t *testing.T) {
 		router.HandleFunc("/excluded", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("excluded"))
-		}).Methods("POST")
+		}).Methods(POST)
 
 		router.HandleFunc("/protected", func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("protected"))
-		}).Methods("POST")
+		}).Methods(POST)
 
 		// Test excluded path
-		excludedReq := httptest.NewRequest("POST", "/excluded", strings.NewReader("data=test"))
+		excludedReq := httptest.NewRequest(POST, "/excluded", strings.NewReader("data=test"))
 		excludedReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 		w1 := httptest.NewRecorder()
@@ -317,7 +317,7 @@ func TestCSRFProtection(t *testing.T) {
 		}
 
 		// Test protected path
-		protectedReq := httptest.NewRequest("POST", "/protected", strings.NewReader("data=test"))
+		protectedReq := httptest.NewRequest(POST, "/protected", strings.NewReader("data=test"))
 		protectedReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 		w2 := httptest.NewRecorder()
@@ -345,7 +345,7 @@ func TestCSRFCookieConfiguration(t *testing.T) {
 		RegisterSecurityHeadersMiddleware(router, config)
 
 		// Request CSRF token
-		req := httptest.NewRequest("GET", "/csrf-token", nil)
+		req := httptest.NewRequest(GET, "/csrf-token", nil)
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
 

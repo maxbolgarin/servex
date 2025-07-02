@@ -2,504 +2,411 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/maxbolgarin/servex/v2"
 )
 
-func main() {
-	fmt.Println("🚀 Servex Tutorial - Advanced Proxy")
-	fmt.Println("====================================")
-	fmt.Println("This tutorial demonstrates advanced proxy features with multiple load balancing strategies.")
-	fmt.Println("")
+const (
+	defaultConfigFile = "proxy_gateway_config.yaml"
+	defaultPort       = ":8080"
+	serviceName       = "advanced-proxy-gateway"
+	serviceVersion    = "1.0.0"
+)
 
-	// Configure advanced proxy with multiple strategies and routing rules
+func main() {
+	// Parse command line flags
+	var (
+		configFile = flag.String("config", defaultConfigFile, "Configuration file path")
+		port       = flag.String("port", defaultPort, "Server port")
+		help       = flag.Bool("help", false, "Show help")
+	)
+	flag.Parse()
+
+	if *help {
+		showHelp()
+		return
+	}
+
+	// Setup logging
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	log.Printf("Starting %s v%s", serviceName, serviceVersion)
+
+	// Create context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Setup signal handling for graceful shutdown
+	setupGracefulShutdown(cancel)
+
+	// Initialize and start server
+	if err := runServer(ctx, *configFile, *port); err != nil {
+		log.Fatalf("Server failed: %v", err)
+	}
+
+	log.Println("Server shutdown complete")
+}
+
+func runServer(ctx context.Context, configFile, port string) error {
+	// Create server with configuration
+	server, err := createServer(configFile)
+	if err != nil {
+		return fmt.Errorf("failed to create server: %w", err)
+	}
+
+	// Register custom endpoints
+	registerCustomEndpoints(server)
+
+	// Print startup information
+	printStartupInfo(port)
+
+	// Start server with graceful shutdown
+	return server.StartWithWaitSignalsHTTP(ctx, port)
+}
+
+func createServer(configFile string) (*servex.Server, error) {
+	// Try to load from config file first
+	if _, err := os.Stat(configFile); err == nil {
+		log.Printf("Loading configuration from: %s", configFile)
+		config, err := servex.LoadConfig(configFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load config: %w", err)
+		}
+		return servex.NewServerFromConfig(config)
+	}
+
+	// Fallback to programmatic configuration
+	log.Printf("Config file %s not found, using programmatic configuration", configFile)
+	return createProgrammaticServer()
+}
+
+func createProgrammaticServer() (*servex.Server, error) {
+	// Advanced proxy configuration
 	proxyConfig := servex.ProxyConfiguration{
 		Enabled: true,
 
-		// Global settings for connection management
+		// Global connection settings
 		GlobalTimeout:       30 * time.Second,
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 20,
+		MaxIdleConns:        200,
+		MaxIdleConnsPerHost: 50,
 		IdleConnTimeout:     90 * time.Second,
 
-		// Advanced traffic dumping for debugging
+		// Traffic analysis and debugging
 		TrafficDump: servex.TrafficDumpConfig{
 			Enabled:     true,
 			Directory:   "./traffic_dumps",
 			MaxFileSize: 100 * 1024 * 1024, // 100MB
-			MaxFiles:    5,
+			MaxFiles:    20,
 			IncludeBody: true,
-			MaxBodySize: 32 * 1024, // 32KB
-			SampleRate:  0.3,       // Sample 30% of traffic
+			MaxBodySize: 64 * 1024, // 64KB
+			SampleRate:  0.1,       // 10% sampling for production
 		},
 
-		// Health check configuration for all backends
+		// Health monitoring
 		HealthCheck: servex.HealthCheckConfig{
 			Enabled:         true,
 			DefaultInterval: 30 * time.Second,
 			Timeout:         5 * time.Second,
-			RetryCount:      2,
+			RetryCount:      3,
 		},
 
-		Rules: []servex.ProxyRule{
-			{
-				Name:       "api-weighted-round-robin",
-				PathPrefix: "/api/v1/",
-				Methods:    []string{"GET", "POST", "PUT", "DELETE"},
-				Backends: []servex.Backend{
-					{
-						URL:                 "http://localhost:8081",
-						Weight:              3, // High-capacity server
-						HealthCheckPath:     "/health",
-						HealthCheckInterval: 30 * time.Second,
-						MaxConnections:      50,
-					},
-					{
-						URL:                 "http://localhost:8082",
-						Weight:              2, // Medium-capacity server
-						HealthCheckPath:     "/health",
-						HealthCheckInterval: 30 * time.Second,
-						MaxConnections:      30,
-					},
-					{
-						URL:                 "http://localhost:8083",
-						Weight:              1, // Lower-capacity server
-						HealthCheckPath:     "/health",
-						HealthCheckInterval: 30 * time.Second,
-						MaxConnections:      20,
-					},
-				},
-				LoadBalancing:     servex.WeightedRoundRobinStrategy,
-				StripPrefix:       "/api/v1",
-				Timeout:           25 * time.Second,
-				EnableTrafficDump: true,
-			},
-			{
-				Name:       "api-least-connections",
-				PathPrefix: "/api/v2/",
-				Methods:    []string{"GET", "POST"},
-				Backends: []servex.Backend{
-					{
-						URL:                 "http://localhost:8084",
-						Weight:              1,
-						HealthCheckPath:     "/health",
-						HealthCheckInterval: 20 * time.Second,
-						MaxConnections:      25,
-					},
-					{
-						URL:                 "http://localhost:8085",
-						Weight:              1,
-						HealthCheckPath:     "/health",
-						HealthCheckInterval: 20 * time.Second,
-						MaxConnections:      25,
-					},
-				},
-				LoadBalancing:     servex.LeastConnectionsStrategy,
-				StripPrefix:       "/api/v2",
-				AddPrefix:         "/v2",
-				Timeout:           15 * time.Second,
-				EnableTrafficDump: true,
-			},
-			{
-				Name:       "auth-ip-hash",
-				PathPrefix: "/auth/",
-				Methods:    []string{"POST", "GET"},
-				Backends: []servex.Backend{
-					{
-						URL:                 "http://localhost:8086",
-						Weight:              1,
-						HealthCheckPath:     "/ping",
-						HealthCheckInterval: 15 * time.Second,
-						MaxConnections:      30,
-					},
-					{
-						URL:                 "http://localhost:8087",
-						Weight:              1,
-						HealthCheckPath:     "/ping",
-						HealthCheckInterval: 15 * time.Second,
-						MaxConnections:      30,
-					},
-				},
-				LoadBalancing: servex.IPHashStrategy, // Session affinity
-				StripPrefix:   "/auth",
-				Timeout:       10 * time.Second,
-			},
-			{
-				Name:       "static-random",
-				PathPrefix: "/static/",
-				Methods:    []string{"GET", "HEAD"},
-				Backends: []servex.Backend{
-					{
-						URL:            "http://localhost:8088",
-						Weight:         1,
-						MaxConnections: 50,
-					},
-					{
-						URL:            "http://localhost:8089",
-						Weight:         1,
-						MaxConnections: 50,
-					},
-					{
-						URL:            "http://localhost:8090",
-						Weight:         1,
-						MaxConnections: 50,
-					},
-				},
-				LoadBalancing: servex.RandomStrategy,
-				StripPrefix:   "/static",
-				Timeout:       10 * time.Second,
-			},
-		},
+		// Proxy routing rules - demonstrating different strategies
+		Rules: createProxyRules(),
 	}
 
-	// Create server with advanced proxy configuration
-	server, err := servex.NewServer(
+	// Create server with production-ready middleware
+	return servex.NewServer(
+		// Core proxy functionality
 		servex.WithProxyConfig(proxyConfig),
-		servex.WithSecurityHeaders(),
-		servex.WithRPM(500), // 500 requests per minute
+
+		// Monitoring and health
 		servex.WithHealthEndpoint(),
 		servex.WithDefaultMetrics(),
+
+		// Security hardening
+		servex.WithSecurityHeaders(),
+		servex.WithRPM(1000), // 1000 requests per minute
+
+		// Request filtering
+		servex.WithBlockedUserAgentsRegex(`(?i)(bot|crawler|spider|scraper|curl|wget)`),
+
+		// Comprehensive logging
+		servex.WithLogFields("method", "url", "status", "duration", "ip", "user_agent", "backend"),
+
+		// Performance optimizations
+		servex.WithMaxRequestBodySize(64*1024*1024), // 64MB
 	)
-	if err != nil {
-		log.Fatal("Failed to create server:", err)
-	}
+}
 
-	// Add status endpoint to show proxy configuration
+func createProxyRules() []servex.ProxyRule {
+	return []servex.ProxyRule{
+		// Main API backend - Weighted Round Robin
+		{
+			Name:       "api-backend",
+			PathPrefix: "/api/",
+			Methods:    []string{servex.GET, servex.POST, servex.PUT, servex.DELETE, servex.PATCH},
+			Backends: []servex.Backend{
+				{
+					URL:                 "http://api1.internal:8080",
+					Weight:              3, // 50% of traffic
+					HealthCheckPath:     "/health",
+					HealthCheckInterval: 30 * time.Second,
+					MaxConnections:      100,
+				},
+				{
+					URL:                 "http://api2.internal:8080",
+					Weight:              2, // 33% of traffic
+					HealthCheckPath:     "/health",
+					HealthCheckInterval: 30 * time.Second,
+					MaxConnections:      100,
+				},
+				{
+					URL:                 "http://api3.internal:8080",
+					Weight:              1, // 17% of traffic
+					HealthCheckPath:     "/health",
+					HealthCheckInterval: 30 * time.Second,
+					MaxConnections:      50,
+				},
+			},
+			LoadBalancing:     servex.WeightedRoundRobinStrategy,
+			StripPrefix:       "/api",
+			Timeout:           25 * time.Second,
+			EnableTrafficDump: true,
+		},
+
+		// Authentication service - Least Connections
+		{
+			Name:       "auth-service",
+			PathPrefix: "/auth/",
+			Methods:    []string{servex.POST, servex.PUT},
+			Backends: []servex.Backend{
+				{
+					URL:                 "http://auth1.internal:8081",
+					Weight:              1,
+					HealthCheckPath:     "/ping",
+					HealthCheckInterval: 15 * time.Second,
+					MaxConnections:      50,
+				},
+				{
+					URL:                 "http://auth2.internal:8081",
+					Weight:              1,
+					HealthCheckPath:     "/ping",
+					HealthCheckInterval: 15 * time.Second,
+					MaxConnections:      50,
+				},
+			},
+			LoadBalancing:     servex.LeastConnectionsStrategy,
+			StripPrefix:       "/auth",
+			AddPrefix:         "/v1",
+			Timeout:           10 * time.Second,
+			EnableTrafficDump: true,
+		},
+
+		// User service - IP Hash (Session Affinity)
+		{
+			Name: "user-service",
+			Host: "users.example.com",
+			Backends: []servex.Backend{
+				{
+					URL:                 "http://users1.internal:8082",
+					Weight:              1,
+					HealthCheckPath:     "/status",
+					HealthCheckInterval: 45 * time.Second,
+					MaxConnections:      75,
+				},
+				{
+					URL:                 "http://users2.internal:8082",
+					Weight:              1,
+					HealthCheckPath:     "/status",
+					HealthCheckInterval: 45 * time.Second,
+					MaxConnections:      75,
+				},
+			},
+			LoadBalancing: servex.IPHashStrategy,
+			Timeout:       20 * time.Second,
+		},
+
+		// Static CDN - Random Selection
+		{
+			Name:       "static-cdn",
+			PathPrefix: "/static/",
+			Methods:    []string{servex.GET, servex.HEAD},
+			Backends: []servex.Backend{
+				{
+					URL:            "http://cdn1.internal:8083",
+					Weight:         1,
+					MaxConnections: 200,
+				},
+				{
+					URL:            "http://cdn2.internal:8083",
+					Weight:         1,
+					MaxConnections: 200,
+				},
+				{
+					URL:            "http://cdn3.internal:8083",
+					Weight:         1,
+					MaxConnections: 200,
+				},
+			},
+			LoadBalancing: servex.RandomStrategy,
+			StripPrefix:   "/static",
+			Timeout:       15 * time.Second,
+		},
+
+		// Payment service - Round Robin with headers
+		{
+			Name:       "payment-service",
+			PathPrefix: "/payments/",
+			Methods:    []string{servex.POST, servex.GET},
+			Headers:    map[string]string{"X-API-Version": "v2"},
+			Backends: []servex.Backend{
+				{
+					URL:                 "http://payments1.internal:8084",
+					Weight:              1,
+					HealthCheckPath:     "/health",
+					HealthCheckInterval: 20 * time.Second,
+					MaxConnections:      30,
+				},
+				{
+					URL:                 "http://payments2.internal:8084",
+					Weight:              1,
+					HealthCheckPath:     "/health",
+					HealthCheckInterval: 20 * time.Second,
+					MaxConnections:      30,
+				},
+			},
+			LoadBalancing:     servex.RoundRobinStrategy,
+			StripPrefix:       "/payments",
+			Timeout:           30 * time.Second,
+			EnableTrafficDump: true,
+		},
+	}
+}
+
+func registerCustomEndpoints(server *servex.Server) {
+	// Service information endpoint
+	server.GET("/info", func(w http.ResponseWriter, r *http.Request) {
+		servex.C(w, r).JSON(map[string]any{
+			"service":   serviceName,
+			"version":   serviceVersion,
+			"timestamp": time.Now().Format(time.RFC3339),
+			"uptime":    time.Since(startTime).String(),
+		})
+	})
+
+	// Proxy status and configuration
 	server.GET("/proxy-status", func(w http.ResponseWriter, r *http.Request) {
-		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]interface{}{
-			"proxy_enabled": true,
-			"rules_count":   len(proxyConfig.Rules),
-			"strategies": map[string]string{
-				"api_v1": "Weighted Round Robin (3:2:1)",
-				"api_v2": "Least Connections",
-				"auth":   "IP Hash (Session Affinity)",
-				"static": "Random",
-			},
-			"features": map[string]interface{}{
-				"traffic_dump": proxyConfig.TrafficDump.Enabled,
-				"health_check": proxyConfig.HealthCheck.Enabled,
-				"sample_rate":  proxyConfig.TrafficDump.SampleRate,
-			},
-			"tutorial": "10-advanced-proxy",
+		servex.C(w, r).JSON(map[string]any{
+			"proxy_enabled":    true,
+			"rules_count":      5, // Update based on actual rules
+			"traffic_dump":     true,
+			"health_check":     true,
+			"load_strategies":  []string{"weighted_round_robin", "least_connections", "ip_hash", "random"},
+			"monitoring_paths": []string{"/health", "/metrics", "/info", "/proxy-status"},
 		})
 	})
 
-	// Information endpoint about load balancing strategies
+	// Load balancing strategies information
 	server.GET("/strategies", func(w http.ResponseWriter, r *http.Request) {
-		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]interface{}{
-			"load_balancing_strategies": map[string]interface{}{
-				"weighted_round_robin": map[string]interface{}{
-					"endpoint":    "/api/v1/*",
-					"description": "Distributes requests based on backend weights (3:2:1)",
-					"use_case":    "When backends have different capacities",
-					"backends":    []string{"localhost:8081 (weight 3)", "localhost:8082 (weight 2)", "localhost:8083 (weight 1)"},
-				},
-				"least_connections": map[string]interface{}{
-					"endpoint":    "/api/v2/*",
-					"description": "Routes to backend with fewest active connections",
-					"use_case":    "For long-running requests or variable request processing time",
-					"backends":    []string{"localhost:8084", "localhost:8085"},
-				},
-				"ip_hash": map[string]interface{}{
-					"endpoint":    "/auth/*",
-					"description": "Routes based on client IP for session affinity",
-					"use_case":    "For stateful applications requiring sticky sessions",
-					"backends":    []string{"localhost:8086", "localhost:8087"},
-				},
-				"random": map[string]interface{}{
-					"endpoint":    "/static/*",
-					"description": "Random backend selection",
-					"use_case":    "For stateless content serving with similar backends",
-					"backends":    []string{"localhost:8088", "localhost:8089", "localhost:8090"},
-				},
+		servex.C(w, r).JSON(map[string]any{
+			"strategies": map[string]string{
+				"weighted_round_robin": "Distributes requests based on backend weights",
+				"least_connections":    "Routes to backend with fewest active connections",
+				"ip_hash":              "Provides session affinity based on client IP",
+				"random":               "Randomly selects backend for each request",
+				"round_robin":          "Evenly distributes requests across backends",
 			},
-			"tutorial": "10-advanced-proxy",
+			"endpoints": map[string]string{
+				"/api/*":            "weighted_round_robin",
+				"/auth/*":           "least_connections",
+				"users.example.com": "ip_hash",
+				"/static/*":         "random",
+				"/payments/*":       "round_robin",
+			},
 		})
 	})
+}
 
-	// Interactive demo page
-	server.GET("/", func(w http.ResponseWriter, r *http.Request) {
-		html := `
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Advanced Proxy Demo</title>
-    <style>
-        body { font-family: Arial; max-width: 1000px; margin: 0 auto; padding: 20px; }
-        .container { background: #f8f9fa; padding: 20px; border-radius: 8px; }
-        .strategy-card { background: white; border: 1px solid #ddd; padding: 15px; margin: 10px 0; border-radius: 4px; }
-        button { background: #007bff; color: white; border: none; padding: 8px 12px; margin: 3px; border-radius: 4px; cursor: pointer; font-size: 12px; }
-        button:hover { background: #0056b3; }
-        .results { background: white; border: 1px solid #ddd; padding: 15px; margin-top: 10px; border-radius: 4px; height: 350px; overflow-y: auto; }
-        .success { color: green; }
-        .error { color: red; }
-        .info { color: blue; }
-        pre { background: #f8f9fa; padding: 10px; border-radius: 4px; overflow-x: auto; font-size: 11px; }
-        .strategy-title { color: #495057; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <h1>🚀 Servex Advanced Proxy Tutorial</h1>
-        <p>This demo showcases different load balancing strategies and advanced proxy routing.</p>
-        
-        <h2>🎯 Load Balancing Strategies</h2>
-        
-        <div class="strategy-card">
-            <div class="strategy-title">1. Weighted Round Robin - /api/v1/*</div>
-            <p>Distributes requests with weights 3:2:1 (High:Medium:Low capacity servers)</p>
-            <button onclick="testWeightedRR()">Test Single Request</button>
-            <button onclick="testWeightedRRMultiple()">Test 6 Requests</button>
-        </div>
-        
-        <div class="strategy-card">
-            <div class="strategy-title">2. Least Connections - /api/v2/*</div>
-            <p>Routes to backend with fewest active connections</p>
-            <button onclick="testLeastConn()">Test Single Request</button>
-            <button onclick="testLeastConnMultiple()">Test Multiple Requests</button>
-        </div>
-        
-        <div class="strategy-card">
-            <div class="strategy-title">3. IP Hash (Session Affinity) - /auth/*</div>
-            <p>Same client IP always goes to same backend</p>
-            <button onclick="testIPHash()">Test Single Request</button>
-            <button onclick="testIPHashMultiple()">Test 5 Requests (Same Client)</button>
-        </div>
-        
-        <div class="strategy-card">
-            <div class="strategy-title">4. Random - /static/*</div>
-            <p>Random backend selection for stateless content</p>
-            <button onclick="testRandom()">Test Single Request</button>
-            <button onclick="testRandomMultiple()">Test 5 Requests</button>
-        </div>
-        
-        <h2>📊 Test Results</h2>
-        <button onclick="checkProxyStatus()">Check Proxy Status</button>
-        <button onclick="checkStrategies()">View All Strategies</button>
-        <button onclick="clearResults()">Clear Results</button>
-        
-        <div id="results" class="results">
-            <div class="info">Click test buttons above to see different load balancing strategies in action...</div>
-            <div class="info">⚠️ Note: Backend services must be running on ports 8081-8090 for full demo.</div>
-        </div>
-        
-        <h2>🧪 Manual Testing</h2>
-        <pre>
-# Test weighted round robin (should follow 3:2:1 pattern)
-for i in {1..6}; do curl http://localhost:8080/api/v1/test; done
+var startTime = time.Now()
 
-# Test least connections
-curl http://localhost:8080/api/v2/users
+func setupGracefulShutdown(cancel context.CancelFunc) {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-# Test session affinity (same client → same backend)
-curl http://localhost:8080/auth/login
-curl http://localhost:8080/auth/validate
+	go func() {
+		sig := <-sigChan
+		log.Printf("Received signal %v, initiating graceful shutdown...", sig)
+		cancel()
+	}()
+}
 
-# Test random selection
-curl http://localhost:8080/static/image.jpg
+func printStartupInfo(port string) {
+	log.Printf("🚀 %s v%s starting on %s", serviceName, serviceVersion, port)
+	log.Println("📊 Monitoring endpoints:")
+	log.Println("   → /health       - Health check")
+	log.Println("   → /metrics      - Prometheus metrics")
+	log.Println("   → /info         - Service information")
+	log.Println("   → /proxy-status - Proxy configuration")
+	log.Println("   → /strategies   - Load balancing info")
+	log.Println("")
+	log.Println("🔀 Proxy endpoints:")
+	log.Println("   → /api/*        - API backends (weighted round-robin)")
+	log.Println("   → /auth/*       - Auth services (least connections)")
+	log.Println("   → users.example.com - User service (IP hash)")
+	log.Println("   → /static/*     - CDN backends (random)")
+	log.Println("   → /payments/*   - Payment service (round-robin)")
+	log.Println("")
+	log.Println("🔧 Features enabled:")
+	log.Println("   ✅ Health checking with automatic failover")
+	log.Println("   ✅ Traffic dumping with 10% sampling")
+	log.Println("   ✅ Security headers and rate limiting")
+	log.Println("   ✅ Request filtering and monitoring")
+	log.Println("   ✅ Comprehensive logging and metrics")
+}
 
-# Check proxy configuration
-curl http://localhost:8080/proxy-status
-curl http://localhost:8080/strategies
-        </pre>
-    </div>
+func showHelp() {
+	fmt.Printf(`%s v%s - Advanced Proxy Gateway
 
-    <script>
-        function log(message, type = 'info') {
-            const results = document.getElementById('results');
-            const div = document.createElement('div');
-            div.className = type;
-            div.textContent = new Date().toLocaleTimeString() + ' - ' + message;
-            results.appendChild(div);
-            results.scrollTop = results.scrollHeight;
-        }
+USAGE:
+    %s [OPTIONS]
 
-        function testWeightedRR() {
-            log('Testing Weighted Round Robin (single request)...', 'info');
-            fetch('/api/v1/test')
-                .then(response => {
-                    if (response.ok) {
-                        log('✅ Weighted RR: Request successful', 'success');
-                    } else {
-                        throw new Error('HTTP ' + response.status);
-                    }
-                })
-                .catch(err => log('❌ Request failed: ' + err.message, 'error'));
-        }
+OPTIONS:
+    -config string    Configuration file path (default: %s)
+    -port string      Server port (default: %s)
+    -help            Show this help message
 
-        function testWeightedRRMultiple() {
-            log('Testing Weighted Round Robin (6 requests to see 3:2:1 pattern)...', 'info');
-            for (let i = 1; i <= 6; i++) {
-                setTimeout(() => {
-                    fetch('/api/v1/test' + i)
-                        .then(response => {
-                            if (response.ok) {
-                                log('✅ WRR Request ' + i + ': Success (pattern: 3:2:1)', 'success');
-                            } else {
-                                throw new Error('HTTP ' + response.status);
-                            }
-                        })
-                        .catch(err => log('❌ WRR Request ' + i + ': ' + err.message, 'error'));
-                }, i * 300);
-            }
-        }
+EXAMPLES:
+    # Run with default configuration
+    %s
 
-        function testLeastConn() {
-            log('Testing Least Connections...', 'info');
-            fetch('/api/v2/users')
-                .then(response => {
-                    if (response.ok) {
-                        log('✅ Least Connections: Request successful', 'success');
-                    } else {
-                        throw new Error('HTTP ' + response.status);
-                    }
-                })
-                .catch(err => log('❌ Request failed: ' + err.message, 'error'));
-        }
+    # Run with custom config file
+    %s -config /etc/proxy/config.yaml
 
-        function testLeastConnMultiple() {
-            log('Testing Least Connections (multiple requests)...', 'info');
-            for (let i = 1; i <= 4; i++) {
-                setTimeout(() => {
-                    fetch('/api/v2/data' + i)
-                        .then(response => {
-                            if (response.ok) {
-                                log('✅ LC Request ' + i + ': Success (routes to least busy)', 'success');
-                            } else {
-                                throw new Error('HTTP ' + response.status);
-                            }
-                        })
-                        .catch(err => log('❌ LC Request ' + i + ': ' + err.message, 'error'));
-                }, i * 200);
-            }
-        }
+    # Run on different port
+    %s -port :9090
 
-        function testIPHash() {
-            log('Testing IP Hash (session affinity)...', 'info');
-            fetch('/auth/login')
-                .then(response => {
-                    if (response.ok) {
-                        log('✅ IP Hash: Request successful (client → same backend)', 'success');
-                    } else {
-                        throw new Error('HTTP ' + response.status);
-                    }
-                })
-                .catch(err => log('❌ Request failed: ' + err.message, 'error'));
-        }
+    # Run with custom config and port
+    %s -config custom.yaml -port :8443
 
-        function testIPHashMultiple() {
-            log('Testing IP Hash (5 requests from same client)...', 'info');
-            for (let i = 1; i <= 5; i++) {
-                setTimeout(() => {
-                    fetch('/auth/session' + i)
-                        .then(response => {
-                            if (response.ok) {
-                                log('✅ IP Hash ' + i + ': Same backend (sticky session)', 'success');
-                            } else {
-                                throw new Error('HTTP ' + response.status);
-                            }
-                        })
-                        .catch(err => log('❌ IP Hash ' + i + ': ' + err.message, 'error'));
-                }, i * 400);
-            }
-        }
+CONFIGURATION:
+    The server can be configured either via YAML file or programmatically.
+    When a config file is provided and exists, it takes precedence.
+    Otherwise, the server uses built-in programmatic configuration.
 
-        function testRandom() {
-            log('Testing Random selection...', 'info');
-            fetch('/static/image.jpg')
-                .then(response => {
-                    if (response.ok) {
-                        log('✅ Random: Request successful', 'success');
-                    } else {
-                        throw new Error('HTTP ' + response.status);
-                    }
-                })
-                .catch(err => log('❌ Request failed: ' + err.message, 'error'));
-        }
+ENDPOINTS:
+    /health           - Health check endpoint
+    /metrics          - Prometheus metrics
+    /info             - Service information
+    /proxy-status     - Proxy configuration status
+    /strategies       - Load balancing strategies info
 
-        function testRandomMultiple() {
-            log('Testing Random selection (5 requests)...', 'info');
-            for (let i = 1; i <= 5; i++) {
-                setTimeout(() => {
-                    fetch('/static/file' + i + '.css')
-                        .then(response => {
-                            if (response.ok) {
-                                log('✅ Random ' + i + ': Success (random backend)', 'success');
-                            } else {
-                                throw new Error('HTTP ' + response.status);
-                            }
-                        })
-                        .catch(err => log('❌ Random ' + i + ': ' + err.message, 'error'));
-                }, i * 200);
-            }
-        }
-
-        function checkProxyStatus() {
-            log('Checking proxy status...', 'info');
-            fetch('/proxy-status')
-                .then(response => response.json())
-                .then(data => {
-                    log('✅ Proxy Status: ' + data.rules_count + ' rules configured', 'success');
-                    console.log('Proxy Details:', data);
-                })
-                .catch(err => log('❌ Status check failed: ' + err.message, 'error'));
-        }
-
-        function checkStrategies() {
-            log('Fetching strategy details...', 'info');
-            fetch('/strategies')
-                .then(response => response.json())
-                .then(data => {
-                    log('✅ Strategy details retrieved - check console', 'success');
-                    console.log('Load Balancing Strategies:', data.load_balancing_strategies);
-                })
-                .catch(err => log('❌ Strategy fetch failed: ' + err.message, 'error'));
-        }
-
-        function clearResults() {
-            document.getElementById('results').innerHTML = '<div class="info">Results cleared. Click test buttons to continue...</div>';
-        }
-    </script>
-</body>
-</html>`
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, html)
-	})
-
-	fmt.Println("🌐 Server starting on http://localhost:8080")
-	fmt.Println("🔀 Advanced proxy with 4 load balancing strategies:")
-	fmt.Println("    → /api/v1/* → Weighted Round Robin (3:2:1)")
-	fmt.Println("    → /api/v2/* → Least Connections")
-	fmt.Println("    → /auth/* → IP Hash (Session Affinity)")
-	fmt.Println("    → /static/* → Random")
-	fmt.Println("")
-	fmt.Println("🛠️  Advanced features:")
-	fmt.Println("    → Health checking (automatic failover)")
-	fmt.Println("    → Traffic dumping (30% sampling → ./traffic_dumps/)")
-	fmt.Println("    → Connection limits per backend")
-	fmt.Println("    → Per-rule timeouts and path manipulation")
-	fmt.Println("")
-	fmt.Println("Try these URLs:")
-	fmt.Println("  → http://localhost:8080/ (interactive demo)")
-	fmt.Println("  → http://localhost:8080/proxy-status (configuration)")
-	fmt.Println("  → http://localhost:8080/strategies (strategy details)")
-	fmt.Println("")
-	fmt.Println("⚠️  Backend services needed (ports 8081-8090):")
-	fmt.Println("  Use: for i in {8081..8090}; do python3 -m http.server $i &; done")
-	fmt.Println("")
-	fmt.Println("Press Ctrl+C to stop")
-
-	// Start server with graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	if err := server.StartWithShutdown(ctx, ":8080", ""); err != nil {
-		log.Fatalf("Server failed: %v", err)
-	}
+For more information, see the README.md file.
+`, serviceName, serviceVersion, os.Args[0], defaultConfigFile, defaultPort, os.Args[0], os.Args[0], os.Args[0], os.Args[0])
 }

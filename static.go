@@ -38,6 +38,7 @@ func RegisterStaticFileMiddleware(router MiddlewareRouter, cfg StaticFileConfig)
 
 				// Check if this path should be excluded from static file serving
 				if shouldExcludeFromStatic(r.URL.Path, cfg.ExcludePaths) {
+					fmt.Println("exclude path", r.URL.Path)
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -249,6 +250,9 @@ func (h *staticFileHandler) serveStaticFile(w http.ResponseWriter, r *http.Reque
 
 	// Apply caching headers before serving
 	h.applyCacheHeaders(w, r)
+
+	// Apply security headers for static files
+	applySecurityHeaders(w, h.config.securityHeadersForStaticFiles)
 
 	// Serve the file directly
 	file, err := os.Open(fsPath)

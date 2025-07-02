@@ -230,7 +230,7 @@ ProxyRule{
 ProxyRule{
     Name: "read-only-api",
     PathPrefix: "/api/",
-    Methods: []string{"GET", "HEAD"},  // Only GET and HEAD
+    Methods: []string{GET, "HEAD"},  // Only GET and HEAD
 }
 ```
 
@@ -304,7 +304,7 @@ The proxy includes specialized logging with proxy-specific fields:
   "component": "proxy",
   "rule": "api-backend", 
   "backend": "http://api1:8080",
-  "method": "GET",
+  "method": GET,
   "path": "/users",
   "status_code": 200,
   "duration_ms": 45,
@@ -319,7 +319,7 @@ Monitor backend health through custom endpoints:
 
 ```go
 server.GET("/proxy-status", func(w http.ResponseWriter, r *http.Request) {
-    servex.C(w, r).JSON(map[string]interface{}{
+    servex.C(w, r).JSON(map[string]any{
         "proxy_enabled": true,
         "rules_count": len(config.Proxy.Rules),
         "traffic_dump": config.Proxy.TrafficDump.Enabled,

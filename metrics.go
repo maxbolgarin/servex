@@ -302,7 +302,7 @@ func (m *builtinMetrics) registerMetricsEndpoint(server *Server, path string) {
 			// The error will be logged by the request logging middleware
 			return
 		}
-	}).Methods("GET")
+	}).Methods(GET)
 }
 
 // reset clears all metrics (useful for testing)

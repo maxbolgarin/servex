@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -48,9 +49,8 @@ func interactiveCacheDemo() {
 		log.Fatal("Failed to create server:", err)
 	}
 
-	server.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.SetHeader("Content-Type", "text/html")
 		ctx.Response(http.StatusOK, `
 <!DOCTYPE html>
 <html>
@@ -77,31 +77,30 @@ func interactiveCacheDemo() {
 </html>`)
 	})
 
-	server.HandleFunc("/api/v1/public/version", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/api/v1/public/version", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(http.StatusOK, map[string]interface{}{
+		ctx.Response(http.StatusOK, map[string]any{
 			"version":   "1.0.0",
 			"example":   "This endpoint demonstrates cache headers",
 			"timestamp": time.Now().Unix(),
 		})
 	})
 
-	server.HandleFunc("/api/v1/private/user", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/api/v1/private/user", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(http.StatusOK, map[string]interface{}{
+		ctx.Response(http.StatusOK, map[string]any{
 			"user":    "private-user",
 			"session": fmt.Sprintf("sess-%d", time.Now().Unix()),
 			"cached":  false,
 		})
 	})
 
-	server.HandleFunc("/static/style.css", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/static/style.css", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.SetHeader("Content-Type", "text/css")
 		ctx.Response(http.StatusOK, "/* This CSS file is cached */\nbody { font-family: Arial; }")
 	})
 
-	if err := server.Start(":8080", ""); err != nil {
+	if err := server.StartWithWaitSignalsHTTP(context.Background(), ":8080"); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
 }
@@ -117,9 +116,9 @@ func basicCacheExample() {
 		log.Fatal("Failed to create server:", err)
 	}
 	// Simple API endpoint that will be cached
-	server.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(http.StatusOK, map[string]interface{}{
+		ctx.Response(http.StatusOK, map[string]any{
 			"status":    "ok",
 			"timestamp": time.Now().Unix(),
 			"version":   "1.0.0",
@@ -131,7 +130,7 @@ func basicCacheExample() {
 
 	log.Println("Basic cache example server starting on :8080")
 	fmt.Println("Test with: curl -I http://localhost:8080/api/status")
-	server.Start(":8080", "")
+	server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 }
 
 // Example 2: Cache with Path Filtering (Intermediate)
@@ -154,9 +153,9 @@ func intermediateCacheExample() {
 		log.Fatal("Failed to create server:", err)
 	}
 	// This endpoint will be cached (matches /api/public/*)
-	server.HandleFunc("/api/public/data", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/api/public/data", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(http.StatusOK, map[string]interface{}{
+		ctx.Response(http.StatusOK, map[string]any{
 			"data":    []string{"item1", "item2", "item3"},
 			"cached":  true,
 			"expires": time.Now().Add(30 * time.Minute).Unix(),
@@ -164,9 +163,9 @@ func intermediateCacheExample() {
 	})
 
 	// This endpoint will NOT be cached (matches /api/private/*)
-	server.HandleFunc("/api/private/user", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/api/private/user", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(http.StatusOK, map[string]interface{}{
+		ctx.Response(http.StatusOK, map[string]any{
 			"user":    "john.doe",
 			"session": "session-" + strconv.FormatInt(time.Now().Unix(), 10),
 			"cached":  false,
@@ -174,9 +173,8 @@ func intermediateCacheExample() {
 	})
 
 	// This static file will be cached (matches /static/*)
-	server.HandleFunc("/static/app.js", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/static/app.js", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.SetHeader("Content-Type", "application/javascript")
 		ctx.Response(http.StatusOK, `console.log("This file is cached");`)
 	})
 
@@ -187,14 +185,17 @@ func intermediateCacheExample() {
 	log.Println("Intermediate cache example server starting on :8080")
 	fmt.Println("Test cached: curl -I http://localhost:8080/api/public/data")
 	fmt.Println("Test non-cached: curl -I http://localhost:8080/api/private/user")
-	server.Start(":8080", "")
+	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
+	if err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
 }
 
 // Example 3: Dynamic Cache Control (Advanced)
 // This example shows how to use dynamic ETag and LastModified functions
 func advancedCacheExample() {
 	// Simulate a data store with versioning
-	userData := map[string]interface{}{
+	userData := map[string]any{
 		"id":           1,
 		"name":         "John Doe",
 		"email":        "john@example.com",
@@ -238,13 +239,13 @@ func advancedCacheExample() {
 		log.Fatal("Failed to create server:", err)
 	}
 	// User profile endpoint with dynamic cache headers
-	server.HandleFunc("/api/user/profile", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/api/user/profile", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
 		ctx.Response(http.StatusOK, userData)
 	})
 
 	// Endpoint to update user data (simulates data change)
-	server.HandleFunc("/api/user/profile", func(w http.ResponseWriter, r *http.Request) {
+	server.Put("/api/user/profile", func(w http.ResponseWriter, r *http.Request) {
 		// Simulate updating user data
 		userData["name"] = "John Doe Updated"
 		userData["lastModified"] = time.Now()
@@ -254,12 +255,12 @@ func advancedCacheExample() {
 		ctx.Response(http.StatusOK, map[string]string{
 			"message": "Profile updated successfully",
 		})
-	}, "PUT")
+	})
 
 	// System info that changes hourly
-	server.HandleFunc("/api/system/info", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/api/system/info", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(http.StatusOK, map[string]interface{}{
+		ctx.Response(http.StatusOK, map[string]any{
 			"system":    "servex-cache-demo",
 			"uptime":    time.Since(time.Now().Truncate(time.Hour)).String(),
 			"hour":      time.Now().Hour(),
@@ -278,7 +279,10 @@ func advancedCacheExample() {
 
 	log.Println("Advanced cache example server starting on :8080")
 	fmt.Println("Test conditional: curl -H 'If-None-Match: \"user-profile-v1.2.3\"' http://localhost:8080/api/user/profile")
-	server.Start(":8080", "")
+	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
+	if err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
 }
 
 // Example 4: Comprehensive Cache Configuration (Complex)
@@ -298,10 +302,10 @@ func complexCacheExample() {
 
 			// Dynamic ETag function for request-specific ETags
 			ETagFunc: func(r *http.Request) string {
-				switch {
-				case r.URL.Path == "/api/v1/public/version":
+				switch r.URL.Path {
+				case "/api/v1/public/version":
 					return `"api-version-1.0.0"`
-				case r.URL.Path == "/api/v1/public/config":
+				case "/api/v1/public/config":
 					// ETag changes based on time of day
 					hour := time.Now().Hour()
 					return fmt.Sprintf(`"config-%d"`, hour/6) // Changes 4 times per day
@@ -312,11 +316,11 @@ func complexCacheExample() {
 
 			// Dynamic LastModified function
 			LastModifiedFunc: func(r *http.Request) time.Time {
-				switch {
-				case r.URL.Path == "/api/v1/public/version":
+				switch r.URL.Path {
+				case "/api/v1/public/version":
 					// Static build time
 					return time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
-				case r.URL.Path == "/api/v1/public/config":
+				case "/api/v1/public/config":
 					// Updates every 6 hours
 					now := time.Now()
 					return time.Date(now.Year(), now.Month(), now.Day(), (now.Hour()/6)*6, 0, 0, 0, now.Location())
@@ -331,9 +335,8 @@ func complexCacheExample() {
 	}
 
 	// Root endpoint with documentation
-	server.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.SetHeader("Content-Type", "text/html")
 		ctx.Response(http.StatusOK, `
 <!DOCTYPE html>
 <html>
@@ -390,9 +393,9 @@ curl -I http://localhost:8080/api/v1/private/user-session
 	})
 
 	// API version endpoint (cached with static ETag)
-	server.HandleFunc("/api/v1/public/version", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/api/v1/public/version", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(http.StatusOK, map[string]interface{}{
+		ctx.Response(http.StatusOK, map[string]any{
 			"version":     "1.0.0",
 			"buildDate":   "2024-01-01",
 			"environment": "production",
@@ -401,9 +404,9 @@ curl -I http://localhost:8080/api/v1/private/user-session
 	})
 
 	// Configuration endpoint (cached with time-based ETag)
-	server.HandleFunc("/api/v1/public/config", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/api/v1/public/config", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(http.StatusOK, map[string]interface{}{
+		ctx.Response(http.StatusOK, map[string]any{
 			"maxUploadSize": "10MB",
 			"allowedTypes":  []string{"image/jpeg", "image/png", "application/pdf"},
 			"rateLimit":     100,
@@ -412,9 +415,9 @@ curl -I http://localhost:8080/api/v1/private/user-session
 	})
 
 	// Private endpoint (excluded from caching)
-	server.HandleFunc("/api/v1/private/user-session", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/api/v1/private/user-session", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(http.StatusOK, map[string]interface{}{
+		ctx.Response(http.StatusOK, map[string]any{
 			"sessionId":   "sess-" + strconv.FormatInt(time.Now().Unix(), 10),
 			"userId":      12345,
 			"permissions": []string{"read", "write"},
@@ -423,9 +426,8 @@ curl -I http://localhost:8080/api/v1/private/user-session
 	})
 
 	// Static asset (cached)
-	server.HandleFunc("/static/style.css", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/static/style.css", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.SetHeader("Content-Type", "text/css")
 		ctx.Response(http.StatusOK, `
 body { 
     font-family: Arial, sans-serif; 
@@ -440,9 +442,9 @@ body {
 	})
 
 	// Admin endpoint (excluded from caching)
-	server.HandleFunc("/admin/stats", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/admin/stats", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(http.StatusOK, map[string]interface{}{
+		ctx.Response(http.StatusOK, map[string]any{
 			"activeUsers":   42,
 			"requestsToday": 15420,
 			"cacheHitRatio": 0.87,
@@ -452,7 +454,10 @@ body {
 
 	log.Println("Complex cache example server starting on :8080")
 	fmt.Println("Visit http://localhost:8080 for interactive demo")
-	server.Start(":8080", "")
+	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
+	if err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
 }
 
 // Example 5: Cache Strategy Presets (Bonus)
@@ -475,9 +480,9 @@ func cacheStrategyExamples() {
 		log.Fatal("Failed to create server:", err)
 	}
 
-	server.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(http.StatusOK, map[string]string{
+		ctx.Response(http.StatusOK, map[string]any{
 			"message": "This response has no-cache headers",
 			"time":    time.Now().Format(time.RFC3339),
 		})
@@ -485,5 +490,8 @@ func cacheStrategyExamples() {
 
 	log.Println("Cache strategy example (no-cache) server starting on :8080")
 	fmt.Println("Test with: curl -I http://localhost:8080/")
-	server.Start(":8080", "")
+	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
+	if err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
 }

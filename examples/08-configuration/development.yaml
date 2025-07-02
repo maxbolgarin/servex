@@ -1,0 +1,43 @@
+# Development Environment Configuration
+server:
+  http: ":8080"
+  read_timeout: "10s"
+  idle_timeout: "60s"
+  send_error_to_client: true  # Show errors in development
+  enable_health_endpoint: true
+
+rate_limit:
+  enabled: false  # No rate limiting in development
+
+security:
+  enabled: false  # Relaxed security for development
+
+cache:
+  enabled: false  # No caching for easier testing
+
+compression:
+  enabled: false  # No compression for debugging
+
+logging:
+  disable_request_logging: false
+  no_log_client_errors: false
+  log_fields:
+    - "method"
+    - "url"
+    - "status"
+    - "duration_ms"
+    - "ip"
+    - "user_agent"
+    - "error"
+
+cors:
+  enabled: true
+  allow_origins:
+    - "*"
+  allow_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+    - "OPTIONS"
+  allow_credentials: true

@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -61,6 +62,8 @@ type Server struct {
 
 	basePath string
 	cleanups []func()
+
+	isUniversalRouteRegistered atomic.Bool
 }
 
 // NewServer creates a new Server instance with the specified options.
@@ -176,6 +179,9 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 		opts:   opts,
 	}
 
+	// Register universal middleware before any other middleware
+	registerUniversalMiddleware(s.router)
+
 	rateLimitCleanup := RegisterRateLimitMiddleware(s.router, opts.RateLimit, opts.AuditLogger)
 	s.cleanups = append(s.cleanups, rateLimitCleanup)
 	RegisterRequestSizeLimitMiddleware(s.router, opts)
@@ -191,7 +197,9 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 	}
 
 	RegisterSecurityHeadersMiddleware(s.router, opts.Security)
+	RegisterCORSMiddleware(s.router, opts)
 	RegisterCacheControlMiddleware(s.router, opts.Cache)
+	RegisterCompressionMiddleware(s.router, opts.Compression)
 	if len(opts.CustomHeaders) > 0 {
 		RegisterCustomHeadersMiddleware(s.router, opts.CustomHeaders)
 	}
@@ -233,6 +241,10 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 
 	// Register health
 	s.registerBuiltinEndpoints()
+
+	if opts.StaticFiles.Enabled && opts.Security.Enabled {
+		opts.StaticFiles.securityHeadersForStaticFiles = opts.Security
+	}
 
 	// Register static file middleware - should be registered after all other middleware
 	RegisterStaticFileMiddleware(s.router, opts.StaticFiles)
@@ -803,7 +815,7 @@ func (s *Server) registerBuiltinEndpoints() {
 		if healthPath == "" {
 			healthPath = "/health"
 		}
-		s.router.HandleFunc(healthPath, s.healthHandler).Methods("GET")
+		s.router.HandleFunc(healthPath, s.healthHandler).Methods(GET)
 	}
 
 	// Register metrics endpoint if enabled
@@ -856,6 +868,17 @@ func (s *Server) start(address string, serve func(net.Listener) error, getListen
 				}
 			}
 		}()
+
+		if s.isUniversalRouteRegistered.CompareAndSwap(false, true) {
+			// Add catch-all route - this must be registered AFTER all application routes
+			s.router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if s.router.NotFoundHandler != nil {
+					s.router.NotFoundHandler.ServeHTTP(w, r)
+				} else {
+					http.NotFound(w, r)
+				}
+			}).Name("universal-catch-all")
+		}
 
 		// Signal that server is ready to accept connections
 		select {

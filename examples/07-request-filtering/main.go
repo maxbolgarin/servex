@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -48,7 +49,7 @@ func main() {
 	// Demo API endpoint that's protected by filtering
 	server.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]interface{}{
+		ctx.Response(200, map[string]any{
 			"message":    "Request passed all security filters!",
 			"user_agent": r.Header.Get("User-Agent"),
 			"ip":         r.RemoteAddr,
@@ -64,7 +65,7 @@ func main() {
 		debugParam := r.URL.Query().Get("debug")
 		adminParam := r.URL.Query().Get("admin")
 
-		ctx.Response(200, map[string]interface{}{
+		ctx.Response(200, map[string]any{
 			"message": "Test endpoint - filters working!",
 			"query_params": map[string]string{
 				"debug": debugParam,
@@ -89,8 +90,8 @@ func main() {
 	// Status endpoint to show filter configuration
 	server.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]interface{}{
-			"filters": map[string]interface{}{
+		ctx.Response(200, map[string]any{
+			"filters": map[string]any{
 				"blocked_user_agents": []string{
 					".*[Bb]ot.*", ".*[Ss]craper.*", ".*[Cc]rawler.*", "curl.*",
 				},
@@ -107,7 +108,7 @@ func main() {
 
 	// Interactive demo page
 	server.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		html := `
+		servex.C(w, r).Response(200, `
 <!DOCTYPE html>
 <html>
 <head>
@@ -145,7 +146,6 @@ func main() {
             <h3>❌ Blocked Requests</h3>
             <button class="danger" onclick="debugRequest()">Debug Parameter (Blocked)</button>
             <button class="danger" onclick="adminRequest()">Admin Parameter (Blocked)</button>
-            <button class="danger" onclick="botRequest()">Bot User-Agent (Blocked)</button>
         </div>
         
         <h2>📊 Results</h2>
@@ -265,9 +265,7 @@ curl http://localhost:8080/api/status
         }
     </script>
 </body>
-</html>`
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, html)
+</html>`)
 	})
 
 	fmt.Println("🌐 Server starting on http://localhost:8080")
@@ -288,5 +286,8 @@ curl http://localhost:8080/api/status
 	fmt.Println("")
 	fmt.Println("Press Ctrl+C to stop")
 
-	server.Start(":8080", "")
+	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
+	if err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
 }

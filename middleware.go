@@ -7,13 +7,18 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"path/filepath"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"time"
+
+	"compress/flate"
+	"compress/gzip"
 
 	"github.com/gorilla/mux"
 )
@@ -366,7 +371,7 @@ func RegisterCSRFMiddleware(router MiddlewareRouter, cfg SecurityConfig) {
 
 	safeMethods := cfg.CSRFSafeMethods
 	if len(safeMethods) == 0 {
-		safeMethods = []string{"GET", "HEAD", "OPTIONS", "TRACE"}
+		safeMethods = []string{GET, "HEAD", OPTIONS, "TRACE"}
 	}
 
 	// Create safe methods map for faster lookup
@@ -423,7 +428,7 @@ func registerCSRFTokenEndpoint(router MiddlewareRouter, endpoint, cookieName, co
 	// We need to add the endpoint to the router if it's a *mux.Router
 	if muxRouter, ok := router.(*mux.Router); ok {
 		muxRouter.HandleFunc(endpoint, func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != "GET" {
+			if r.Method != GET {
 				w.WriteHeader(http.StatusMethodNotAllowed)
 				return
 			}
@@ -435,7 +440,7 @@ func registerCSRFTokenEndpoint(router MiddlewareRouter, endpoint, cookieName, co
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			fmt.Fprintf(w, `{"csrf_token": "%s"}`, token)
-		}).Methods("GET")
+		}).Methods(GET)
 	}
 }
 
@@ -946,4 +951,611 @@ func isHTTPSFromProxyHeaders(r *http.Request) bool {
 	}
 
 	return false
+}
+
+// RegisterCORSMiddleware registers a middleware that handles Cross-Origin Resource Sharing (CORS).
+// It supports preflight requests, origin validation, method and header restrictions,
+// credentials handling, and path-based filtering.
+// If CORS is not enabled in the configuration, no middleware is registered.
+func RegisterCORSMiddleware(router MiddlewareRouter, opts Options) {
+	cfg := opts.CORS
+	if !cfg.Enabled {
+		return // Don't register CORS middleware if disabled
+	}
+
+	// Set defaults if not configured
+	allowOrigins := cfg.AllowOrigins
+	if len(allowOrigins) == 0 {
+		allowOrigins = []string{"*"} // Default to allow all origins
+	}
+
+	allowMethods := cfg.AllowMethods
+	if len(allowMethods) == 0 {
+		allowMethods = []string{GET, POST, PUT, DELETE, OPTIONS, "HEAD", PATCH}
+	}
+
+	allowHeaders := cfg.AllowHeaders
+	if len(allowHeaders) == 0 {
+		allowHeaders = []string{"Accept", "Authorization", "Content-Type", "X-CSRF-Token"}
+	}
+
+	// Create maps for faster lookup
+	allowedOrigins := make(map[string]bool)
+	hasWildcard := false
+	for _, origin := range allowOrigins {
+		if origin == "*" {
+			hasWildcard = true
+			break
+		}
+		allowedOrigins[origin] = true
+	}
+
+	allowedMethods := make(map[string]bool)
+	for _, method := range allowMethods {
+		allowedMethods[strings.ToUpper(method)] = true
+	}
+
+	// Register a catch-all OPTIONS handler for preflight requests if the router supports it
+	if muxRouter, ok := router.(*mux.Router); ok {
+		muxRouter.PathPrefix("/").Methods(OPTIONS).HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Only handle preflight requests (those with Access-Control-Request-Method header)
+			if r.Header.Get("Access-Control-Request-Method") == "" {
+				// Not a preflight request, return 404
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			// Check if CORS should be applied to this path
+			if !shouldApplyCORS(r, cfg) {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+
+			origin := r.Header.Get("Origin")
+			var allowedOrigin string
+			if origin != "" {
+				if hasWildcard {
+					allowedOrigin = "*"
+				} else if allowedOrigins[origin] {
+					allowedOrigin = origin
+				} else {
+					// Origin not allowed
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+			}
+
+			// Validate requested method
+			requestedMethod := r.Header.Get("Access-Control-Request-Method")
+			if !methodAllowedCORS(requestedMethod, allowMethods) {
+				w.WriteHeader(http.StatusMethodNotAllowed)
+				return
+			}
+
+			// Validate requested headers
+			requestedHeaders := r.Header.Get("Access-Control-Request-Headers")
+			if requestedHeaders != "" {
+				headers := strings.Split(requestedHeaders, ",")
+				for i, header := range headers {
+					headers[i] = strings.TrimSpace(header)
+				}
+				if !headersAllowedCORS(headers, allowHeaders) {
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+			}
+
+			// Set CORS headers
+			if allowedOrigin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+			}
+
+			if cfg.AllowCredentials {
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				// When credentials are allowed, origin cannot be "*"
+				if allowedOrigin == "*" && origin != "" {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+				}
+			}
+
+			// Set preflight response headers
+			w.Header().Set("Access-Control-Allow-Methods", strings.Join(allowMethods, ", "))
+			w.Header().Set("Access-Control-Allow-Headers", strings.Join(allowHeaders, ", "))
+
+			if cfg.MaxAge > 0 {
+				w.Header().Set("Access-Control-Max-Age", fmt.Sprintf("%d", cfg.MaxAge))
+			}
+
+			w.WriteHeader(http.StatusOK)
+		})
+	}
+
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Check if CORS should be applied to this path
+			if !shouldApplyCORS(r, cfg) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			origin := r.Header.Get("Origin")
+
+			// Validate origin
+			var allowedOrigin string
+			if origin != "" {
+				if hasWildcard {
+					allowedOrigin = "*"
+				} else if allowedOrigins[origin] {
+					allowedOrigin = origin
+				} else {
+					// Origin not allowed, proceed without CORS headers
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+
+			// Set CORS headers
+			if allowedOrigin != "" {
+				w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+			}
+
+			if cfg.AllowCredentials {
+				w.Header().Set("Access-Control-Allow-Credentials", "true")
+				// When credentials are allowed, origin cannot be "*"
+				if allowedOrigin == "*" && origin != "" {
+					w.Header().Set("Access-Control-Allow-Origin", origin)
+				}
+			}
+
+			if len(cfg.ExposeHeaders) > 0 {
+				w.Header().Set("Access-Control-Expose-Headers", strings.Join(cfg.ExposeHeaders, ", "))
+			}
+
+			// Handle preflight requests
+			if r.Method == OPTIONS {
+				// Check if this is a preflight request
+				if r.Header.Get("Access-Control-Request-Method") != "" {
+					// This is a preflight request
+					// Validate requested method
+					requestedMethod := r.Header.Get("Access-Control-Request-Method")
+					if !methodAllowedCORS(requestedMethod, allowMethods) {
+						w.WriteHeader(http.StatusMethodNotAllowed)
+						return
+					}
+
+					// Validate requested headers
+					requestedHeaders := r.Header.Get("Access-Control-Request-Headers")
+					if requestedHeaders != "" {
+						headers := strings.Split(requestedHeaders, ",")
+						for i, header := range headers {
+							headers[i] = strings.TrimSpace(header)
+						}
+						if !headersAllowedCORS(headers, allowHeaders) {
+							w.WriteHeader(http.StatusForbidden)
+							return
+						}
+					}
+
+					// Set preflight response headers
+					w.Header().Set("Access-Control-Allow-Methods", strings.Join(allowMethods, ", "))
+					w.Header().Set("Access-Control-Allow-Headers", strings.Join(allowHeaders, ", "))
+
+					if cfg.MaxAge > 0 {
+						w.Header().Set("Access-Control-Max-Age", fmt.Sprintf("%d", cfg.MaxAge))
+					}
+
+					w.WriteHeader(http.StatusOK)
+					return
+				}
+				// For non-preflight OPTIONS requests, continue to the next handler
+			}
+
+			// Continue with the request
+			next.ServeHTTP(w, r)
+		})
+	})
+}
+
+// shouldApplyCORS determines if CORS headers should be applied to the request
+// based on the configured include/exclude paths.
+func shouldApplyCORS(r *http.Request, cfg CORSConfig) bool {
+	path := r.URL.Path
+
+	// If include paths are specified, path must match one of them
+	if len(cfg.IncludePaths) > 0 {
+		return matchPath(path, nil, cfg.IncludePaths, true)
+	}
+
+	// If exclude paths are specified, path must not match any of them
+	if len(cfg.ExcludePaths) > 0 {
+		return !matchPath(path, cfg.ExcludePaths, nil, true)
+	}
+
+	// Apply CORS to all paths by default
+	return true
+}
+
+// originAllowedCORS checks if an origin is allowed based on the allowed origins list.
+func originAllowedCORS(origin string, allowOrigins []string) bool {
+	if origin == "" {
+		return false
+	}
+
+	for _, allowed := range allowOrigins {
+		if allowed == "*" || allowed == origin {
+			return true
+		}
+	}
+	return false
+}
+
+// methodAllowedCORS checks if a method is allowed based on the allowed methods list.
+// The comparison is case-insensitive.
+func methodAllowedCORS(method string, allowMethods []string) bool {
+	if len(allowMethods) == 0 {
+		return true // Allow all when no methods specified
+	}
+
+	method = strings.ToUpper(method)
+	for _, allowed := range allowMethods {
+		if strings.ToUpper(allowed) == method {
+			return true
+		}
+	}
+	return false
+}
+
+// headersAllowedCORS checks if all requested headers are allowed.
+// The comparison is case-insensitive.
+func headersAllowedCORS(headers []string, allowHeaders []string) bool {
+	if len(allowHeaders) == 0 {
+		return true // Allow all when no headers specified
+	}
+
+	if len(headers) == 0 {
+		return true // No headers requested
+	}
+
+	// Create a map for case-insensitive lookup
+	allowedMap := make(map[string]bool)
+	for _, header := range allowHeaders {
+		allowedMap[strings.ToLower(header)] = true
+	}
+
+	// Check if all requested headers are allowed
+	for _, header := range headers {
+		if !allowedMap[strings.ToLower(header)] {
+			return false
+		}
+	}
+	return true
+}
+
+// RegisterCompressionMiddleware adds HTTP response compression middleware.
+// It compresses response bodies using gzip or deflate encoding based on client Accept-Encoding headers.
+// This can significantly reduce bandwidth usage and improve response times for text-based content.
+func RegisterCompressionMiddleware(router MiddlewareRouter, cfg CompressionConfig) {
+	if !cfg.Enabled {
+		return // Don't register compression middleware if disabled
+	}
+
+	// Set defaults if not configured
+	level := cfg.Level
+	if level < 1 || level > 9 {
+		level = 6 // Default compression level
+	}
+
+	minSize := cfg.MinSize
+	if minSize < 0 {
+		minSize = 1024 // Default 1KB minimum
+	}
+
+	// Default MIME types if none specified
+	types := cfg.Types
+	if len(types) == 0 {
+		types = []string{
+			"text/html",
+			"text/css",
+			"text/plain",
+			"text/xml",
+			"application/json",
+			"application/javascript",
+			"application/xml",
+			"image/svg+xml",
+		}
+	}
+
+	// Convert types to map for faster lookup
+	compressibleTypes := make(map[string]bool)
+	for _, mimeType := range types {
+		compressibleTypes[strings.ToLower(mimeType)] = true
+	}
+
+	router.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Check if path should be compressed
+			if !shouldApplyCompression(r, cfg) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Check if client accepts compression
+			acceptEncoding := r.Header.Get("Accept-Encoding")
+			if acceptEncoding == "" {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Determine which compression encoding to use
+			var encoding string
+			if strings.Contains(acceptEncoding, "gzip") {
+				encoding = "gzip"
+			} else if strings.Contains(acceptEncoding, "deflate") {
+				encoding = "deflate"
+			} else {
+				// Client doesn't accept compression
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Create compression response writer
+			crw := &compressionResponseWriter{
+				ResponseWriter:    w,
+				encoding:          encoding,
+				level:             level,
+				minSize:           minSize,
+				compressibleTypes: compressibleTypes,
+				buf:               make([]byte, 0),
+			}
+
+			// Ensure cleanup
+			defer crw.Close()
+
+			// Process request with compression
+			next.ServeHTTP(crw, r)
+		})
+	})
+}
+
+// shouldApplyCompression checks if compression should be applied to the request
+func shouldApplyCompression(r *http.Request, cfg CompressionConfig) bool {
+	return matchPath(r.URL.Path, cfg.ExcludePaths, cfg.IncludePaths, true)
+}
+
+// compressionResponseWriter wraps http.ResponseWriter to provide compression
+type compressionResponseWriter struct {
+	http.ResponseWriter
+	encoding          string
+	level             int
+	minSize           int
+	compressibleTypes map[string]bool
+	writer            io.Writer
+	buf               []byte
+	headerWritten     bool
+	compressed        bool
+}
+
+// Header returns the header map for the response
+func (crw *compressionResponseWriter) Header() http.Header {
+	return crw.ResponseWriter.Header()
+}
+
+// WriteHeader writes the status code and determines if compression should be used
+func (crw *compressionResponseWriter) WriteHeader(statusCode int) {
+	if crw.headerWritten {
+		return
+	}
+	crw.headerWritten = true
+
+	// Don't compress if content-encoding is already set
+	if crw.Header().Get("Content-Encoding") != "" {
+		crw.compressed = true
+		crw.ResponseWriter.WriteHeader(statusCode)
+		return
+	}
+
+	// Check content length if specified in headers
+	if contentLengthStr := crw.Header().Get("Content-Length"); contentLengthStr != "" {
+		if contentLength, err := strconv.Atoi(contentLengthStr); err == nil {
+			if contentLength < crw.minSize {
+				// Response too small to compress
+				crw.compressed = true
+				crw.ResponseWriter.WriteHeader(statusCode)
+				return
+			}
+			// Content is large enough, we can set up compression immediately
+			crw.setupCompressionIfNeeded()
+		}
+	}
+
+	// If no content-length specified, defer compression decision until we have content
+	crw.ResponseWriter.WriteHeader(statusCode)
+}
+
+// Write writes data to the response
+func (crw *compressionResponseWriter) Write(data []byte) (int, error) {
+	if !crw.headerWritten {
+		crw.WriteHeader(http.StatusOK)
+	}
+
+	if crw.writer != nil {
+		// Already determined to compress
+		return crw.writer.Write(data)
+	}
+
+	if crw.compressed {
+		// Already determined not to compress
+		return crw.ResponseWriter.Write(data)
+	}
+
+	// Buffer data until we have enough to make a decision
+	crw.buf = append(crw.buf, data...)
+
+	// If we have enough data, make compression decision
+	if len(crw.buf) >= crw.minSize {
+		crw.setupCompressionIfNeeded()
+		if crw.writer != nil {
+			n, err := crw.writer.Write(crw.buf)
+			crw.buf = nil // Clear buffer
+			return n, err
+		} else {
+			n, err := crw.ResponseWriter.Write(crw.buf)
+			crw.buf = nil // Clear buffer
+			return n, err
+		}
+	}
+
+	// Return length of data written to buffer
+	return len(data), nil
+}
+
+// setupCompressionIfNeeded initializes the compression writer if content type is compressible
+func (crw *compressionResponseWriter) setupCompressionIfNeeded() {
+	if crw.writer != nil || crw.compressed {
+		return
+	}
+
+	// Check content type
+	contentType := crw.Header().Get("Content-Type")
+	if contentType != "" {
+		mainType := strings.Split(contentType, ";")[0]
+		mainType = strings.TrimSpace(strings.ToLower(mainType))
+
+		if !crw.compressibleTypes[mainType] {
+			crw.compressed = true
+			return
+		}
+	}
+
+	crw.setupCompression()
+}
+
+// setupCompression initializes the compression writer
+func (crw *compressionResponseWriter) setupCompression() {
+	if crw.writer != nil || crw.compressed {
+		return
+	}
+
+	// Set compression headers
+	crw.Header().Set("Content-Encoding", crw.encoding)
+	crw.Header().Set("Vary", "Accept-Encoding")
+	crw.Header().Del("Content-Length") // Remove content-length as it will change
+
+	// Create compression writer
+	switch crw.encoding {
+	case "gzip":
+		gzipWriter, err := gzip.NewWriterLevel(crw.ResponseWriter, crw.level)
+		if err != nil {
+			crw.compressed = true
+			return
+		}
+		crw.writer = gzipWriter
+	case "deflate":
+		deflateWriter, err := flate.NewWriter(crw.ResponseWriter, crw.level)
+		if err != nil {
+			crw.compressed = true
+			return
+		}
+		crw.writer = deflateWriter
+	default:
+		crw.compressed = true
+		return
+	}
+}
+
+// Close flushes and closes the compression writer
+func (crw *compressionResponseWriter) Close() error {
+	// Handle remaining buffered data
+	if len(crw.buf) > 0 {
+		if crw.writer == nil && !crw.compressed {
+			// Check if buffered content is below minimum size
+			if len(crw.buf) < crw.minSize {
+				// Content too small to compress, write directly without compression
+				crw.ResponseWriter.Write(crw.buf)
+				crw.buf = nil
+				return nil
+			}
+
+			// Content is large enough, set up compression and write buffered data
+			crw.setupCompression()
+			if crw.writer != nil {
+				crw.writer.Write(crw.buf)
+			} else {
+				// Compression setup failed, write directly
+				crw.ResponseWriter.Write(crw.buf)
+			}
+			crw.buf = nil
+		}
+	}
+
+	if crw.writer != nil {
+		// Close compression writer
+		switch w := crw.writer.(type) {
+		case *gzip.Writer:
+			return w.Close()
+		case *flate.Writer:
+			return w.Close()
+		}
+	}
+
+	return nil
+}
+
+// enhancedUniversalResponseWriter wraps http.ResponseWriter to track response status
+type enhancedUniversalResponseWriter struct {
+	http.ResponseWriter
+	statusCode    int
+	bytesWritten  int
+	headerWritten bool
+}
+
+func (w *enhancedUniversalResponseWriter) WriteHeader(code int) {
+	if !w.headerWritten {
+		w.statusCode = code
+		w.headerWritten = true
+		w.ResponseWriter.WriteHeader(code)
+	}
+}
+
+func (w *enhancedUniversalResponseWriter) Write(b []byte) (int, error) {
+	if !w.headerWritten {
+		w.WriteHeader(http.StatusOK)
+	}
+	n, err := w.ResponseWriter.Write(b)
+	w.bytesWritten += n
+	return n, err
+}
+
+// registerUniversalMiddleware provides more sophisticated universal middleware
+func registerUniversalMiddleware(router MiddlewareRouter) {
+	if muxRouter, ok := router.(*mux.Router); ok {
+		// Store original NotFoundHandler
+		originalNotFound := muxRouter.NotFoundHandler
+
+		// Add response wrapper middleware
+		router.Use(func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				// Wrap the response writer
+				wrapper := &enhancedUniversalResponseWriter{
+					ResponseWriter: w,
+					statusCode:     0,
+				}
+
+				// Call next handler
+				next.ServeHTTP(wrapper, r)
+
+				// If no status was written (which shouldn't happen with our catch-all),
+				// this would be where we could handle it
+			})
+		})
+
+		// Set custom NotFoundHandler
+		muxRouter.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if originalNotFound != nil {
+				originalNotFound.ServeHTTP(w, r)
+			} else {
+				http.NotFound(w, r)
+			}
+		})
+	}
 }

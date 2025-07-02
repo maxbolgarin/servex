@@ -127,7 +127,7 @@ func TestLoadBalancingStrategies(t *testing.T) {
 
 			// Make requests
 			for i := 0; i < tt.requests; i++ {
-				req := httptest.NewRequest("GET", "/test/endpoint", nil)
+				req := httptest.NewRequest(GET, "/test/endpoint", nil)
 				rr := httptest.NewRecorder()
 
 				router.ServeHTTP(rr, req)
@@ -225,7 +225,7 @@ func TestIPHashLoadBalancing(t *testing.T) {
 		// Make multiple requests from the same IP
 		var backend string
 		for i := 0; i < 5; i++ {
-			req := httptest.NewRequest("GET", "/test/endpoint", nil)
+			req := httptest.NewRequest(GET, "/test/endpoint", nil)
 			req.RemoteAddr = ip + ":12345"
 			rr := httptest.NewRecorder()
 
@@ -301,7 +301,7 @@ func TestLeastConnectionsLoadBalancing(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			req := httptest.NewRequest("GET", "/test/endpoint", nil)
+			req := httptest.NewRequest(GET, "/test/endpoint", nil)
 			rr := httptest.NewRecorder()
 
 			router.ServeHTTP(rr, req)
@@ -383,7 +383,7 @@ func TestHealthChecking(t *testing.T) {
 	// Verify that only healthy backend gets requests
 	backendHits := make(map[string]int)
 	for i := 0; i < 10; i++ {
-		req := httptest.NewRequest("GET", "/test/endpoint", nil)
+		req := httptest.NewRequest(GET, "/test/endpoint", nil)
 		rr := httptest.NewRecorder()
 
 		router.ServeHTTP(rr, req)
@@ -448,7 +448,7 @@ func TestTrafficDumping(t *testing.T) {
 
 	// Make a request
 	body := `{"test": "data"}`
-	req := httptest.NewRequest("POST", "/test/endpoint", strings.NewReader(body))
+	req := httptest.NewRequest(POST, "/test/endpoint", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "test-agent")
 	rr := httptest.NewRecorder()
@@ -489,7 +489,7 @@ func TestTrafficDumping(t *testing.T) {
 		t.Error("Dump should contain backend URL")
 	}
 
-	if !strings.Contains(dumpContent, "POST") {
+	if !strings.Contains(dumpContent, POST) {
 		t.Error("Dump should contain HTTP method")
 	}
 
@@ -576,7 +576,7 @@ func TestPathManipulation(t *testing.T) {
 				http.Error(w, "Not Found", http.StatusNotFound)
 			})
 
-			req := httptest.NewRequest("GET", tt.requestPath, nil)
+			req := httptest.NewRequest(GET, tt.requestPath, nil)
 			rr := httptest.NewRecorder()
 
 			// Capture the request path that reaches the backend
@@ -640,7 +640,7 @@ func TestHeaderBasedRouting(t *testing.T) {
 	})
 
 	// Test v1 routing
-	req1 := httptest.NewRequest("GET", "/api/users", nil)
+	req1 := httptest.NewRequest(GET, "/api/users", nil)
 	req1.Header.Set("X-API-Version", "v1")
 	rr1 := httptest.NewRecorder()
 
@@ -655,7 +655,7 @@ func TestHeaderBasedRouting(t *testing.T) {
 	}
 
 	// Test v2 routing
-	req2 := httptest.NewRequest("GET", "/api/users", nil)
+	req2 := httptest.NewRequest(GET, "/api/users", nil)
 	req2.Header.Set("X-API-Version", "v2")
 	rr2 := httptest.NewRecorder()
 
@@ -680,7 +680,7 @@ func TestMethodFiltering(t *testing.T) {
 			{
 				Name:          "readonly-api",
 				PathPrefix:    "/api/",
-				Methods:       []string{"GET", "HEAD"},
+				Methods:       []string{GET, "HEAD"},
 				Backends:      []Backend{{URL: backend.URL, Weight: 1}},
 				LoadBalancing: RoundRobinStrategy,
 				Timeout:       5 * time.Second,
@@ -700,7 +700,7 @@ func TestMethodFiltering(t *testing.T) {
 	})
 
 	// Test allowed method
-	req1 := httptest.NewRequest("GET", "/api/users", nil)
+	req1 := httptest.NewRequest(GET, "/api/users", nil)
 	rr1 := httptest.NewRecorder()
 	router.ServeHTTP(rr1, req1)
 
@@ -709,7 +709,7 @@ func TestMethodFiltering(t *testing.T) {
 	}
 
 	// Test disallowed method
-	req2 := httptest.NewRequest("POST", "/api/users", nil)
+	req2 := httptest.NewRequest(POST, "/api/users", nil)
 	rr2 := httptest.NewRecorder()
 	router.ServeHTTP(rr2, req2)
 
@@ -764,7 +764,7 @@ func TestNoHealthyBackends(t *testing.T) {
 	})
 
 	// Request should fail when no healthy backends available
-	req := httptest.NewRequest("GET", "/test/endpoint", nil)
+	req := httptest.NewRequest(GET, "/test/endpoint", nil)
 	rr := httptest.NewRecorder()
 
 	router.ServeHTTP(rr, req)
@@ -803,7 +803,7 @@ func TestRequestTimeout(t *testing.T) {
 		http.Error(w, "Not Found", http.StatusNotFound)
 	})
 
-	req := httptest.NewRequest("GET", "/test/endpoint", nil)
+	req := httptest.NewRequest(GET, "/test/endpoint", nil)
 	rr := httptest.NewRecorder()
 
 	start := time.Now()
@@ -948,7 +948,7 @@ func TestProxyRuleMatching(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.description, func(t *testing.T) {
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest(GET, tt.path, nil)
 			rr := httptest.NewRecorder()
 
 			router.ServeHTTP(rr, req)

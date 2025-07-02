@@ -49,8 +49,8 @@ func TestBuiltinMetrics_SetEnabled(t *testing.T) {
 func TestBuiltinMetrics_HandleRequest(t *testing.T) {
 	metrics := newBuiltinMetrics()
 
-	req1 := httptest.NewRequest("GET", "/test", nil)
-	req2 := httptest.NewRequest("POST", "/api", nil)
+	req1 := httptest.NewRequest(GET, "/test", nil)
+	req2 := httptest.NewRequest(POST, "/api", nil)
 
 	metrics.HandleRequest(req1)
 	metrics.HandleRequest(req2)
@@ -59,12 +59,12 @@ func TestBuiltinMetrics_HandleRequest(t *testing.T) {
 		t.Errorf("expected request count 2, got %d", metrics.requestCount)
 	}
 
-	if metrics.methodMetrics["GET"] != 1 {
-		t.Errorf("expected GET method count 1, got %d", metrics.methodMetrics["GET"])
+	if metrics.methodMetrics[GET] != 1 {
+		t.Errorf("expected GET method count 1, got %d", metrics.methodMetrics[GET])
 	}
 
-	if metrics.methodMetrics["POST"] != 1 {
-		t.Errorf("expected POST method count 1, got %d", metrics.methodMetrics["POST"])
+	if metrics.methodMetrics[POST] != 1 {
+		t.Errorf("expected POST method count 1, got %d", metrics.methodMetrics[POST])
 	}
 }
 
@@ -72,7 +72,7 @@ func TestBuiltinMetrics_HandleRequest_Disabled(t *testing.T) {
 	metrics := newBuiltinMetrics()
 	metrics.setEnabled(false)
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(GET, "/test", nil)
 	metrics.HandleRequest(req)
 
 	if metrics.requestCount != 0 {
@@ -84,7 +84,7 @@ func TestBuiltinMetrics_RecordResponse(t *testing.T) {
 	metrics := newBuiltinMetrics()
 
 	// Record a successful response
-	metrics.recordResponse("/api/users", "GET", 200, 100*time.Millisecond, false)
+	metrics.recordResponse("/api/users", GET, 200, 100*time.Millisecond, false)
 
 	if metrics.responseCount != 1 {
 		t.Errorf("expected response count 1, got %d", metrics.responseCount)
@@ -112,7 +112,7 @@ func TestBuiltinMetrics_RecordResponse(t *testing.T) {
 	}
 
 	// Record an error response
-	metrics.recordResponse("/api/error", "POST", 500, 50*time.Millisecond, true)
+	metrics.recordResponse("/api/error", POST, 500, 50*time.Millisecond, true)
 
 	if metrics.responseCount != 2 {
 		t.Errorf("expected response count 2, got %d", metrics.responseCount)
@@ -132,7 +132,7 @@ func TestBuiltinMetrics_RecordResponse_Disabled(t *testing.T) {
 	metrics := newBuiltinMetrics()
 	metrics.setEnabled(false)
 
-	metrics.recordResponse("/api/test", "GET", 200, 100*time.Millisecond, false)
+	metrics.recordResponse("/api/test", GET, 200, 100*time.Millisecond, false)
 
 	if metrics.responseCount != 0 {
 		t.Errorf("expected response count 0 when disabled, got %d", metrics.responseCount)
@@ -143,10 +143,10 @@ func TestBuiltinMetrics_GetSnapshot(t *testing.T) {
 	metrics := newBuiltinMetrics()
 
 	// Record some test data
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest(GET, "/api/test", nil)
 	metrics.HandleRequest(req)
-	metrics.recordResponse("/api/test", "GET", 200, 100*time.Millisecond, false)
-	metrics.recordResponse("/api/error", "POST", 500, 50*time.Millisecond, true)
+	metrics.recordResponse("/api/test", GET, 200, 100*time.Millisecond, false)
+	metrics.recordResponse("/api/error", POST, 500, 50*time.Millisecond, true)
 
 	snapshot := metrics.getSnapshot()
 
@@ -174,8 +174,8 @@ func TestBuiltinMetrics_GetSnapshot(t *testing.T) {
 		t.Errorf("expected status 500 count 1, got %d", snapshot.StatusCodes[500])
 	}
 
-	if snapshot.Methods["GET"] != 1 {
-		t.Errorf("expected GET method count 1, got %d", snapshot.Methods["GET"])
+	if snapshot.Methods[GET] != 1 {
+		t.Errorf("expected GET method count 1, got %d", snapshot.Methods[GET])
 	}
 
 	if len(snapshot.TopPaths) == 0 {
@@ -197,7 +197,7 @@ func TestBuiltinMetrics_GetTopPaths(t *testing.T) {
 
 	for i, path := range paths {
 		for j := 0; j < counts[i]; j++ {
-			metrics.recordResponse(path, "GET", 200, 10*time.Millisecond, false)
+			metrics.recordResponse(path, GET, 200, 10*time.Millisecond, false)
 		}
 	}
 
@@ -225,9 +225,9 @@ func TestBuiltinMetrics_Reset(t *testing.T) {
 	metrics := newBuiltinMetrics()
 
 	// Record some data
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(GET, "/test", nil)
 	metrics.HandleRequest(req)
-	metrics.recordResponse("/test", "GET", 200, 100*time.Millisecond, false)
+	metrics.recordResponse("/test", GET, 200, 100*time.Millisecond, false)
 
 	// Verify data exists
 	if metrics.requestCount == 0 {
@@ -267,10 +267,10 @@ func TestBuiltinMetrics_GetPrometheusMetrics(t *testing.T) {
 	metrics := newBuiltinMetrics()
 
 	// Record some test data
-	req := httptest.NewRequest("GET", "/api/test", nil)
+	req := httptest.NewRequest(GET, "/api/test", nil)
 	metrics.HandleRequest(req)
-	metrics.recordResponse("/api/test", "GET", 200, 100*time.Millisecond, false)
-	metrics.recordResponse("/api/error", "POST", 500, 50*time.Millisecond, true)
+	metrics.recordResponse("/api/test", GET, 200, 100*time.Millisecond, false)
+	metrics.recordResponse("/api/error", POST, 500, 50*time.Millisecond, true)
 
 	prometheusOutput := metrics.getPrometheusMetrics()
 
@@ -326,7 +326,7 @@ func TestBuiltinMetrics_RegisterMetricsEndpoint(t *testing.T) {
 	metrics.registerMetricsEndpoint(server, "/metrics")
 
 	// Test GET request to metrics endpoint
-	req := httptest.NewRequest("GET", "/metrics", nil)
+	req := httptest.NewRequest(GET, "/metrics", nil)
 	recorder := httptest.NewRecorder()
 
 	server.Router().ServeHTTP(recorder, req)
@@ -346,7 +346,7 @@ func TestBuiltinMetrics_RegisterMetricsEndpoint(t *testing.T) {
 	}
 
 	// Test non-GET request (should fail)
-	req = httptest.NewRequest("POST", "/metrics", nil)
+	req = httptest.NewRequest(POST, "/metrics", nil)
 	recorder = httptest.NewRecorder()
 
 	server.Router().ServeHTTP(recorder, req)
@@ -392,7 +392,7 @@ func TestPathMetrics_TimingCalculations(t *testing.T) {
 	}
 
 	for _, duration := range durations {
-		metrics.recordResponse("/api/test", "GET", 200, duration, false)
+		metrics.recordResponse("/api/test", GET, 200, duration, false)
 	}
 
 	pathMetric := metrics.pathMetrics["/api/test"]
@@ -471,7 +471,7 @@ func TestMetricsIntegration(t *testing.T) {
 	})
 
 	// Make a request
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(GET, "/test", nil)
 	recorder := httptest.NewRecorder()
 
 	server.Router().ServeHTTP(recorder, req)

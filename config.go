@@ -81,8 +81,14 @@ type Config struct {
 	// Cache contains cache control configuration
 	Cache CacheConfiguration `yaml:"cache" json:"cache"`
 
+	// Compression contains HTTP response compression configuration
+	Compression CompressionConfiguration `yaml:"compression" json:"compression"`
+
 	// Logging contains logging configuration
 	Logging LoggingConfiguration `yaml:"logging" json:"logging"`
+
+	// CORS contains Cross-Origin Resource Sharing configuration
+	CORS CORSConfiguration `yaml:"cors" json:"cors"`
 
 	// StaticFiles contains static file serving configuration
 	StaticFiles StaticFilesConfiguration `yaml:"static_files" json:"static_files"`
@@ -101,16 +107,27 @@ type ServerConfig struct {
 	ReadHeaderTimeout       time.Duration `yaml:"read_header_timeout" json:"read_header_timeout" env:"SERVEX_SERVER_READ_HEADER_TIMEOUT"`
 	IdleTimeout             time.Duration `yaml:"idle_timeout" json:"idle_timeout" env:"SERVEX_SERVER_IDLE_TIMEOUT"`
 	AuthToken               string        `yaml:"auth_token" json:"auth_token" env:"SERVEX_SERVER_AUTH_TOKEN"`
-	EnableHealthEndpoint    bool          `yaml:"enable_health_endpoint" json:"enable_health_endpoint" env:"SERVEX_SERVER_ENABLE_HEALTH_ENDPOINT"`
 	HealthPath              string        `yaml:"health_path" json:"health_path" env:"SERVEX_SERVER_HEALTH_PATH"`
 	MetricsPath             string        `yaml:"metrics_path" json:"metrics_path" env:"SERVEX_SERVER_METRICS_PATH"`
+	EnableHealthEndpoint    bool          `yaml:"enable_health_endpoint" json:"enable_health_endpoint" env:"SERVEX_SERVER_ENABLE_HEALTH_ENDPOINT"`
 	EnableDefaultMetrics    bool          `yaml:"enable_default_metrics" json:"enable_default_metrics" env:"SERVEX_SERVER_ENABLE_DEFAULT_METRICS"`
+	SendErrorToClient       bool          `yaml:"send_error_to_client" json:"send_error_to_client" env:"SERVEX_SERVER_SEND_ERROR_TO_CLIENT"`
+	EnableRequestSizeLimits bool          `yaml:"enable_request_size_limits" json:"enable_request_size_limits" env:"SERVEX_SERVER_ENABLE_REQUEST_SIZE_LIMITS"`
 	MaxRequestBodySize      int64         `yaml:"max_request_body_size" json:"max_request_body_size" env:"SERVEX_SERVER_MAX_REQUEST_BODY_SIZE"`
 	MaxJSONBodySize         int64         `yaml:"max_json_body_size" json:"max_json_body_size" env:"SERVEX_SERVER_MAX_JSON_BODY_SIZE"`
 	MaxFileUploadSize       int64         `yaml:"max_file_upload_size" json:"max_file_upload_size" env:"SERVEX_SERVER_MAX_FILE_UPLOAD_SIZE"`
 	MaxMultipartMemory      int64         `yaml:"max_multipart_memory" json:"max_multipart_memory" env:"SERVEX_SERVER_MAX_MULTIPART_MEMORY"`
-	EnableRequestSizeLimits bool          `yaml:"enable_request_size_limits" json:"enable_request_size_limits" env:"SERVEX_SERVER_ENABLE_REQUEST_SIZE_LIMITS"`
-	SendErrorToClient       bool          `yaml:"send_error_to_client" json:"send_error_to_client" env:"SERVEX_SERVER_SEND_ERROR_TO_CLIENT"`
+
+	HTTPSRedirect HTTPSRedirectConfiguration `yaml:"https_redirect" json:"https_redirect"`
+}
+
+// HTTPSRedirectConfiguration represents HTTPS redirection configuration
+type HTTPSRedirectConfiguration struct {
+	Enabled        bool     `yaml:"enabled" json:"enabled" env:"SERVEX_SERVER_HTTPS_REDIRECT_ENABLED"`
+	Permanent      bool     `yaml:"permanent" json:"permanent" env:"SERVEX_SERVER_HTTPS_REDIRECT_PERMANENT"`
+	TrustedProxies []string `yaml:"trusted_proxies" json:"trusted_proxies" env:"SERVEX_SERVER_HTTPS_REDIRECT_TRUSTED_PROXIES"`
+	ExcludePaths   []string `yaml:"exclude_paths" json:"exclude_paths" env:"SERVEX_SERVER_HTTPS_REDIRECT_EXCLUDE_PATHS"`
+	IncludePaths   []string `yaml:"include_paths" json:"include_paths" env:"SERVEX_SERVER_HTTPS_REDIRECT_INCLUDE_PATHS"`
 }
 
 // AuthConfiguration represents authentication configuration
@@ -209,11 +226,34 @@ type CacheConfiguration struct {
 	IncludePaths []string `yaml:"include_paths" json:"include_paths" env:"SERVEX_CACHE_INCLUDE_PATHS"`
 }
 
+// CompressionConfiguration represents HTTP response compression configuration
+type CompressionConfiguration struct {
+	Enabled      bool     `yaml:"enabled" json:"enabled" env:"SERVEX_COMPRESSION_ENABLED"`
+	Level        int      `yaml:"level" json:"level" env:"SERVEX_COMPRESSION_LEVEL"`
+	MinSize      int      `yaml:"min_size" json:"min_size" env:"SERVEX_COMPRESSION_MIN_SIZE"`
+	Types        []string `yaml:"types" json:"types" env:"SERVEX_COMPRESSION_TYPES"`
+	ExcludePaths []string `yaml:"exclude_paths" json:"exclude_paths" env:"SERVEX_COMPRESSION_EXCLUDE_PATHS"`
+	IncludePaths []string `yaml:"include_paths" json:"include_paths" env:"SERVEX_COMPRESSION_INCLUDE_PATHS"`
+}
+
 // LoggingConfiguration represents logging configuration
 type LoggingConfiguration struct {
 	DisableRequestLogging bool     `yaml:"disable_request_logging" json:"disable_request_logging" env:"SERVEX_LOGGING_DISABLE_REQUEST_LOGGING"`
 	NoLogClientErrors     bool     `yaml:"no_log_client_errors" json:"no_log_client_errors" env:"SERVEX_LOGGING_NO_LOG_CLIENT_ERRORS"`
 	LogFields             []string `yaml:"log_fields" json:"log_fields" env:"SERVEX_LOGGING_LOG_FIELDS"`
+}
+
+// CORSConfiguration represents CORS configuration
+type CORSConfiguration struct {
+	Enabled          bool     `yaml:"enabled" json:"enabled" env:"SERVEX_CORS_ENABLED"`
+	AllowOrigins     []string `yaml:"allow_origins" json:"allow_origins" env:"SERVEX_CORS_ALLOW_ORIGINS"`
+	AllowMethods     []string `yaml:"allow_methods" json:"allow_methods" env:"SERVEX_CORS_ALLOW_METHODS"`
+	AllowHeaders     []string `yaml:"allow_headers" json:"allow_headers" env:"SERVEX_CORS_ALLOW_HEADERS"`
+	ExposeHeaders    []string `yaml:"expose_headers" json:"expose_headers" env:"SERVEX_CORS_EXPOSE_HEADERS"`
+	AllowCredentials bool     `yaml:"allow_credentials" json:"allow_credentials" env:"SERVEX_CORS_ALLOW_CREDENTIALS"`
+	MaxAge           int      `yaml:"max_age" json:"max_age" env:"SERVEX_CORS_MAX_AGE"`
+	ExcludePaths     []string `yaml:"exclude_paths" json:"exclude_paths" env:"SERVEX_CORS_EXCLUDE_PATHS"`
+	IncludePaths     []string `yaml:"include_paths" json:"include_paths" env:"SERVEX_CORS_INCLUDE_PATHS"`
 }
 
 // StaticFilesConfiguration represents static file serving configuration
@@ -315,6 +355,17 @@ func (c *Config) ToOptions() ([]Option, error) {
 	}
 	if c.Server.SendErrorToClient {
 		opts = append(opts, WithSendErrorToClient())
+	}
+
+	// HTTPS redirection configuration
+	if c.Server.HTTPSRedirect.Enabled {
+		opts = append(opts, WithHTTPSRedirectConfig(HTTPSRedirectConfig{
+			Enabled:        c.Server.HTTPSRedirect.Enabled,
+			Permanent:      c.Server.HTTPSRedirect.Permanent,
+			TrustedProxies: c.Server.HTTPSRedirect.TrustedProxies,
+			ExcludePaths:   c.Server.HTTPSRedirect.ExcludePaths,
+			IncludePaths:   c.Server.HTTPSRedirect.IncludePaths,
+		}))
 	}
 
 	// Authentication configuration
@@ -446,6 +497,19 @@ func (c *Config) ToOptions() ([]Option, error) {
 		opts = append(opts, WithCacheConfig(cacheConfig))
 	}
 
+	// Compression configuration
+	if c.Compression.Enabled {
+		compressionConfig := CompressionConfig{
+			Enabled:      true,
+			Level:        c.Compression.Level,
+			MinSize:      c.Compression.MinSize,
+			Types:        c.Compression.Types,
+			ExcludePaths: c.Compression.ExcludePaths,
+			IncludePaths: c.Compression.IncludePaths,
+		}
+		opts = append(opts, WithCompressionConfig(compressionConfig))
+	}
+
 	// Logging configuration
 	if c.Logging.DisableRequestLogging {
 		opts = append(opts, WithDisableRequestLogging())
@@ -455,6 +519,22 @@ func (c *Config) ToOptions() ([]Option, error) {
 	}
 	if len(c.Logging.LogFields) > 0 {
 		opts = append(opts, WithLogFields(c.Logging.LogFields...))
+	}
+
+	// CORS configuration
+	if c.CORS.Enabled {
+		corsConfig := CORSConfig{
+			Enabled:          true,
+			AllowOrigins:     c.CORS.AllowOrigins,
+			AllowMethods:     c.CORS.AllowMethods,
+			AllowHeaders:     c.CORS.AllowHeaders,
+			ExposeHeaders:    c.CORS.ExposeHeaders,
+			AllowCredentials: c.CORS.AllowCredentials,
+			MaxAge:           c.CORS.MaxAge,
+			ExcludePaths:     c.CORS.ExcludePaths,
+			IncludePaths:     c.CORS.IncludePaths,
+		}
+		opts = append(opts, WithCORSConfig(corsConfig))
 	}
 
 	// Static files configuration
@@ -515,7 +595,7 @@ func StartServerFromConfig(configFile string, handlerSetter func(*mux.Router)) (
 
 	server.router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		handlerSetter(server.router)
-	}).Methods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD")
+	}).Methods(GET, POST, PUT, DELETE, PATCH, OPTIONS, "HEAD")
 
 	baseConfig := config.ToBaseConfig()
 	if err := server.Start(baseConfig.HTTP, baseConfig.HTTPS); err != nil {
@@ -528,7 +608,7 @@ func StartServerFromConfig(configFile string, handlerSetter func(*mux.Router)) (
 }
 
 // loadEnvToStruct loads environment variables into a struct using reflection
-func loadEnvToStruct(v interface{}) error {
+func loadEnvToStruct(v any) error {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() != reflect.Ptr || rv.IsNil() {
 		return errors.New("v must be a non-nil pointer to a struct")

@@ -1,0 +1,18 @@
+{
+  "tutorial": "05-static-files",
+  "features": [
+    "Static file serving",
+    "Cache headers", 
+    "Compression",
+    "Security headers"
+  ],
+  "files": [
+    "style.css",
+    "app.js", 
+    "logo.txt",
+    "data.json"
+  ],
+  "cache_duration": "24 hours",
+  "compression": "gzip",
+  "message": "This JSON file is served statically with caching!"
+}

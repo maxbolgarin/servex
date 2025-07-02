@@ -14,11 +14,16 @@ This example shows the absolute minimum code needed to create a working web serv
 
 ```go
 server, err := servex.NewServer()
-server.HandleFunc("/", myHandler)
-server.Start(":8080", "")
+// ... error handling
+
+server.GET("/", myHandler)
+err = server.StartHTTP(":8080")
+// ... error handling
+
+defer server.Shutdown(ctx)
 ```
 
-That's it! Just 3 lines of code for a complete web server.
+That's it! Just 4 lines of code for a complete web server.
 
 ## Running This Example
 
@@ -34,19 +39,17 @@ curl http://localhost:8080/health
 ## What's Happening?
 
 1. **`servex.NewServer()`** - Creates a new server with sensible defaults
-2. **`server.HandleFunc()`** - Adds an HTTP endpoint handler
+2. **`server.GET("/", myHandler)`** - Adds an HTTP GET endpoint handler with a handler function
 3. **`servex.C(w, r)`** - Gets the Servex context for easy responses
-4. **`ctx.Response()`** - Sends a JSON response with proper headers
-5. **`server.Start()`** - Starts the server on the specified port
+4. **`ctx.JSON()`** - Sends a JSON response with proper headers
+5. **`server.StartHTTP(":8080")`** - Starts the server on the specified port
 
 ## Server Features (Even in This Simple Example!)
 
 Even this basic server includes many features out of the box:
 - ✅ **JSON responses** with proper Content-Type headers
 - ✅ **Request logging** with timestamps and status codes
-- ✅ **Error handling** with appropriate HTTP status codes
 - ✅ **Graceful shutdown** on interrupt signals
-- ✅ **Health endpoints** for monitoring
 
 ## Try These URLs
 
@@ -60,17 +63,6 @@ curl http://localhost:8080/
 {
   "message": "Hello from Servex! 👋",
   "tutorial": "01-hello-world"
-}
-```
-
-### Health check
-```bash
-curl http://localhost:8080/health
-```
-```json
-{
-  "status": "healthy", 
-  "server": "servex"
 }
 ```
 

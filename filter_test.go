@@ -262,7 +262,7 @@ func TestFilterMiddleware_IPFiltering(t *testing.T) {
 			})
 
 			// Create test request
-			req := httptest.NewRequest("GET", "/test", nil)
+			req := httptest.NewRequest(GET, "/test", nil)
 			req.RemoteAddr = tt.remoteAddr
 
 			// Add headers
@@ -352,7 +352,7 @@ func TestFilterMiddleware_UserAgentFiltering(t *testing.T) {
 			})
 
 			// Create test request
-			req := httptest.NewRequest("GET", "/test", nil)
+			req := httptest.NewRequest(GET, "/test", nil)
 			req.Header.Set("User-Agent", tt.userAgent)
 
 			// Record response
@@ -451,7 +451,7 @@ func TestFilterMiddleware_HeaderFiltering(t *testing.T) {
 			})
 
 			// Create test request
-			req := httptest.NewRequest("GET", "/test", nil)
+			req := httptest.NewRequest(GET, "/test", nil)
 
 			// Add headers
 			for key, value := range tt.headers {
@@ -544,7 +544,7 @@ func TestFilterMiddleware_QueryParamFiltering(t *testing.T) {
 			})
 
 			// Create test request
-			req := httptest.NewRequest("GET", tt.url, nil)
+			req := httptest.NewRequest(GET, tt.url, nil)
 
 			// Record response
 			rr := httptest.NewRecorder()
@@ -611,7 +611,7 @@ func TestFilterMiddleware_PathFiltering(t *testing.T) {
 			})
 
 			// Create test request
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest(GET, tt.path, nil)
 			req.RemoteAddr = tt.remoteAddr
 
 			// Record response
@@ -640,7 +640,7 @@ func TestFilterMiddleware_CustomStatusAndMessage(t *testing.T) {
 		w.Write([]byte("OK"))
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(GET, "/test", nil)
 	req.RemoteAddr = "10.0.0.1:12345"
 
 	rr := httptest.NewRecorder()
@@ -667,7 +667,7 @@ func TestFilterMiddleware_NoFilteringWhenDisabled(t *testing.T) {
 		w.Write([]byte("OK"))
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(GET, "/test", nil)
 	req.RemoteAddr = "10.0.0.1:12345"          // Any IP should work
 	req.Header.Set("User-Agent", "BadBot/1.0") // Any user agent should work
 
@@ -892,7 +892,7 @@ func TestLocationBasedFilterMiddleware(t *testing.T) {
 				url += strings.Join(params, "&")
 			}
 
-			req := httptest.NewRequest("POST", url, nil)
+			req := httptest.NewRequest(POST, url, nil)
 			req.RemoteAddr = tt.remoteAddr
 
 			if tt.userAgent != "" {
@@ -971,7 +971,7 @@ func TestLocationBasedFilterMiddleware_NoMatchingConfig(t *testing.T) {
 				w.Write([]byte("Home"))
 			})
 
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest(GET, tt.path, nil)
 			req.RemoteAddr = tt.remoteAddr
 
 			// Record response
@@ -995,7 +995,7 @@ func TestLocationBasedFilterMiddleware_EmptyConfigs(t *testing.T) {
 		w.Write([]byte("OK"))
 	})
 
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(GET, "/test", nil)
 	req.RemoteAddr = "10.0.0.1:12345"
 
 	rr := httptest.NewRecorder()
@@ -1033,7 +1033,7 @@ func TestLocationBasedFilterMiddleware_OverlappingPatterns(t *testing.T) {
 	})
 
 	// Test with a path that matches both patterns
-	req := httptest.NewRequest("GET", "/api/data", nil)
+	req := httptest.NewRequest(GET, "/api/data", nil)
 	req.RemoteAddr = "10.0.0.1:12345"
 
 	rr := httptest.NewRecorder()
@@ -1111,7 +1111,7 @@ func TestLocationBasedFilterMiddleware_MultiplePatterns(t *testing.T) {
 				w.Write([]byte("Public"))
 			})
 
-			req := httptest.NewRequest("GET", tt.path, nil)
+			req := httptest.NewRequest(GET, tt.path, nil)
 			req.RemoteAddr = tt.remoteAddr
 
 			rr := httptest.NewRecorder()
@@ -1417,7 +1417,7 @@ func TestDynamicFilterInMiddleware(t *testing.T) {
 	})
 
 	// Test initial block
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(GET, "/test", nil)
 	req.RemoteAddr = "10.0.0.1:12345"
 	rr := httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -1433,7 +1433,7 @@ func TestDynamicFilterInMiddleware(t *testing.T) {
 	}
 
 	// Test that the new IP is immediately blocked
-	req = httptest.NewRequest("GET", "/test", nil)
+	req = httptest.NewRequest(GET, "/test", nil)
 	req.RemoteAddr = "192.168.1.100:12345"
 	rr = httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -1443,7 +1443,7 @@ func TestDynamicFilterInMiddleware(t *testing.T) {
 	}
 
 	// Test that an unblocked IP works
-	req = httptest.NewRequest("GET", "/test", nil)
+	req = httptest.NewRequest(GET, "/test", nil)
 	req.RemoteAddr = "192.168.1.50:12345"
 	rr = httptest.NewRecorder()
 	router.ServeHTTP(rr, req)
@@ -1459,7 +1459,7 @@ func TestDynamicFilterInMiddleware(t *testing.T) {
 	}
 
 	// Test that the removed IP is now allowed
-	req = httptest.NewRequest("GET", "/test", nil)
+	req = httptest.NewRequest(GET, "/test", nil)
 	req.RemoteAddr = "192.168.1.100:12345"
 	rr = httptest.NewRecorder()
 	router.ServeHTTP(rr, req)

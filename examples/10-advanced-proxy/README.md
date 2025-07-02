@@ -1,353 +1,292 @@
-# 10 - Advanced Proxy
+# Advanced Proxy Gateway
 
-Master advanced proxy features including multiple load balancing strategies, complex routing, session affinity, and traffic analysis. This tutorial demonstrates enterprise-grade API gateway patterns.
+A production-ready proxy gateway example demonstrating enterprise-grade features including multiple load balancing strategies, advanced routing, health checking, traffic analysis, and comprehensive monitoring.
 
-## What You'll Learn
+## Overview
 
-- Multiple load balancing strategies (weighted, least connections, IP hash, random)
-- Advanced routing with path manipulation and method filtering
-- Session affinity and sticky sessions
-- Health checking and automatic failover
-- Traffic analysis and debugging
-- Connection pooling and performance optimization
+This example shows how to build a complete API gateway with:
 
-## Features Demonstrated
+- **🔀 Multiple Load Balancing Strategies** - Weighted round-robin, least connections, IP hash, random
+- **🛣️ Advanced Routing** - Path manipulation, host-based routing, method filtering, header routing
+- **🏥 Health Monitoring** - Automatic health checking with failover
+- **📊 Traffic Analysis** - Request/response dumping with sampling
+- **🔒 Security Features** - Rate limiting, request filtering, security headers
+- **📈 Observability** - Comprehensive metrics, logging, and monitoring endpoints
 
-- ✅ **Weighted Round Robin** - Distribute based on backend capacity (3:2:1 ratio)
-- ✅ **Least Connections** - Route to least busy backend
-- ✅ **IP Hash (Session Affinity)** - Sticky sessions for stateful apps
-- ✅ **Random Selection** - Random backend for stateless content
-- ✅ **Advanced Routing** - Path prefix, method filtering, host matching
-- ✅ **Health Checking** - Automatic backend health monitoring
-- ✅ **Traffic Dumping** - Request/response capture for debugging
-- ✅ **Connection Management** - Per-backend connection limits
+## Quick Start
 
-## Running This Example
+### Option 1: Using Configuration File
 
 ```bash
-# Run the advanced proxy
+# Run with YAML configuration (recommended)
 go run main.go
 
-# Start backend services (needed for full demo)
-for i in {8081..8090}; do python3 -m http.server $i &; done
+# The server will load proxy_gateway_config.yaml automatically
+# See "Configuration" section for customization
+```
 
-# Visit the interactive demo
-open http://localhost:8080/
+### Option 2: Using Command Line Options
+
+```bash
+# Show help
+go run main.go -help
+
+# Use custom config file
+go run main.go -config custom-config.yaml
+
+# Use different port
+go run main.go -port :9090
+
+# Combine options
+go run main.go -config production.yaml -port :8443
 ```
 
 ## Load Balancing Strategies
 
-### 1. Weighted Round Robin
-**Endpoint:** `/api/v1/*`
-**Use Case:** Backends with different capacities
+This example demonstrates 5 different load balancing strategies for different use cases:
 
-```go
-LoadBalancing: servex.WeightedRoundRobinStrategy
-Backends: []servex.Backend{
-    {URL: "http://localhost:8081", Weight: 3}, // High-capacity: 50% traffic
-    {URL: "http://localhost:8082", Weight: 2}, // Medium-capacity: 33% traffic  
-    {URL: "http://localhost:8083", Weight: 1}, // Low-capacity: 17% traffic
-}
+### 1. Weighted Round Robin (`/api/*`)
+**Best for:** Backends with different capacities
+
+```
+Traffic Distribution (3:2:1 ratio):
+Request 1,2,3 → Backend 1 (3 weight, 50% traffic)
+Request 4,5   → Backend 2 (2 weight, 33% traffic)  
+Request 6     → Backend 3 (1 weight, 17% traffic)
 ```
 
-**Traffic Distribution:**
-- Request 1 → Backend 1 (8081)
-- Request 2 → Backend 1 (8081) 
-- Request 3 → Backend 1 (8081)
-- Request 4 → Backend 2 (8082)
-- Request 5 → Backend 2 (8082)
-- Request 6 → Backend 3 (8083)
-- *Pattern repeats...*
+### 2. Least Connections (`/auth/*`)
+**Best for:** Variable processing times
+- Routes to backend with fewest active connections
+- Prevents backend overload
+- Ideal for long-running requests
 
-### 2. Least Connections
-**Endpoint:** `/api/v2/*`
-**Use Case:** Variable request processing times
+### 3. IP Hash (`users.example.com`)
+**Best for:** Session affinity / sticky sessions
+- Same client IP always routes to same backend
+- Essential for stateful applications
+- Perfect for user sessions, shopping carts
 
-```go
-LoadBalancing: servex.LeastConnectionsStrategy
+### 4. Random (`/static/*`)
+**Best for:** Stateless content serving
+- Random backend selection
+- Good for CDN scenarios
+- Minimal overhead
+
+### 5. Round Robin (`/payments/*`)
+**Best for:** Equal capacity backends
+- Evenly distributes requests
+- Simple and effective
+- Header-based routing support
+
+## Key Features
+
+### Health Checking & Failover
+```yaml
+# Automatic health monitoring
+health_check:
+  enabled: true
+  default_interval: "30s"
+  timeout: "5s"
+  retry_count: 3
 ```
 
-Routes requests to the backend with the fewest active connections. Perfect for:
-- Long-running requests
-- Variable processing times
-- Preventing backend overload
+- Automatic backend health monitoring
+- Removes unhealthy backends from rotation
+- Automatic recovery when backends become healthy
+- Per-backend health check paths and intervals
 
-### 3. IP Hash (Session Affinity)
-**Endpoint:** `/auth/*`
-**Use Case:** Stateful applications requiring sticky sessions
-
-```go
-LoadBalancing: servex.IPHashStrategy
+### Traffic Analysis
+```yaml
+# Production-ready traffic dumping
+traffic_dump:
+  enabled: true
+  directory: "./traffic_dumps"
+  sample_rate: 0.1  # 10% sampling for production
+  max_file_size: 100MB
+  max_files: 20
 ```
 
-Same client IP always routes to the same backend. Essential for:
-- User sessions
-- Shopping carts
-- Stateful authentication
-- In-memory caches
+- Request/response capture for debugging
+- Configurable sampling rates
+- File rotation with size limits
+- Body content filtering
 
-### 4. Random Selection
-**Endpoint:** `/static/*`
-**Use Case:** Stateless content serving
+### Security & Rate Limiting
+- Rate limiting: 1000 requests/minute with burst support
+- Request filtering: Blocks bots, scrapers, malicious requests
+- Security headers: CSP, HSTS, frame options
+- Connection limits per backend
 
-```go
-LoadBalancing: servex.RandomStrategy
-```
+## API Endpoints
 
-Random backend selection. Good for:
-- Static file serving
-- Stateless APIs
-- Content delivery networks
+### Proxy Endpoints
+| Endpoint | Strategy | Backend Count | Features |
+|----------|----------|---------------|----------|
+| `/api/*` | Weighted Round Robin | 3 | Health checks, traffic dump |
+| `/auth/*` | Least Connections | 2 | Path rewriting (`/auth` → `/v1`) |
+| `users.example.com` | IP Hash | 2 | Session affinity |
+| `/static/*` | Random | 3 | CDN optimization |
+| `/payments/*` | Round Robin | 2 | Header routing (`X-API-Version: v2`) |
 
-## Advanced Routing Features
+### Management Endpoints
+| Endpoint | Description |
+|----------|-------------|
+| `/health` | Health check status |
+| `/metrics` | Prometheus metrics |
+| `/info` | Service information |
+| `/proxy-status` | Proxy configuration details |
+| `/strategies` | Load balancing strategies info |
 
-### Path Manipulation
-```go
-ProxyRule{
-    PathPrefix:  "/api/v1/",
-    StripPrefix: "/api/v1",    // Remove from forwarded request
-    AddPrefix:   "/v1",        // Add to forwarded request
-}
-```
+## Testing the Proxy
 
-### Method Filtering
-```go
-ProxyRule{
-    Methods: []string{"GET", "POST", "PUT", "DELETE"},
-}
-```
-
-### Host-Based Routing
-```go
-ProxyRule{
-    Host: "api.example.com",   // Only route this hostname
-}
-```
-
-### Header-Based Routing
-```go
-ProxyRule{
-    Headers: map[string]string{
-        "X-API-Version": "v2",  // Route based on headers
-    },
-}
-```
-
-## Testing Strategies
-
-### Weighted Round Robin Test
+### Test Load Balancing
 ```bash
-# Send 6 requests to see 3:2:1 pattern
-for i in {1..6}; do 
-    curl http://localhost:8080/api/v1/test$i
-done
+# Test weighted round-robin (should see 3:2:1 pattern)
+for i in {1..6}; do curl http://localhost:8080/api/test$i; done
+
+# Test session affinity (same client should get same backend)
+for i in {1..5}; do curl http://localhost:8080/auth/session$i; done
+
+# Test with different host header
+curl -H "Host: users.example.com" http://localhost:8080/profile
+
+# Test header-based routing
+curl -H "X-API-Version: v2" http://localhost:8080/payments/process
 ```
 
-### Least Connections Test
+### Monitor Traffic
 ```bash
-# Multiple concurrent requests
-curl http://localhost:8080/api/v2/users &
-curl http://localhost:8080/api/v2/posts &
-curl http://localhost:8080/api/v2/comments &
-wait
-```
-
-### Session Affinity Test
-```bash
-# Same client should get same backend
-for i in {1..5}; do
-    curl http://localhost:8080/auth/session$i
-done
-```
-
-### Random Selection Test
-```bash
-# Random distribution
-for i in {1..10}; do
-    curl http://localhost:8080/static/file$i.css
-done
-```
-
-## Health Checking Configuration
-
-```go
-HealthCheck: servex.HealthCheckConfig{
-    Enabled:         true,
-    DefaultInterval: 30 * time.Second,  // Check every 30s
-    Timeout:         5 * time.Second,   // 5s timeout
-    RetryCount:      2,                 // 2 retries before marking unhealthy
-}
-
-// Per-backend health check
-Backend{
-    URL:                 "http://localhost:8081",
-    HealthCheckPath:     "/health",
-    HealthCheckInterval: 30 * time.Second,
-}
-```
-
-**Health Check Behavior:**
-- Makes GET requests to `{backend_url}/health`
-- Expects 2xx status codes for healthy
-- Automatically removes unhealthy backends from rotation
-- Backends recover automatically when health checks pass
-
-## Traffic Dumping and Analysis
-
-```go
-TrafficDump: servex.TrafficDumpConfig{
-    Enabled:     true,
-    Directory:   "./traffic_dumps",
-    MaxFileSize: 100 * 1024 * 1024,  // 100MB files
-    MaxFiles:    5,                   // Keep 5 files
-    IncludeBody: true,
-    MaxBodySize: 32 * 1024,          // 32KB max body
-    SampleRate:  0.3,                // Sample 30% of traffic
-}
-```
-
-### Analyzing Traffic Dumps
-```bash
-# View traffic dumps
-ls -la ./traffic_dumps/
-
-# Count requests per backend
-jq -r '.backend' traffic_dumps/*.jsonl | sort | uniq -c
-
-# Analyze response times
-jq -r '.duration' traffic_dumps/*.jsonl | sort -n
-
-# Find errors
-jq 'select(.status_code >= 400)' traffic_dumps/*.jsonl
-```
-
-## Connection Management
-
-### Global Settings
-```go
-ProxyConfiguration{
-    MaxIdleConns:        100,                // Total idle connections
-    MaxIdleConnsPerHost: 20,                 // Per-backend idle connections
-    IdleConnTimeout:     90 * time.Second,  // Connection idle timeout
-    GlobalTimeout:       30 * time.Second,  // Global request timeout
-}
-```
-
-### Per-Backend Limits
-```go
-Backend{
-    MaxConnections: 50,  // Limit concurrent connections to this backend
-    Timeout:       25 * time.Second,  // Backend-specific timeout
-}
-```
-
-## Production Patterns
-
-### API Gateway Configuration
-```go
-// Multi-service API gateway
-Rules: []servex.ProxyRule{
-    {
-        Name:       "user-service",
-        PathPrefix: "/api/users/",
-        LoadBalancing: servex.WeightedRoundRobinStrategy,
-        // Multiple user service backends
-    },
-    {
-        Name:       "payment-service", 
-        PathPrefix: "/api/payments/",
-        LoadBalancing: servex.LeastConnectionsStrategy,
-        // Payment service backends
-    },
-    {
-        Name:       "session-service",
-        PathPrefix: "/api/sessions/",
-        LoadBalancing: servex.IPHashStrategy,
-        // Session-aware backends
-    },
-}
-```
-
-### Microservices Proxy
-```go
-// Route to different microservices
-Rules: []servex.ProxyRule{
-    {Host: "users.api.com", /* user service backends */},
-    {Host: "orders.api.com", /* order service backends */},
-    {Host: "inventory.api.com", /* inventory service backends */},
-}
-```
-
-## Monitoring and Observability
-
-### Proxy Status Endpoint
-```bash
-# Check proxy configuration
+# View proxy status
 curl http://localhost:8080/proxy-status
-```
 
-### Strategy Information
-```bash
-# View all load balancing strategies
+# Check health
+curl http://localhost:8080/health
+
+# View metrics
+curl http://localhost:8080/metrics
+
+# Get strategy information  
 curl http://localhost:8080/strategies
 ```
 
-### Health Status
-```bash
-# Check overall health
-curl http://localhost:8080/health
+## Configuration
 
-# Proxy metrics
-curl http://localhost:8080/metrics
+### YAML Configuration File
+
+The example includes a comprehensive YAML configuration file (`proxy_gateway_config.yaml`) that demonstrates:
+
+- Complete proxy routing rules
+- Security settings and rate limiting
+- Health check configuration
+- Traffic dumping settings
+- Static file serving
+- Monitoring configuration
+
+Key sections:
+```yaml
+proxy:
+  enabled: true
+  traffic_dump:
+    enabled: true
+    sample_rate: 0.1
+  health_check:
+    enabled: true
+    default_interval: "30s"
+  rules:
+    - name: "api-backend"
+      path_prefix: "/api/"
+      load_balancing: "weighted_round_robin"
+      # ... backend definitions
 ```
 
-## Performance Optimization
+### Environment Variables
 
-### Backend Selection
-- Use **Weighted Round Robin** for different capacity backends
-- Use **Least Connections** for variable processing times
-- Use **IP Hash** for stateful applications
-- Use **Random** for simple stateless services
+All configuration can be overridden with environment variables:
+```bash
+export SERVEX_PROXY_ENABLED=true
+export SERVEX_PROXY_TRAFFIC_DUMP_ENABLED=true
+export SERVEX_PROXY_TRAFFIC_DUMP_SAMPLE_RATE=0.1
+export SERVEX_RATE_LIMIT_ENABLED=true
+export SERVEX_RATE_LIMIT_REQUESTS_PER_INTERVAL=1000
+```
 
-### Connection Tuning
-- Set appropriate `MaxConnections` per backend
-- Configure `IdleConnTimeout` based on traffic patterns
-- Use health checks to avoid failed requests
-- Sample traffic dumps in production (< 100%)
+## Production Deployment
 
-## Common Issues and Solutions
+### Docker Deployment
+```bash
+# Build production image
+docker build -t advanced-proxy-gateway .
 
-### Uneven Load Distribution
-- Check backend weights in weighted round robin
-- Verify health checks are working
-- Monitor connection counts with least connections strategy
+# Run with custom config
+docker run -p 8080:8080 \
+  -v $(pwd)/proxy_gateway_config.yaml:/app/config.yaml \
+  advanced-proxy-gateway -config /app/config.yaml
+```
 
-### Session Loss
-- Use IP Hash strategy for stateful applications
+### Performance Tuning
+
+**Connection Management:**
+- `max_idle_conns: 200` - Total idle connections
+- `max_idle_conns_per_host: 50` - Per-backend idle connections
+- `idle_conn_timeout: 90s` - Connection idle timeout
+
+**Backend Limits:**
+- `max_connections: 100` - Concurrent connections per backend
+- Individual timeouts per rule/backend
+
+**Monitoring:**
+- Traffic sampling at 10% for production
+- Health checks every 30 seconds
+- Automatic failover with 3 retry attempts
+
+## Troubleshooting
+
+### Common Issues
+
+**Uneven Load Distribution:**
+- Check backend weights in weighted round-robin
+- Verify health checks are working properly
+- Monitor connection counts with least connections
+
+**Session Loss:**
+- Use IP hash strategy for stateful applications
 - Ensure session storage is backend-specific
-- Consider external session storage for true statelessness
+- Consider external session storage for scalability
 
-### Backend Overload
-- Implement `MaxConnections` limits
+**Backend Overload:**
+- Implement `max_connections` limits
 - Use health checks to detect overloaded backends
 - Scale backends based on connection metrics
 
 ### Traffic Analysis
-- Enable traffic dumping with appropriate sampling
-- Monitor error rates per backend
-- Analyze response times to identify bottlenecks
+```bash
+# View traffic dumps
+ls -la ./traffic_dumps/
+
+# Analyze request patterns
+jq -r '.method + " " + .path' traffic_dumps/*.jsonl | sort | uniq -c
+
+# Find slow requests
+jq 'select(.duration > 1000)' traffic_dumps/*.jsonl
+
+# Backend distribution
+jq -r '.backend' traffic_dumps/*.jsonl | sort | uniq -c
+```
 
 ## What You've Learned
 
-- How to implement and configure multiple load balancing strategies
-- Advanced routing patterns for complex applications
-- Session affinity and stateful application patterns
-- Health checking and automatic failover mechanisms
-- Traffic analysis and debugging techniques
-- Production-ready API gateway patterns
+- ✅ Multiple load balancing strategies and when to use each
+- ✅ Advanced routing patterns (path, host, header, method-based)
+- ✅ Production-ready health checking and failover
+- ✅ Traffic analysis and debugging techniques
+- ✅ Security best practices for proxy gateways
+- ✅ Comprehensive monitoring and observability
+- ✅ Configuration management (YAML + environment variables)
+- ✅ Performance optimization and tuning
 
-## What's Next?
+## Next Steps
 
-🎯 **Continue the tutorial:** → [11-location-filtering](../11-location-filtering/)
+🎯 **Continue to:** [Tutorial 11 - Location Filtering](../11-location-filtering/)
 
-In the next tutorial, you'll learn how to implement geographic request filtering and location-based access control. 
+Learn how to implement geographic request filtering and location-based access control. 

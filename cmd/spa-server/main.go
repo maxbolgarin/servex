@@ -139,7 +139,7 @@ func conditionalHTTPS() servex.Option {
 func addAPIEndpoints(server *servex.Server) {
 	// API info endpoint
 	server.GET(*apiPrefix+"/info", func(w http.ResponseWriter, r *http.Request) {
-		servex.C(w, r).JSON(map[string]interface{}{
+		servex.C(w, r).JSON(map[string]any{
 			"service":    "servex-spa",
 			"version":    appVersion,
 			"timestamp":  time.Now().Format(time.RFC3339),
@@ -151,7 +151,7 @@ func addAPIEndpoints(server *servex.Server) {
 
 	// Server status endpoint
 	server.GET(*apiPrefix+"/status", func(w http.ResponseWriter, r *http.Request) {
-		servex.C(w, r).JSON(map[string]interface{}{
+		servex.C(w, r).JSON(map[string]any{
 			"status":    "healthy",
 			"timestamp": time.Now().Format(time.RFC3339),
 			"uptime":    time.Since(time.Now()).String(), // Would be calculated from start time
@@ -161,7 +161,7 @@ func addAPIEndpoints(server *servex.Server) {
 	// Example API endpoints for a typical React app
 	server.GET(*apiPrefix+"/users", func(w http.ResponseWriter, r *http.Request) {
 		// Mock user data
-		users := []map[string]interface{}{
+		users := []map[string]any{
 			{"id": 1, "name": "John Doe", "email": "john@example.com", "role": "admin"},
 			{"id": 2, "name": "Jane Smith", "email": "jane@example.com", "role": "user"},
 			{"id": 3, "name": "Bob Johnson", "email": "bob@example.com", "role": "user"},
@@ -173,7 +173,7 @@ func addAPIEndpoints(server *servex.Server) {
 		userID := servex.C(w, r).Path("id")
 
 		// Mock user lookup
-		user := map[string]interface{}{
+		user := map[string]any{
 			"id":         userID,
 			"name":       "User " + userID,
 			"email":      fmt.Sprintf("user%s@example.com", userID),
@@ -187,7 +187,7 @@ func addAPIEndpoints(server *servex.Server) {
 
 	// Example POST endpoint
 	server.POST(*apiPrefix+"/users", func(w http.ResponseWriter, r *http.Request) {
-		var userData map[string]interface{}
+		var userData map[string]any
 		if err := servex.C(w, r).ReadJSON(&userData); err != nil {
 			servex.C(w, r).BadRequest(err, "Invalid JSON")
 			return
@@ -204,7 +204,7 @@ func addAPIEndpoints(server *servex.Server) {
 
 	// Example configuration endpoint
 	server.GET(*apiPrefix+"/config", func(w http.ResponseWriter, r *http.Request) {
-		config := map[string]interface{}{
+		config := map[string]any{
 			"app_name":    "React SPA",
 			"environment": "development",
 			"features": map[string]bool{
@@ -213,7 +213,7 @@ func addAPIEndpoints(server *servex.Server) {
 				"file_upload":       true,
 				"real_time_chat":    false,
 			},
-			"limits": map[string]interface{}{
+			"limits": map[string]any{
 				"max_file_size":  "50MB",
 				"max_users":      1000,
 				"api_rate_limit": 600,
@@ -225,7 +225,7 @@ func addAPIEndpoints(server *servex.Server) {
 	// CSRF token endpoint (for forms)
 	server.GET(*apiPrefix+"/csrf-token", func(w http.ResponseWriter, r *http.Request) {
 		// This would return the CSRF token for the session
-		servex.C(w, r).JSON(map[string]interface{}{
+		servex.C(w, r).JSON(map[string]any{
 			"csrf_token": "mock-csrf-token-" + fmt.Sprintf("%d", time.Now().Unix()),
 			"expires_at": time.Now().Add(time.Hour).Format(time.RFC3339),
 		})
@@ -248,7 +248,7 @@ func addAPIEndpoints(server *servex.Server) {
 		defer file.Close()
 
 		// Mock file processing
-		result := map[string]interface{}{
+		result := map[string]any{
 			"filename":     header.Filename,
 			"size":         header.Size,
 			"content_type": header.Header.Get("Content-Type"),
@@ -269,7 +269,7 @@ func addAPIEndpoints(server *servex.Server) {
 		}
 
 		// Mock search results
-		results := []map[string]interface{}{
+		results := []map[string]any{
 			{
 				"id":    1,
 				"title": fmt.Sprintf("Result for '%s' #1", query),
@@ -284,7 +284,7 @@ func addAPIEndpoints(server *servex.Server) {
 			},
 		}
 
-		servex.C(w, r).JSON(map[string]interface{}{
+		servex.C(w, r).JSON(map[string]any{
 			"query":   query,
 			"results": results,
 			"total":   len(results),

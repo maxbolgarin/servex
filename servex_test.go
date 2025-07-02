@@ -596,10 +596,10 @@ func TestRequestSizeLimitMiddleware(t *testing.T) {
 			server.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 				ctx := server.C(w, r)
 				ctx.Response(http.StatusOK, "success")
-			}, "POST")
+			}, POST)
 
 			// Create test request
-			req := httptest.NewRequest("POST", "/test", strings.NewReader(tt.requestBody))
+			req := httptest.NewRequest(POST, "/test", strings.NewReader(tt.requestBody))
 			req.Header.Set("Content-Type", tt.contentType)
 
 			// Set Content-Length if specified
@@ -651,7 +651,7 @@ func TestRequestSizeLimitMiddlewareWithStrictLimits(t *testing.T) {
 	server.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 		ctx := server.C(w, r)
 		ctx.Response(http.StatusOK, "success")
-	}, "POST")
+	}, POST)
 
 	tests := []struct {
 		name           string
@@ -687,7 +687,7 @@ func TestRequestSizeLimitMiddlewareWithStrictLimits(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("POST", "/test", strings.NewReader(tt.requestBody))
+			req := httptest.NewRequest(POST, "/test", strings.NewReader(tt.requestBody))
 			req.Header.Set("Content-Type", tt.contentType)
 			req.Header.Set("Content-Length", strconv.Itoa(len(tt.requestBody)))
 
@@ -714,7 +714,7 @@ func TestRequestSizeLimitMiddlewareWithMultipartForm(t *testing.T) {
 	server.HandleFunc("/upload", func(w http.ResponseWriter, r *http.Request) {
 		ctx := server.C(w, r)
 		ctx.Response(http.StatusOK, "upload success")
-	}, "POST")
+	}, POST)
 
 	tests := []struct {
 		name           string
@@ -741,7 +741,7 @@ func TestRequestSizeLimitMiddlewareWithMultipartForm(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("POST", "/upload", strings.NewReader(tt.formData))
+			req := httptest.NewRequest(POST, "/upload", strings.NewReader(tt.formData))
 			req.Header.Set("Content-Type", "multipart/form-data; boundary=boundary")
 			req.Header.Set("Content-Length", strconv.Itoa(len(tt.formData)))
 
@@ -775,12 +775,12 @@ func TestRequestSizeLimitMiddlewareNotRegisteredWhenDisabled(t *testing.T) {
 			return
 		}
 		ctx.Response(http.StatusOK, fmt.Sprintf("received %d bytes", len(body)))
-	}, "POST")
+	}, POST)
 
 	// Send a moderately large request that would be blocked by strict middleware limits
 	// but should pass with default context limits (32MB default)
 	largeBody := strings.Repeat("this is a moderately large message for testing. ", 500) // ~25KB
-	req := httptest.NewRequest("POST", "/test", strings.NewReader(largeBody))
+	req := httptest.NewRequest(POST, "/test", strings.NewReader(largeBody))
 	req.Header.Set("Content-Type", "text/plain")
 	req.Header.Set("Content-Length", strconv.Itoa(len(largeBody)))
 
@@ -810,7 +810,7 @@ func TestRequestSizeLimitWithDefaultOptions(t *testing.T) {
 	server.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
 		ctx := server.C(w, r)
 		ctx.Response(http.StatusOK, "success")
-	}, "POST")
+	}, POST)
 
 	tests := []struct {
 		name           string
@@ -849,7 +849,7 @@ func TestRequestSizeLimitWithDefaultOptions(t *testing.T) {
 			// Create body of specified size
 			body := strings.Repeat("x", tt.bodySize)
 
-			req := httptest.NewRequest("POST", "/test", strings.NewReader(body))
+			req := httptest.NewRequest(POST, "/test", strings.NewReader(body))
 			req.Header.Set("Content-Type", tt.contentType)
 			req.Header.Set("Content-Length", strconv.Itoa(len(body)))
 

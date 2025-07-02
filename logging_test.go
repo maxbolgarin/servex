@@ -36,7 +36,7 @@ func TestRequestLogger_Log(t *testing.T) {
 	mockLogger := &MockLogger{}
 	rLogger := BaseRequestLogger{Logger: mockLogger}
 
-	req, err := http.NewRequest("GET", "http://example.com", nil)
+	req, err := http.NewRequest(GET, "http://example.com", nil)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
 	}
@@ -98,7 +98,7 @@ func TestRequestLogger_LogWithSelectiveFields(t *testing.T) {
 		},
 	}
 
-	req, err := http.NewRequest("POST", "http://example.com/api/users", nil)
+	req, err := http.NewRequest(POST, "http://example.com/api/users", nil)
 	if err != nil {
 		t.Fatalf("Failed to create request: %v", err)
 	}
@@ -125,7 +125,7 @@ func TestRequestLogger_LogWithSelectiveFields(t *testing.T) {
 	// Check that only the specified fields are present
 	// Note: method, url, status, and duration_ms are always included
 	expectedFields := map[string]any{
-		"method":      "POST",
+		"method":      POST,
 		"url":         "http://example.com/api/users",
 		"status":      400,
 		"duration_ms": int64(2000), // Approximate match due to time function

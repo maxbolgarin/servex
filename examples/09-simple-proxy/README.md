@@ -33,44 +33,9 @@ For the proxy to work, you need backend services running on:
 You can use these commands to quickly start test backends:
 
 ```bash
-# Backend 1 (port 8081)
-echo 'package main
-import ("fmt"; "net/http")
-func main() {
-    http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-        fmt.Fprintf(w, `{"status": "ok", "service": "backend-1"}`)
-    })
-    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-        fmt.Fprintf(w, `{"message": "Hello from backend 1", "port": 8081}`)
-    })
-    fmt.Println("Backend 1 starting on :8081")
-    http.ListenAndServe(":8081", nil)
-}' > backend1.go && go run backend1.go &
-
-# Backend 2 (port 8082)
-echo 'package main
-import ("fmt"; "net/http")
-func main() {
-    http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-        fmt.Fprintf(w, `{"status": "ok", "service": "backend-2"}`)
-    })
-    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-        fmt.Fprintf(w, `{"message": "Hello from backend 2", "port": 8082}`)
-    })
-    fmt.Println("Backend 2 starting on :8082")
-    http.ListenAndServe(":8082", nil)
-}' > backend2.go && go run backend2.go &
-
-# Auth service (port 8083)
-echo 'package main
-import ("fmt"; "net/http")
-func main() {
-    http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-        fmt.Fprintf(w, `{"message": "Auth service", "endpoint": "%s"}`, r.URL.Path)
-    })
-    fmt.Println("Auth service starting on :8083")
-    http.ListenAndServe(":8083", nil)
-}' > auth.go && go run auth.go &
+python3 -m http.server 8081 &
+python3 -m http.server 8082 &
+python3 -m http.server 8083 &
 ```
 
 ### Using Docker (Alternative)

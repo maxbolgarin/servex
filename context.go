@@ -838,11 +838,11 @@ func (ctx *Context) Response(code int, bodyRaw ...any) {
 	switch b := body.(type) {
 	case []byte:
 		toWrite = b
-		ctx.SetContentType(http.DetectContentType(b))
+		ctx.SetContentType(http.DetectContentType(toWrite))
 
 	case string:
 		toWrite = []byte(b)
-		ctx.SetContentType(MIMETypeText, "utf-8")
+		ctx.SetContentType(http.DetectContentType(toWrite))
 
 	default:
 		jsonBytes, err := json.Marshal(body)

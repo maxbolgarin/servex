@@ -55,7 +55,7 @@ func TestRateLimitAuditLogging(t *testing.T) {
 	})
 
 	// First request should pass
-	req1 := httptest.NewRequest("GET", "/test", nil)
+	req1 := httptest.NewRequest(GET, "/test", nil)
 	req1.RemoteAddr = "192.168.1.100:12345"
 	rr1 := httptest.NewRecorder()
 	router.ServeHTTP(rr1, req1)
@@ -65,7 +65,7 @@ func TestRateLimitAuditLogging(t *testing.T) {
 	}
 
 	// Second request should be rate limited immediately
-	req2 := httptest.NewRequest("GET", "/test", nil)
+	req2 := httptest.NewRequest(GET, "/test", nil)
 	req2.RemoteAddr = "192.168.1.100:12345"
 	rr2 := httptest.NewRecorder()
 	router.ServeHTTP(rr2, req2)
@@ -143,7 +143,7 @@ func TestFilterAuditLogging(t *testing.T) {
 				BlockedIPs: []string{"192.168.1.100"},
 			},
 			request: func() *http.Request {
-				req := httptest.NewRequest("GET", "/test", nil)
+				req := httptest.NewRequest(GET, "/test", nil)
 				req.RemoteAddr = "192.168.1.100:12345"
 				return req
 			},
@@ -158,7 +158,7 @@ func TestFilterAuditLogging(t *testing.T) {
 				BlockedUserAgents: []string{"BadBot/1.0"},
 			},
 			request: func() *http.Request {
-				req := httptest.NewRequest("GET", "/test", nil)
+				req := httptest.NewRequest(GET, "/test", nil)
 				req.Header.Set("User-Agent", "BadBot/1.0")
 				return req
 			},
@@ -175,7 +175,7 @@ func TestFilterAuditLogging(t *testing.T) {
 				},
 			},
 			request: func() *http.Request {
-				req := httptest.NewRequest("GET", "/test", nil)
+				req := httptest.NewRequest(GET, "/test", nil)
 				req.Header.Set("X-Test-Header", "malicious-value")
 				return req
 			},
@@ -192,7 +192,7 @@ func TestFilterAuditLogging(t *testing.T) {
 				},
 			},
 			request: func() *http.Request {
-				req := httptest.NewRequest("GET", "/test?cmd=rm+-rf", nil)
+				req := httptest.NewRequest(GET, "/test?cmd=rm+-rf", nil)
 				return req
 			},
 			expectedEvent:  AuditEventFilterQueryBlocked,
@@ -416,7 +416,7 @@ func TestAuthAuditLogging(t *testing.T) {
 	}
 
 	// Create a test user
-	ctx := httptest.NewRequest("POST", "/auth/register", nil).Context()
+	ctx := httptest.NewRequest(POST, "/auth/register", nil).Context()
 	err = authManager.CreateUser(ctx, "testuser", "password123", "user")
 	if err != nil {
 		t.Fatalf("Failed to create test user: %v", err)
@@ -430,7 +430,7 @@ func TestAuthAuditLogging(t *testing.T) {
 		capturedEvents = nil
 
 		// Create login request
-		req := httptest.NewRequest("POST", "/auth/login", nil)
+		req := httptest.NewRequest(POST, "/auth/login", nil)
 		req.RemoteAddr = "192.168.1.100:12345"
 
 		// Mock successful login
@@ -462,7 +462,7 @@ func TestAuthAuditLogging(t *testing.T) {
 		capturedEvents = nil
 
 		// Create login request
-		req := httptest.NewRequest("POST", "/auth/login", nil)
+		req := httptest.NewRequest(POST, "/auth/login", nil)
 		req.RemoteAddr = "192.168.1.100:12345"
 
 		// Mock failed login
@@ -526,7 +526,7 @@ func TestSecurityAuditLogging(t *testing.T) {
 		capturedEvents = nil
 
 		// Create request
-		req := httptest.NewRequest("GET", "/admin/sensitive", nil)
+		req := httptest.NewRequest(GET, "/admin/sensitive", nil)
 		req.RemoteAddr = "192.168.1.100:12345"
 		req.Header.Set("User-Agent", "SuspiciousBot/1.0")
 
@@ -574,7 +574,7 @@ func TestDefaultAuditLogger(t *testing.T) {
 	}
 
 	// Test that methods don't panic with valid request
-	req := httptest.NewRequest("GET", "/test", nil)
+	req := httptest.NewRequest(GET, "/test", nil)
 	req.RemoteAddr = "192.168.1.100:12345"
 
 	// These should not panic
@@ -584,7 +584,7 @@ func TestDefaultAuditLogger(t *testing.T) {
 		Timestamp: time.Now(),
 		EventID:   "test-event-id",
 		ClientIP:  "192.168.1.100",
-		Method:    "GET",
+		Method:    GET,
 		Path:      "/test",
 		Message:   "test message",
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -25,7 +26,7 @@ func main() {
 	// Normal API endpoint with default rate limiting
 	server.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]interface{}{
+		ctx.Response(200, map[string]any{
 			"message":   "This endpoint has 5 RPS rate limiting",
 			"timestamp": time.Now().Format(time.RFC3339),
 			"tutorial":  "06-rate-limiting",
@@ -35,7 +36,7 @@ func main() {
 	// High-frequency endpoint (for testing rate limits)
 	server.HandleFunc("/api/test", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]interface{}{
+		ctx.Response(200, map[string]any{
 			"message":   "Test endpoint - hit this rapidly to see rate limiting",
 			"timestamp": time.Now().Format(time.RFC3339),
 			"tip":       "Try: for i in {1..10}; do curl http://localhost:8080/api/test; done",
@@ -54,8 +55,8 @@ func main() {
 	// Status endpoint to show current rate limiting info
 	server.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]interface{}{
-			"rate_limit": map[string]interface{}{
+		ctx.Response(200, map[string]any{
+			"rate_limit": map[string]any{
 				"requests_per_second": 5,
 				"strategy":            "Token bucket",
 				"scope":               "Per IP address",
@@ -190,8 +191,7 @@ curl http://localhost:8080/api/status
     </script>
 </body>
 </html>`
-		w.Header().Set("Content-Type", "text/html")
-		fmt.Fprint(w, html)
+		servex.C(w, r).Response(200, html)
 	})
 
 	fmt.Println("🌐 Server starting on http://localhost:8080")
@@ -207,5 +207,8 @@ curl http://localhost:8080/api/status
 	fmt.Println("")
 	fmt.Println("Press Ctrl+C to stop")
 
-	server.Start(":8080", "")
+	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
+	if err != nil {
+		log.Fatal("Failed to start server:", err)
+	}
 }

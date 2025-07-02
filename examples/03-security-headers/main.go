@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -45,9 +46,6 @@ func interactiveSecurityDemo() {
 				"frame-ancestors 'none'",
 		),
 
-		// Remove server identification
-		servex.WithRemoveHeaders("Server", "X-Powered-By"),
-
 		// Add custom headers
 		servex.WithCustomHeaders(map[string]string{
 			"X-API-Version": "1.0.0",
@@ -67,7 +65,7 @@ func interactiveSecurityDemo() {
 	// Main demo page
 	server.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.SetHeader("Content-Type", "text/html")
+		//ctx.SetContentType(servex.MIMETypeHTML, "utf-8")
 		ctx.Response(200, `
 <!DOCTYPE html>
 <html>
@@ -124,9 +122,6 @@ curl -I http://localhost:8080/
 
 # Compare with excluded endpoint
 curl -I http://localhost:8080/health
-
-# Test rate limiting
-for i in {1..10}; do curl http://localhost:8080/api/data; done
     </pre>
 </body>
 </html>`)
@@ -135,7 +130,7 @@ for i in {1..10}; do curl http://localhost:8080/api/data; done
 	// Secure API endpoints
 	server.HandleFunc("/api/secure", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]interface{}{
+		ctx.Response(200, map[string]any{
 			"message":   "This endpoint has security headers",
 			"secure":    true,
 			"timestamp": time.Now().Unix(),
@@ -144,7 +139,7 @@ for i in {1..10}; do curl http://localhost:8080/api/data; done
 
 	server.HandleFunc("/api/data", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
-		ctx.Response(200, map[string]interface{}{
+		ctx.Response(200, map[string]any{
 			"data":    []string{"item1", "item2", "item3"},
 			"headers": "security headers applied",
 		})
@@ -168,7 +163,7 @@ for i in {1..10}; do curl http://localhost:8080/api/data; done
 		w.Write([]byte("# metrics\nrequests_total 100\n"))
 	})
 
-	if err := server.Start(":8080", ""); err != nil {
+	if err := server.StartWithWaitSignalsHTTP(context.Background(), ":8080"); err != nil {
 		log.Fatal("Failed to start server:", err)
 	}
 }
@@ -189,7 +184,7 @@ func basicSecurityExample() {
 
 	log.Println("Basic security example starting on :8080")
 	fmt.Println("Test with: curl -I http://localhost:8080/api/data")
-	server.Start(":8080", "")
+	server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 }
 
 // Example 2: Strict Security Headers
@@ -208,7 +203,7 @@ func strictSecurityExample() {
 
 	log.Println("Strict security example starting on :8080")
 	fmt.Println("Test with: curl -I http://localhost:8080/api/secure")
-	server.Start(":8080", "")
+	server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 }
 
 // Example 3: Custom Security Configuration
@@ -247,7 +242,7 @@ func customSecurityExample() {
 
 	log.Println("Custom security example starting on :8080")
 	fmt.Println("Test with: curl -I http://localhost:8080/api/custom")
-	server.Start(":8080", "")
+	server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 }
 
 // Example 4: Path-Specific Security
@@ -280,7 +275,7 @@ func pathSpecificSecurityExample() {
 	fmt.Println("Test secure: curl -I http://localhost:8080/api/v1/secure")
 	fmt.Println("Test public: curl -I http://localhost:8080/api/v1/public")
 	fmt.Println("Test health: curl -I http://localhost:8080/health")
-	server.Start(":8080", "")
+	server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 }
 
 // Example 5: Production Security
@@ -339,7 +334,7 @@ func productionSecurityExample() {
 	log.Println("Production security example starting on :8080")
 	fmt.Println("Test API: curl -I http://localhost:8080/api/v2/users")
 	fmt.Println("Test health: curl -I http://localhost:8080/health")
-	server.Start(":8080", "")
+	server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 }
 
 // Handler functions

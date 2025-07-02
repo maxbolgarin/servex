@@ -1,0 +1,18 @@
+go 1.24
+
+use (
+	.
+	./examples/00-plain-http
+	./examples/01-hello-world
+	./examples/02-quickstart
+	./examples/03-security-headers
+	./examples/04-cache-control
+	./examples/05-static-files
+	./examples/06-rate-limiting
+	./examples/07-request-filtering
+	./examples/08-configuration
+	./examples/09-simple-proxy
+	./examples/10-advanced-proxy
+	./examples/11-location-filtering
+	./examples/12-dynamic-filtering
+)

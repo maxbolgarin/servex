@@ -1,6 +1,6 @@
-module tutorial-12-location-ratelimit
+module servex-tutorial-dynamic-filtering
 
-go 1.21
+go 1.24
 
 require github.com/maxbolgarin/servex/v2 v2.0.0
 
@@ -14,4 +14,4 @@ require (
 	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/time v0.11.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-) 
+)

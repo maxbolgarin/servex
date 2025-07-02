@@ -101,7 +101,7 @@ func (s *Server) H(path string, h http.Handler, methods ...string) *mux.Route {
 //
 //	server.HandleFunc("/users", func(w http.ResponseWriter, r *http.Request) {
 //		w.Write([]byte("Hello, World!"))
-//	}, "GET", "POST")
+//	}, GET, POST)
 //
 // Returns:
 //   - *mux.Route: The created route to set additional settings to the route
@@ -124,7 +124,7 @@ func (s *Server) HandleFunc(path string, f http.HandlerFunc, methods ...string) 
 //
 //	server.HF("/users", func(w http.ResponseWriter, r *http.Request) {
 //		w.Write([]byte("Hello, World!"))
-//	}, "GET", "POST")
+//	}, GET, POST)
 //
 // Returns:
 //   - *mux.Route: The created route to set additional settings to the route

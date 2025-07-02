@@ -12,7 +12,6 @@ Now that you've mastered the basics, let's explore Servex **presets** - pre-conf
 6. **High-Security Server** - Maximum security configuration
 7. **SSL-Enabled Server** - HTTPS setup with TLS
 8. **API with Authentication** - JWT-based authentication
-9. **Real-world Example** - Complex production setup
 
 ## Running the Examples
 
@@ -40,7 +39,6 @@ func main() {
     // highSecurityServer()       // High security
     // sslEnabledServer()         // SSL/TLS
     // apiWithAuthentication()    // Auth API
-    // realWorldExampleQuickStart() // Real-world
 }
 ```
 

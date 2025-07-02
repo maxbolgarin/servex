@@ -226,11 +226,11 @@ func (m *mockMetrics) HandleResponse(r *http.Request, w http.ResponseWriter, sta
 
 type mockLogger struct{}
 
-func (m *mockLogger) Error(msg string, args ...interface{}) {}
+func (m *mockLogger) Error(msg string, args ...any) {}
 
-func (m *mockLogger) Info(msg string, args ...interface{}) {}
+func (m *mockLogger) Info(msg string, args ...any) {}
 
-func (m *mockLogger) Debug(msg string, args ...interface{}) {}
+func (m *mockLogger) Debug(msg string, args ...any) {}
 
 type mockRequestLogger struct{}
 
@@ -1084,7 +1084,7 @@ func TestWithCacheETagFunc(t *testing.T) {
 	}
 
 	// Test the function works
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest(servex.GET, "/test", nil)
 	result := options.Cache.ETagFunc(req)
 	if result != `"dynamic-etag"` {
 		t.Errorf("expected etag function to return %q, got %q", `"dynamic-etag"`, result)
@@ -1142,7 +1142,7 @@ func TestWithCacheLastModifiedFunc(t *testing.T) {
 	}
 
 	// Test the function works
-	req, _ := http.NewRequest("GET", "/test", nil)
+	req, _ := http.NewRequest(servex.GET, "/test", nil)
 	result := options.Cache.LastModifiedFunc(req)
 	if !result.Equal(testTime) {
 		t.Errorf("expected last modified function to return %v, got %v", testTime, result)

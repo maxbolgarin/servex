@@ -869,7 +869,7 @@ func TestContextWithConfiguredSizeLimits(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create request with body
-			req := httptest.NewRequest("POST", "/test", strings.NewReader(tt.body))
+			req := httptest.NewRequest(POST, "/test", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", tt.contentType)
 			w := httptest.NewRecorder()
 
@@ -878,7 +878,7 @@ func TestContextWithConfiguredSizeLimits(t *testing.T) {
 
 			if strings.Contains(tt.contentType, "application/json") {
 				// Test JSON reading
-				var data map[string]interface{}
+				var data map[string]any
 				err := ctx.ReadJSON(&data)
 
 				if tt.expectError {
@@ -933,7 +933,7 @@ func TestContextMethodsCanOverrideLimits(t *testing.T) {
 			body:        `{"test": "this message is longer than 10 bytes but should work with override"}`,
 			contentType: "application/json",
 			testFunc: func(ctx *Context) error {
-				var data map[string]interface{}
+				var data map[string]any
 				return ctx.ReadJSONWithLimit(&data, 1000) // Override to 1000 bytes
 			},
 			expectError: false,
@@ -943,7 +943,7 @@ func TestContextMethodsCanOverrideLimits(t *testing.T) {
 			body:        `{"test": "this message is longer than 10 bytes"}`,
 			contentType: "application/json",
 			testFunc: func(ctx *Context) error {
-				var data map[string]interface{}
+				var data map[string]any
 				return ctx.ReadJSON(&data) // Use configured limit (10 bytes)
 			},
 			expectError: true,
@@ -973,7 +973,7 @@ func TestContextMethodsCanOverrideLimits(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create request with body
-			req := httptest.NewRequest("POST", "/test", strings.NewReader(tt.body))
+			req := httptest.NewRequest(POST, "/test", strings.NewReader(tt.body))
 			req.Header.Set("Content-Type", tt.contentType)
 			w := httptest.NewRecorder()
 
@@ -994,14 +994,14 @@ func TestContextMethodsCanOverrideLimits(t *testing.T) {
 // TestContextWithDefaultLimits tests that context methods use reasonable defaults when no options are provided.
 func TestContextWithDefaultLimits(t *testing.T) {
 	// Create context without any options
-	req := httptest.NewRequest("POST", "/test", strings.NewReader(`{"test": "data"}`))
+	req := httptest.NewRequest(POST, "/test", strings.NewReader(`{"test": "data"}`))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 
 	ctx := NewContext(w, req) // No options provided
 
 	// Should work with default limits
-	var data map[string]interface{}
+	var data map[string]any
 	err := ctx.ReadJSON(&data)
 
 	if err != nil {
@@ -1034,7 +1034,7 @@ func TestContextSendErrorToClientOption(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := httptest.NewRequest("GET", "/test", nil)
+			req := httptest.NewRequest(GET, "/test", nil)
 			w := httptest.NewRecorder()
 
 			options := Options{
