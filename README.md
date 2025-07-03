@@ -9,12 +9,12 @@
 
 #### Servex gives you production-ready features out of the box:
 
-🚀 **Zero Boilerplate** - Configure once, code business logic  
-🤖 **AI Friendly** - Servex is designed to be easy to use with AI, you can ask it to generate code for you
-🔒 **Security First** - JWT auth, rate limiting, request filtering, security headers, audit logging included 
-🔄 **Reverse proxy / API gateway** - Servex has reverse proxy and API gateway features with easy configuration and many features
-💻 **Backend for frontend** - Servex can be used as a backend for frontend applications (BFF), you can use it to serve static files (SPA, SSR, etc.), API endpoints and proxy requests in a single port
-⚡ **Native Compatibility** - Works seamlessly with existing `net/http` code, you can use it as a helper library in your existing native Go projects
+- 🚀 **Zero Boilerplate** - Configure once, code business logic  
+- 🤖 **AI Friendly** - Servex is designed to be easy to use with AI, you can ask it to generate code for you
+- 🔒 **Security First** - JWT auth, rate limiting, request filtering, security headers, audit logging included 
+- 🔄 **Reverse proxy / API gateway** - Servex has reverse proxy and API gateway features with easy configuration and many features
+- 💻 **Backend for frontend** - Servex can be used as a backend for frontend applications (BFF), you can use it to serve static files (SPA, SSR, etc.), API endpoints and proxy requests in a single port
+- ⚡ **Native Compatibility** - Works seamlessly with existing `net/http` code, you can use it as a helper library in your existing native Go projects
 
 
 #### Installation
