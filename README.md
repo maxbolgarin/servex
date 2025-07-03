@@ -1,18 +1,20 @@
-# Servex - Swiss Army Knife for Go HTTP(S) Server
+# Servex - HTTPS Go server / API gateway for Vibe Coding 
 
 [![Go Version][version-img]][doc] [![GoDoc][doc-img]][doc] [![Build][ci-img]][ci] [![GoReport][report-img]][report] [![MIT][mit-img]][mit]
 
 ![Servex](./.github/assets/pic.png)
 
-**Servex** is the HTTP server package that eliminates boilerplate and lets you focus on what matters—your business logic. Whether you're building APIs, web applications, or need a powerful reverse proxy, Servex provides the technical foundation so you don't have to. It's built using Go's [net/http](https://pkg.go.dev/net/http) and [gorilla/mux](https://github.com/gorilla/mux). This package is designed to easy integrate into existing `net/http` servers.
+**Servex** is the HTTP server package that eliminates boilerplate and lets you focus on what matters—your business logic. Whether you're building APIs, web applications, or need a powerful reverse proxy, Servex provides the technical foundation so you don't have to. You will get production-ready features out of the box. It's built using Go's [net/http](https://pkg.go.dev/net/http) and [gorilla/mux](https://github.com/gorilla/mux). This package is designed to easy integrate into existing `net/http` servers.
+
 
 #### Servex gives you production-ready features out of the box:
 
 🚀 **Zero Boilerplate** - Configure once, code business logic  
-🔒 **Security First** - JWT auth, rate limiting, security headers included  
-🌐 **Dual Purpose** - Use as a library OR standalone proxy server  
-⚡ **Native Compatibility** - Works seamlessly with existing `net/http` code  
-🎯 **Gorilla/Mux Powered** - Flexible routing with middleware support 
+🤖 **AI Friendly** - Servex is designed to be easy to use with AI, you can ask it to generate code for you
+🔒 **Security First** - JWT auth, rate limiting, request filtering, security headers, audit logging included 
+🔄 **Reverse proxy / API gateway** - Servex has reverse proxy and API gateway features with easy configuration and many features
+💻 **Backend for frontend** - Servex can be used as a backend for frontend applications (BFF), you can use it to serve static files (SPA, SSR, etc.), API endpoints and proxy requests in a single port
+⚡ **Native Compatibility** - Works seamlessly with existing `net/http` code, you can use it as a helper library in your existing native Go projects
 
 
 #### Installation
@@ -20,6 +22,13 @@
 ```shell
 go get -u github.com/maxbolgarin/servex/v2
 ```
+
+
+#### Why Go is better for backend instead of Node.js / Python?
+
+- **Go is a industry standard for backend development.** Applications such as Kubernetes, Victoria stack and many other high load applications are written in Go.
+- **With Servex you can easily start building backend in Go with minimal effort, like you use Node.js / Python.** But instead you get production-ready features with enhanced performance and security.
+- **Go is minimalistic and statically typed, so you can easily write code with AI.** Many mistakes can be caught by the compiler or by linters. Go is a perfect language for vibe coding, combining simplicity with power.
 
 
 ## Table of Contents
