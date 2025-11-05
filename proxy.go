@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	stdjson "encoding/json"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"log/slog"
 	"math/rand"
@@ -155,16 +157,23 @@ type proxyManager struct {
 	dumpWriter *trafficDumpWriter
 	logger     Logger
 	mu         sync.RWMutex
+
+	// Lifecycle management
+	shutdownCtx    context.Context
+	shutdownCancel context.CancelFunc
 }
 
 // trafficDumpWriter handles writing traffic dumps to files
 type trafficDumpWriter struct {
-	config    TrafficDumpConfig
-	mu        sync.Mutex
-	file      *os.File
-	size      int64
-	fileIndex int
-	basePath  string
+	config       TrafficDumpConfig
+	mu           sync.Mutex
+	file         *os.File
+	size         int64
+	fileIndex    int
+	basePath     string
+	writesCount  int   // Track writes since last sync
+	syncInterval int   // Sync every N writes
+	lastSync     int64 // Unix timestamp of last sync
 }
 
 // RegisterProxyMiddleware registers the proxy middleware
@@ -262,10 +271,15 @@ func newProxyManager(config ProxyConfiguration, logger Logger) (*proxyManager, e
 		}))
 	}
 
+	// Create shutdown context for lifecycle management
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+
 	pm := &proxyManager{
-		config: config,
-		client: client,
-		logger: logger,
+		config:         config,
+		client:         client,
+		logger:         logger,
+		shutdownCtx:    shutdownCtx,
+		shutdownCancel: shutdownCancel,
 	}
 
 	// Initialize traffic dump writer if enabled
@@ -623,6 +637,7 @@ func (pm *proxyManager) selectWeightedRandom(backends []*Backend) *Backend {
 }
 
 // selectIPHash implements IP hash-based load balancing for session affinity
+// Uses FNV-1a hash algorithm for better distribution and collision resistance
 func (pm *proxyManager) selectIPHash(r *http.Request, backends []*Backend) *Backend {
 	if len(backends) == 0 {
 		return nil
@@ -631,16 +646,12 @@ func (pm *proxyManager) selectIPHash(r *http.Request, backends []*Backend) *Back
 	// Get client IP
 	clientIP := pm.getClientIP(r)
 
-	// Simple hash function
-	hash := 0
-	for _, b := range []byte(clientIP) {
-		hash = hash*31 + int(b)
-	}
-	if hash < 0 {
-		hash = -hash
-	}
+	// Use FNV-1a hash for better distribution
+	h := fnv.New32a()
+	h.Write([]byte(clientIP))
+	hash := h.Sum32()
 
-	return backends[hash%len(backends)]
+	return backends[hash%uint32(len(backends))]
 }
 
 // getClientIP extracts the real client IP from the request
@@ -691,8 +702,10 @@ func newTrafficDumpWriter(config TrafficDumpConfig) (*trafficDumpWriter, error) 
 	basePath := filepath.Join(config.Directory, "traffic_dump")
 
 	tdw := &trafficDumpWriter{
-		config:   config,
-		basePath: basePath,
+		config:       config,
+		basePath:     basePath,
+		syncInterval: 100, // Sync every 100 writes instead of every write
+		lastSync:     time.Now().Unix(),
 	}
 
 	// Create initial file
@@ -790,19 +803,24 @@ func (pm *proxyManager) dumpTrafficEnhanced(r *http.Request, rule *ProxyRule, ba
 }
 
 // writeRawEntry writes a raw HTTP dump entry to the file
+// Syncs are performed periodically rather than on every write for better performance
 func (tdw *trafficDumpWriter) writeRawEntry(entry rawHTTPDumpEntry) error {
 	tdw.mu.Lock()
 	defer tdw.mu.Unlock()
 
 	// Check if we need to rotate the file
 	if tdw.size >= tdw.config.MaxFileSize {
+		// Sync before rotation to ensure data integrity
+		if tdw.file != nil {
+			_ = tdw.file.Sync()
+		}
 		if err := tdw.rotateFile(); err != nil {
 			return fmt.Errorf("rotate dump file: %w", err)
 		}
 	}
 
 	// Write entry as JSON line
-	entryJSON, err := json.Marshal(entry)
+	entryJSON, err := stdjson.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("marshal entry: %w", err)
 	}
@@ -814,9 +832,21 @@ func (tdw *trafficDumpWriter) writeRawEntry(entry rawHTTPDumpEntry) error {
 	}
 
 	tdw.size += int64(n)
+	tdw.writesCount++
 
-	// Flush to ensure data is written
-	return tdw.file.Sync()
+	// Sync periodically instead of on every write
+	shouldSync := tdw.writesCount >= tdw.syncInterval ||
+		time.Now().Unix()-tdw.lastSync > 30 // Also sync if 30 seconds have passed
+
+	if shouldSync {
+		if err := tdw.file.Sync(); err != nil {
+			return fmt.Errorf("sync file: %w", err)
+		}
+		tdw.writesCount = 0
+		tdw.lastSync = time.Now().Unix()
+	}
+
+	return nil
 }
 
 // close closes the traffic dump writer
@@ -825,6 +855,12 @@ func (tdw *trafficDumpWriter) close() error {
 	defer tdw.mu.Unlock()
 
 	if tdw.file != nil {
+		// Ensure final sync before closing
+		if err := tdw.file.Sync(); err != nil {
+			// Log error but continue with close
+			_ = tdw.file.Close()
+			return fmt.Errorf("final sync failed: %w", err)
+		}
 		return tdw.file.Close()
 	}
 	return nil
@@ -946,10 +982,6 @@ func (pm *proxyManager) healthCheckLoopEnhanced(backend *Backend) {
 	ticker := time.NewTicker(backend.HealthCheckInterval)
 	defer ticker.Stop()
 
-	// Create a context for health check lifecycle management
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	// Log start of health checking
 	pm.logger.Info("starting health checks",
 		"component", "proxy",
@@ -960,7 +992,7 @@ func (pm *proxyManager) healthCheckLoopEnhanced(backend *Backend) {
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-pm.shutdownCtx.Done():
 			pm.logger.Info("stopping health checks", "component", "proxy", "backend", backend.URL)
 			return
 		case <-ticker.C:

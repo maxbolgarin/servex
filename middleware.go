@@ -521,12 +521,15 @@ func validateCSRFToken(r *http.Request, tokenName, cookieName string) bool {
 }
 
 // generateCSRFToken generates a cryptographically secure random token.
+// If crypto/rand is unavailable, this function will panic rather than falling back
+// to an insecure random source.
 func generateCSRFToken() string {
 	// Generate 32 bytes of random data
 	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
-		// Fallback to time-based token if crypto/rand fails
-		return fmt.Sprintf("%d", time.Now().UnixNano())
+		// CRITICAL: Do not fallback to insecure random generation
+		// If crypto/rand fails, the system is in an insecure state
+		panic(fmt.Sprintf("CRITICAL: crypto/rand unavailable for CSRF token generation: %v", err))
 	}
 
 	// Encode as base64 URL-safe string
