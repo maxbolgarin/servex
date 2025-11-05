@@ -463,3 +463,57 @@ func prometheusEscape(s string) string {
 	s = strings.ReplaceAll(s, "\t", "\\t")
 	return s
 }
+
+// compositeMetrics combines multiple Metrics implementations, calling each in sequence.
+// This allows using both built-in default metrics and custom metrics simultaneously.
+//
+// Example:
+//
+//	defaultMetrics := newBuiltinMetrics()
+//	customMetrics := &MyPrometheusMetrics{}
+//	combined := newCompositeMetrics(defaultMetrics, customMetrics)
+type compositeMetrics struct {
+	metrics []Metrics
+}
+
+// newCompositeMetrics creates a new composite metrics collector that calls multiple metrics implementations.
+//
+// Parameters:
+//   - metrics: Variable number of Metrics implementations to combine
+//
+// Returns:
+//   - *compositeMetrics: A composite metrics collector that forwards calls to all provided implementations
+func newCompositeMetrics(metrics ...Metrics) *compositeMetrics {
+	return &compositeMetrics{
+		metrics: metrics,
+	}
+}
+
+// HandleRequest implements the Metrics interface by forwarding to all underlying metrics.
+func (c *compositeMetrics) HandleRequest(r *http.Request) {
+	for _, m := range c.metrics {
+		if m != nil {
+			m.HandleRequest(r)
+		}
+	}
+}
+
+// HandleResponse implements the Metrics interface by forwarding to all underlying metrics.
+func (c *compositeMetrics) HandleResponse(r *http.Request, w http.ResponseWriter, statusCode int, duration time.Duration) {
+	for _, m := range c.metrics {
+		if m != nil {
+			m.HandleResponse(r, w, statusCode, duration)
+		}
+	}
+}
+
+// getBuiltinMetrics returns the first builtinMetrics instance from the composite, or nil if none exists.
+// This is used internally to register the metrics endpoint when using WithMetricsAndDefault.
+func (c *compositeMetrics) getBuiltinMetrics() *builtinMetrics {
+	for _, m := range c.metrics {
+		if builtin, ok := m.(*builtinMetrics); ok {
+			return builtin
+		}
+	}
+	return nil
+}

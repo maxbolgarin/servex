@@ -1,6 +1,7 @@
 package servex
 
 import (
+	"bytes"
 	"net/http"
 	"sync"
 	"time"
@@ -212,3 +213,42 @@ func (l *BaseRequestLogger) shouldIncludeField(field string) bool {
 type noopRequestLogger struct{}
 
 func (l *noopRequestLogger) Log(RequestLogBundle) {}
+
+// stdLogAdapter adapts a servex Logger to work with the standard library's log.Logger.
+// This is primarily used to set the ErrorLog field of http.Server, allowing servex's
+// logger to receive error messages from the HTTP server itself.
+//
+// Example usage:
+//
+//	server := &http.Server{
+//		Addr:     ":8080",
+//		Handler:  router,
+//		ErrorLog: log.New(newStdLogAdapter(myLogger), "", 0),
+//	}
+type stdLogAdapter struct {
+	logger ErrorLogger
+}
+
+// newStdLogAdapter creates a new adapter that forwards log writes to a servex Logger.
+// The adapter implements io.Writer, making it compatible with log.New().
+//
+// Parameters:
+//   - logger: The servex Logger to forward messages to
+//
+// Returns:
+//   - *stdLogAdapter: An adapter that can be used with log.New()
+func newStdLogAdapter(logger ErrorLogger) *stdLogAdapter {
+	return &stdLogAdapter{logger: logger}
+}
+
+// Write implements io.Writer by forwarding log messages to the servex Logger's Error method.
+// This allows the standard library's log.Logger to work with servex's logging system.
+//
+// The method strips trailing newlines from messages before forwarding them to maintain
+// clean log output, as servex loggers typically add their own formatting.
+func (a *stdLogAdapter) Write(p []byte) (n int, err error) {
+	// Remove trailing newline if present (standard log.Logger adds it)
+	msg := bytes.TrimRight(p, "\n")
+	a.logger.Error(string(msg))
+	return len(p), nil
+}
