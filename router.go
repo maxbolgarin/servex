@@ -29,6 +29,23 @@ func (s *Server) WithBasePath(path string) *Server {
 	return s
 }
 
+// RemoveBasePath clears the base path for the server's router.
+// It returns the server itself to allow method chaining.
+//
+// Example:
+//
+//	server.WithBasePath("/api")
+//	server.Get("/users", ...)      // Results in /api/users
+//	server.RemoveBasePath()
+//	server.Get("/health", ...)     // Results in /health
+//
+// Returns:
+//   - *Server: The server itself to allow method chaining
+func (s *Server) RemoveBasePath() *Server {
+	s.basePath = ""
+	return s
+}
+
 // Router returns [mux.Router], it may be useful if you want to work with router manually.
 // It accepts a path to set as a base path for the router.
 func (s *Server) Router(path ...string) *mux.Router {

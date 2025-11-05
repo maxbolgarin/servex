@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -386,6 +387,8 @@ func (s *Server) StartHTTP(address string) error {
 		ReadHeaderTimeout: lang.Check(s.opts.ReadHeaderTimeout, defaultReadTimeout),
 		ReadTimeout:       lang.Check(s.opts.ReadTimeout, defaultReadTimeout),
 		IdleTimeout:       lang.Check(s.opts.IdleTimeout, defaultIdleTimeout),
+		MaxHeaderBytes:    lang.Check(s.opts.MaxHeaderBytes, defaultMaxHeaderBytes),
+		ErrorLog:          log.New(newStdLogAdapter(s.opts.Logger), "", 0),
 	}
 	if err := s.start(address, s.http.Serve, net.Listen, httpReady); err != nil {
 		s.http = nil
@@ -442,6 +445,8 @@ func (s *Server) StartHTTPS(address string) error {
 		ReadHeaderTimeout: lang.Check(s.opts.ReadHeaderTimeout, defaultReadTimeout),
 		ReadTimeout:       lang.Check(s.opts.ReadTimeout, defaultReadTimeout),
 		IdleTimeout:       lang.Check(s.opts.IdleTimeout, defaultIdleTimeout),
+		MaxHeaderBytes:    lang.Check(s.opts.MaxHeaderBytes, defaultMaxHeaderBytes),
+		ErrorLog:          log.New(newStdLogAdapter(s.opts.Logger), "", 0),
 		TLSConfig:         GetTLSConfig(s.opts.Certificate),
 	}
 
@@ -825,10 +830,18 @@ func (s *Server) registerBuiltinEndpoints() {
 			metricsPath = "/metrics"
 		}
 		// Register metrics endpoint using the built-in metrics
+		// Check if metrics is directly a builtinMetrics
 		if builtinMetrics, ok := s.opts.Metrics.(*builtinMetrics); ok {
 			builtinMetrics.registerMetricsEndpoint(s, metricsPath)
+		} else if composite, ok := s.opts.Metrics.(*compositeMetrics); ok {
+			// If it's a composite, try to get the built-in metrics from it
+			if builtinMetrics := composite.getBuiltinMetrics(); builtinMetrics != nil {
+				builtinMetrics.registerMetricsEndpoint(s, metricsPath)
+			} else {
+				s.opts.Logger.Error("cannot register metrics endpoint, no builtin metrics found in composite")
+			}
 		} else {
-			s.opts.Logger.Error("cannot register metrics endpoint, metrics is not a BuiltinMetrics")
+			s.opts.Logger.Error("cannot register metrics endpoint, metrics is not a builtinMetrics or compositeMetrics")
 		}
 	}
 }
