@@ -213,9 +213,11 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 	registerOptsMiddleware(s.router, opts)
 
 	// Register proxy middleware before auth but after security/filtering
-	if err := RegisterProxyMiddleware(s.router, opts.Proxy, opts.Logger); err != nil {
+	proxyCleanup, err := RegisterProxyMiddleware(s.router, opts.Proxy, opts.Logger)
+	if err != nil {
 		return nil, fmt.Errorf("register proxy middleware: %w", err)
 	}
+	s.cleanups = append(s.cleanups, proxyCleanup)
 
 	if s.opts.Auth.Enabled {
 		if s.opts.Auth.Database == nil {

@@ -112,9 +112,11 @@ func TestLoadBalancingStrategies(t *testing.T) {
 
 			// Create router and register middleware
 			router := mux.NewRouter()
-			if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+			cleanup, err := RegisterProxyMiddleware(router, config, logger)
+			if err != nil {
 				t.Fatalf("Failed to register proxy middleware: %v", err)
 			}
+			defer cleanup()
 
 			// Add a fallback handler for unmatched routes
 			router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -208,9 +210,11 @@ func TestIPHashLoadBalancing(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	cleanup, err := RegisterProxyMiddleware(router, config, logger)
+	if err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
+	defer cleanup()
 
 	// Add a fallback handler for unmatched routes
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -281,9 +285,11 @@ func TestLeastConnectionsLoadBalancing(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	cleanup, err := RegisterProxyMiddleware(router, config, logger)
+	if err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
+	defer cleanup()
 
 	// Add a fallback handler for unmatched routes
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -368,9 +374,11 @@ func TestHealthChecking(t *testing.T) {
 
 	// Create router and register proxy middleware first
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	cleanup, err := RegisterProxyMiddleware(router, config, logger)
+	if err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
+	defer cleanup()
 
 	// Wait for health checks to run
 	time.Sleep(300 * time.Millisecond)
@@ -437,9 +445,11 @@ func TestTrafficDumping(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	cleanup, err := RegisterProxyMiddleware(router, config, logger)
+	if err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
+	defer cleanup()
 
 	// Add a fallback handler for unmatched routes
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -567,9 +577,11 @@ func TestPathManipulation(t *testing.T) {
 
 			logger := &testLogger{}
 			router := mux.NewRouter()
-			if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+			cleanup, err := RegisterProxyMiddleware(router, config, logger)
+			if err != nil {
 				t.Fatalf("Failed to register proxy middleware: %v", err)
 			}
+			defer cleanup()
 
 			// Add a fallback handler for unmatched routes
 			router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -630,9 +642,11 @@ func TestHeaderBasedRouting(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	cleanup, err := RegisterProxyMiddleware(router, config, logger)
+	if err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
+	defer cleanup()
 
 	// Add a fallback handler for unmatched routes
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -690,9 +704,11 @@ func TestMethodFiltering(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	cleanup, err := RegisterProxyMiddleware(router, config, logger)
+	if err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
+	defer cleanup()
 
 	// Add a fallback handler for unmatched routes
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -751,9 +767,11 @@ func TestNoHealthyBackends(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	cleanup, err := RegisterProxyMiddleware(router, config, logger)
+	if err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
+	defer cleanup()
 
 	// Start health checks and wait for them to mark backend as unhealthy
 	time.Sleep(200 * time.Millisecond)
@@ -794,9 +812,11 @@ func TestRequestTimeout(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	cleanup, err := RegisterProxyMiddleware(router, config, logger)
+	if err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
+	defer cleanup()
 
 	// Add a fallback handler for unmatched routes
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -927,9 +947,11 @@ func TestProxyRuleMatching(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	cleanup, err := RegisterProxyMiddleware(router, config, logger)
+	if err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
+	defer cleanup()
 
 	// Add a fallback handler for unmatched routes
 	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

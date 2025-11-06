@@ -176,24 +176,32 @@ type trafficDumpWriter struct {
 //
 // Example:
 //
-//	RegisterProxyMiddleware(router, config, logger)
+//	cleanup, err := RegisterProxyMiddleware(router, config, logger)
+//	if err != nil {
+//		return err
+//	}
+//	defer cleanup() // Call cleanup when shutting down
 //
 // Returns:
-//   - *ProxyManager: The proxy manager
-func RegisterProxyMiddleware(router MiddlewareRouter, config ProxyConfiguration, logger ...Logger) error {
+//   - func(): Cleanup function to call on shutdown
+//   - error: Error if initialization fails
+func RegisterProxyMiddleware(router MiddlewareRouter, config ProxyConfiguration, logger ...Logger) (func(), error) {
 	if !config.Enabled {
-		return nil
+		return func() {}, nil
 	}
 
 	pm, err := newProxyManager(config, lang.First(logger))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Register proxy middleware
 	router.Use(pm.proxyMiddleware)
 
-	return nil
+	// Return cleanup function that stops health checks and cleans up resources
+	return func() {
+		pm.Shutdown()
+	}, nil
 }
 
 // newProxyManager creates a new proxy manager
@@ -937,6 +945,18 @@ func (pm *proxyManager) startHealthChecks() {
 				go pm.healthCheckLoopEnhanced(backend)
 			}
 		}
+	}
+}
+
+// Shutdown gracefully stops all health check goroutines and cleans up resources
+func (pm *proxyManager) Shutdown() {
+	if pm.shutdownCancel != nil {
+		pm.shutdownCancel()
+	}
+
+	// Close traffic dump writer if present
+	if pm.dumpWriter != nil {
+		pm.dumpWriter.close()
 	}
 }
 
