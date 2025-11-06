@@ -260,7 +260,7 @@ func (h *staticFileHandler) serveStaticFile(w http.ResponseWriter, r *http.Reque
 		next.ServeHTTP(w, r)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Set appropriate content type
 	ext := strings.ToLower(filepath.Ext(fsPath))

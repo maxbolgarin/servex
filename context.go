@@ -143,7 +143,7 @@ func ReadFileWithLimit(r *http.Request, fileKey string, maxMemory, maxFileSize i
 	if err != nil {
 		return nil, nil, fmt.Errorf("get file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Check file size before reading
 	if header.Size > maxFileSize {

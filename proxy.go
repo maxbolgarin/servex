@@ -825,13 +825,18 @@ func (tdw *trafficDumpWriter) writeRawEntry(entry rawHTTPDumpEntry) error {
 		return fmt.Errorf("marshal entry: %w", err)
 	}
 
-	line := string(entryJSON) + "\n"
-	n, err := tdw.file.WriteString(line)
+	// Write JSON bytes and newline separately to avoid string allocation
+	n, err := tdw.file.Write(entryJSON)
 	if err != nil {
 		return fmt.Errorf("write entry: %w", err)
 	}
 
-	tdw.size += int64(n)
+	n2, err := tdw.file.WriteString("\n")
+	if err != nil {
+		return fmt.Errorf("write newline: %w", err)
+	}
+
+	tdw.size += int64(n + n2)
 	tdw.writesCount++
 
 	// Sync periodically instead of on every write
