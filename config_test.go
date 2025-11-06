@@ -256,14 +256,16 @@ func TestConfigToOptions(t *testing.T) {
 			MaxRequestBodySize:      32 << 20, // 32MB
 			EnableRequestSizeLimits: true,
 		},
-		// Auth: AuthConfiguration{
-		// 	Enabled:              true,
-		// 	UseMemoryDatabase:    true,
-		// 	AccessTokenDuration:  15 * time.Minute,
-		// 	RefreshTokenDuration: 7 * 24 * time.Hour,
-		// 	Issuer:               "test-app",
-		// 	InitialRoles:         []string{"user", "admin"},
-		// },
+		Auth: AuthConfiguration{
+			Enabled:              true,
+			UseMemoryDatabase:    true,
+			JWTAccessSecret:      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			JWTRefreshSecret:     "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+			AccessTokenDuration:  15 * time.Minute,
+			RefreshTokenDuration: 7 * 24 * time.Hour,
+			Issuer:               "test-app",
+			InitialRoles:         []string{"user", "admin"},
+		},
 		RateLimit: RateLimitConfiguration{
 			Enabled:             true,
 			RequestsPerInterval: 100,
@@ -330,11 +332,15 @@ func TestNewFromConfig(t *testing.T) {
 			MaxRequestBodySize:      32 << 20,
 			EnableRequestSizeLimits: true,
 		},
-		// Auth: AuthConfiguration{
-		// 	Enabled:           true,
-		// 	UseMemoryDatabase: true,
-		// 	Issuer:            "test-app",
-		// },
+		Auth: AuthConfiguration{
+			Enabled:              true,
+			UseMemoryDatabase:    true,
+			JWTAccessSecret:      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			JWTRefreshSecret:     "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+			AccessTokenDuration:  15 * time.Minute,
+			RefreshTokenDuration: 7 * 24 * time.Hour,
+			Issuer:               "test-app",
+		},
 	}
 
 	_, err := NewServerFromConfig(config)

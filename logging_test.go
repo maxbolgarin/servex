@@ -1,6 +1,7 @@
 package servex
 
 import (
+	"crypto/tls"
 	"errors"
 	"net/http"
 	"testing"
@@ -162,4 +163,235 @@ func TestRequestLogger_LogWithSelectiveFields(t *testing.T) {
 			t.Errorf("Unexpected field %q found in logs", unexpectedKey)
 		}
 	}
+}
+
+func TestNoopRequestLogger(t *testing.T) {
+	logger := &noopRequestLogger{}
+	req, _ := http.NewRequest(GET, "http://example.com", nil)
+
+	// Should not panic
+	logger.Log(RequestLogBundle{
+		Request:    req,
+		StatusCode: 500,
+		Error:      errors.New("test error"),
+	})
+
+	// Test passes if no panic occurs
+}
+
+func TestStdLogAdapter(t *testing.T) {
+	mockLogger := &MockLogger{}
+	adapter := newStdLogAdapter(mockLogger)
+
+	testMsg := "test error message"
+	n, err := adapter.Write([]byte(testMsg + "\n"))
+
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+
+	expectedLen := len(testMsg) + 1 // +1 for newline
+	if n != expectedLen {
+		t.Errorf("Expected to write %d bytes, wrote %d", expectedLen, n)
+	}
+
+	if len(mockLogger.Messages) != 1 {
+		t.Fatalf("Expected one log message, got %d", len(mockLogger.Messages))
+	}
+
+	if mockLogger.Messages[0] != testMsg {
+		t.Errorf("Expected message %q, got %q", testMsg, mockLogger.Messages[0])
+	}
+}
+
+func TestRequestLogger_LogLevels(t *testing.T) {
+	tests := []struct {
+		name       string
+		statusCode int
+		error      error
+		expectLog  string // "Debug", "Info", or "Error"
+	}{
+		{"success request", 200, nil, "Debug"},
+		{"created request", 201, nil, "Debug"},
+		{"client error", 400, nil, "Info"},
+		{"not found", 404, nil, "Info"},
+		{"server error", 500, nil, "Error"},
+		{"error with 200", 200, errors.New("test error"), "Error"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockLogger := &MockLogger{}
+			rLogger := BaseRequestLogger{Logger: mockLogger}
+
+			req, _ := http.NewRequest(GET, "http://example.com", nil)
+			bundle := RequestLogBundle{
+				Request:    req,
+				StatusCode: tt.statusCode,
+				Error:      tt.error,
+				StartTime:  time.Now(),
+			}
+
+			rLogger.Log(bundle)
+
+			if len(mockLogger.Messages) != 1 {
+				t.Fatalf("Expected one log message, got %d", len(mockLogger.Messages))
+			}
+
+			// We can't directly check which method was called, but we can verify it was logged
+			if mockLogger.LastMessage != "http" {
+				t.Errorf("Expected 'http' message, got %q", mockLogger.LastMessage)
+			}
+		})
+	}
+}
+
+func TestRequestLogger_NoLogClientErrors(t *testing.T) {
+	mockLogger := &MockLogger{}
+	rLogger := BaseRequestLogger{Logger: mockLogger}
+
+	req, _ := http.NewRequest(GET, "http://example.com", nil)
+
+	// Test that client errors are NOT logged when NoLogClientErrors is true
+	bundle := RequestLogBundle{
+		Request:           req,
+		StatusCode:        400,
+		StartTime:         time.Now(),
+		NoLogClientErrors: true,
+	}
+
+	rLogger.Log(bundle)
+
+	if len(mockLogger.Messages) != 0 {
+		t.Errorf("Expected no log messages with NoLogClientErrors=true, got %d", len(mockLogger.Messages))
+	}
+
+	// Test that server errors ARE still logged
+	mockLogger.Messages = nil
+	bundle.StatusCode = 500
+	rLogger.Log(bundle)
+
+	if len(mockLogger.Messages) != 1 {
+		t.Errorf("Expected server errors to be logged even with NoLogClientErrors=true, got %d messages", len(mockLogger.Messages))
+	}
+
+	// Test that client errors ARE logged when NoLogClientErrors is false
+	mockLogger.Messages = nil
+	bundle.StatusCode = 404
+	bundle.NoLogClientErrors = false
+	rLogger.Log(bundle)
+
+	if len(mockLogger.Messages) != 1 {
+		t.Errorf("Expected client errors to be logged with NoLogClientErrors=false, got %d messages", len(mockLogger.Messages))
+	}
+}
+
+func TestRequestLogger_DefaultStatusCode(t *testing.T) {
+	mockLogger := &MockLogger{}
+	rLogger := BaseRequestLogger{Logger: mockLogger}
+
+	req, _ := http.NewRequest(GET, "http://example.com", nil)
+	bundle := RequestLogBundle{
+		Request:    req,
+		StatusCode: 0, // Not set
+		StartTime:  time.Now(),
+	}
+
+	rLogger.Log(bundle)
+
+	if len(mockLogger.Messages) != 1 {
+		t.Fatalf("Expected one log message, got %d", len(mockLogger.Messages))
+	}
+
+	// Check that status was set to 200
+	fields := mockLogger.Fields[0]
+	actualFields := make(map[string]any)
+	for i := 0; i < len(fields); i += 2 {
+		key := fields[i].(string)
+		value := fields[i+1]
+		actualFields[key] = value
+	}
+
+	if status, ok := actualFields["status"].(int); !ok || status != 200 {
+		t.Errorf("Expected default status code 200, got %v", actualFields["status"])
+	}
+}
+
+func TestRequestLogger_HTTPSMessage(t *testing.T) {
+	mockLogger := &MockLogger{}
+	rLogger := BaseRequestLogger{Logger: mockLogger}
+
+	req, _ := http.NewRequest(GET, "https://example.com", nil)
+	// Simulate HTTPS by setting TLS info
+	req.TLS = &tls.ConnectionState{} // Just needs to be non-nil
+
+	bundle := RequestLogBundle{
+		Request:    req,
+		StatusCode: 200,
+		StartTime:  time.Now(),
+	}
+
+	rLogger.Log(bundle)
+
+	if len(mockLogger.Messages) != 1 {
+		t.Fatalf("Expected one log message, got %d", len(mockLogger.Messages))
+	}
+
+	// Verify https message is used for TLS connections
+	if mockLogger.LastMessage != "https" {
+		t.Errorf("Expected 'https' message for TLS request, got %q", mockLogger.LastMessage)
+	}
+}
+
+func TestRequestLogBundle_Pool(t *testing.T) {
+	// Test getting bundle from pool
+	bundle1 := getRequestLogBundle()
+	if bundle1 == nil {
+		t.Error("Expected non-nil bundle from pool")
+	}
+
+	// Set some fields
+	req, _ := http.NewRequest(GET, "http://example.com", nil)
+	bundle1.Request = req
+	bundle1.RequestID = "test-123"
+	bundle1.StatusCode = 500
+
+	// Return to pool
+	putRequestLogBundle(bundle1)
+
+	// Get another bundle and verify it's reset
+	bundle2 := getRequestLogBundle()
+	if bundle2.Request != nil || bundle2.RequestID != "" || bundle2.StatusCode != 0 {
+		t.Error("Expected bundle from pool to be reset")
+	}
+}
+
+func TestLogFields_Pool(t *testing.T) {
+	// Test getting fields from pool
+	fields1 := getLogFields()
+	if fields1 == nil {
+		t.Error("Expected non-nil fields from pool")
+	}
+
+	if len(fields1) != 0 {
+		t.Errorf("Expected empty fields slice, got length %d", len(fields1))
+	}
+
+	// Add some data
+	fields1 = append(fields1, "key1", "value1")
+	fields1 = append(fields1, "key2", "value2")
+
+	// Return to pool
+	putLogFields(fields1)
+
+	// Get another slice and verify it's empty
+	fields2 := getLogFields()
+	if len(fields2) != 0 {
+		t.Errorf("Expected fields from pool to be empty, got length %d", len(fields2))
+	}
+
+	// Test that excessive capacity is not returned to pool
+	largeFields := make([]any, 0, 100)
+	putLogFields(largeFields)
+	// If it doesn't panic, the test passes
 }
