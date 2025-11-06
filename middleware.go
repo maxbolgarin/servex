@@ -1315,7 +1315,7 @@ func RegisterCompressionMiddleware(router MiddlewareRouter, cfg CompressionConfi
 			}
 
 			// Ensure cleanup
-			defer crw.Close()
+			defer func() { _ = crw.Close() }()
 
 			// Process request with compression
 			next.ServeHTTP(crw, r)

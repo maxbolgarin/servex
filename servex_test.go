@@ -57,7 +57,7 @@ func TestStart(t *testing.T) {
 		t.Errorf("expected second message to be 'https server started', got: %s", log.Messages[1])
 	}
 
-	resp, err := http.Get("http://" + cfg.HTTP)
+	resp, err := http.Get("http://localhost" + cfg.HTTP)
 	if err != nil {
 		t.Fatalf("unexpected error getting response: %v", err)
 	}
@@ -74,7 +74,7 @@ func TestStart(t *testing.T) {
 	defer cancel()
 	s(ctx)
 
-	_, err = http.Get("http://" + cfg.HTTP)
+	_, err = http.Get("http://localhost" + cfg.HTTP)
 	if err == nil {
 		t.Errorf("expected error getting response after server shutdown, got: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestStartWithShutdown(t *testing.T) {
 		t.Errorf("expected second message to be 'https server started', got: %s", log.Messages[1])
 	}
 
-	resp, err := http.Get("http://" + cfg.HTTP)
+	resp, err := http.Get("http://localhost" + cfg.HTTP)
 	if err != nil {
 		t.Fatalf("unexpected error getting response: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestStartWithShutdown(t *testing.T) {
 	cancel()
 	time.Sleep(time.Millisecond)
 
-	_, err = http.Get("http://" + cfg.HTTP)
+	_, err = http.Get("http://localhost" + cfg.HTTP)
 	if err == nil {
 		t.Errorf("expected error getting response after server shutdown, got: %v", err)
 	}
