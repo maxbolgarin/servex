@@ -155,6 +155,10 @@ type proxyManager struct {
 	dumpWriter *trafficDumpWriter
 	logger     Logger
 	mu         sync.RWMutex
+
+	// Lifecycle management
+	shutdownCtx    context.Context
+	shutdownCancel context.CancelFunc
 }
 
 // trafficDumpWriter handles writing traffic dumps to files
@@ -270,10 +274,15 @@ func newProxyManager(config ProxyConfiguration, logger Logger) (*proxyManager, e
 		}))
 	}
 
+	// Create shutdown context for lifecycle management
+	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+
 	pm := &proxyManager{
-		config: config,
-		client: client,
-		logger: logger,
+		config:         config,
+		client:         client,
+		logger:         logger,
+		shutdownCtx:    shutdownCtx,
+		shutdownCancel: shutdownCancel,
 	}
 
 	// Initialize traffic dump writer if enabled
@@ -966,10 +975,6 @@ func (pm *proxyManager) healthCheckLoopEnhanced(backend *Backend) {
 	ticker := time.NewTicker(backend.HealthCheckInterval)
 	defer ticker.Stop()
 
-	// Create a context for health check lifecycle management
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	// Log start of health checking
 	pm.logger.Info("starting health checks",
 		"component", "proxy",
@@ -980,7 +985,7 @@ func (pm *proxyManager) healthCheckLoopEnhanced(backend *Backend) {
 
 	for {
 		select {
-		case <-ctx.Done():
+		case <-pm.shutdownCtx.Done():
 			pm.logger.Info("stopping health checks", "component", "proxy", "backend", backend.URL)
 			return
 		case <-ticker.C:
