@@ -671,3 +671,227 @@ func (m *MockAuditLogger) LogSuspiciousActivity(r *http.Request, activityType st
 		m.LogSuspiciousActivityFunc(r, activityType, details)
 	}
 }
+
+// TestCSRFAuditLogging tests CSRF event logging functionality
+func TestCSRFAuditLogging(t *testing.T) {
+	mockLogger := &AuditMockLogger{
+		logs: make([]LogEntry, 0),
+	}
+
+	logger := NewDefaultAuditLogger(mockLogger)
+	if logger == nil {
+		t.Fatal("Failed to create default audit logger")
+	}
+
+	req := httptest.NewRequest(POST, "/test", nil)
+	req.RemoteAddr = "192.168.1.100:12345"
+	req.Header.Set("User-Agent", "TestAgent/1.0")
+	req.Header.Set("Referer", "https://example.com")
+
+	tests := []struct {
+		name      string
+		eventType AuditEventType
+		details   map[string]any
+	}{
+		{
+			name:      "CSRF token missing",
+			eventType: AuditEventCSRFTokenMissing,
+			details:   map[string]any{"expected": "token"},
+		},
+		{
+			name:      "CSRF token invalid",
+			eventType: AuditEventCSRFTokenInvalid,
+			details:   map[string]any{"reason": "token mismatch"},
+		},
+		{
+			name:      "CSRF attack detected",
+			eventType: AuditEventCSRFAttackDetected,
+			details:   map[string]any{"severity": "high"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mockLogger.logs = nil // Reset logs
+
+			logger.LogCSRFEvent(tt.eventType, req, tt.details)
+
+			if len(mockLogger.logs) == 0 {
+				t.Error("Expected log entries but got none")
+			}
+		})
+	}
+}
+
+// TestSanitizeHeaders tests the header sanitization functionality
+func TestSanitizeHeaders(t *testing.T) {
+	mockLogger := &AuditMockLogger{
+		logs: make([]LogEntry, 0),
+	}
+
+	logger := NewDefaultAuditLogger(mockLogger)
+	logger.IncludeHeaders = true
+	logger.SensitiveHeaders = []string{"Authorization", "Cookie", "X-API-Key"}
+	logger.MaxDetailSize = 50
+
+	headers := http.Header{
+		"Authorization":    []string{"Bearer token123"},
+		"Cookie":           []string{"session=abc123"},
+		"X-API-Key":        []string{"secret-key"},
+		"Content-Type":     []string{"application/json"},
+		"User-Agent":       []string{"TestAgent/1.0"},
+		"X-Long-Header":    []string{"This is a very long header value that should be truncated because it exceeds the maximum detail size limit"},
+	}
+
+	sanitized := logger.sanitizeHeaders(headers)
+
+	// Sensitive headers should be excluded
+	if _, exists := sanitized["Authorization"]; exists {
+		t.Error("Authorization header should be sanitized")
+	}
+	if _, exists := sanitized["Cookie"]; exists {
+		t.Error("Cookie header should be sanitized")
+	}
+	if _, exists := sanitized["X-API-Key"]; exists {
+		t.Error("X-API-Key header should be sanitized")
+	}
+
+	// Non-sensitive headers should be included
+	if sanitized["Content-Type"] != "application/json" {
+		t.Errorf("Expected Content-Type to be application/json, got %s", sanitized["Content-Type"])
+	}
+	if sanitized["User-Agent"] != "TestAgent/1.0" {
+		t.Errorf("Expected User-Agent to be TestAgent/1.0, got %s", sanitized["User-Agent"])
+	}
+
+	// Long headers should be truncated
+	if len(sanitized["X-Long-Header"]) > 53 { // 50 + "..."
+		t.Errorf("Expected X-Long-Header to be truncated, got length %d", len(sanitized["X-Long-Header"]))
+	}
+	if sanitized["X-Long-Header"][len(sanitized["X-Long-Header"])-3:] != "..." {
+		t.Error("Expected truncated header to end with '...'")
+	}
+}
+
+// TestFormatCSRFMessage tests CSRF message formatting
+func TestFormatCSRFMessage(t *testing.T) {
+	mockLogger := &AuditMockLogger{
+		logs: make([]LogEntry, 0),
+	}
+
+	logger := NewDefaultAuditLogger(mockLogger)
+
+	tests := []struct {
+		eventType AuditEventType
+		expected  string
+	}{
+		{AuditEventCSRFTokenMissing, "CSRF token missing"},
+		{AuditEventCSRFTokenInvalid, "CSRF token invalid"},
+		{AuditEventCSRFAttackDetected, "Potential CSRF attack detected"},
+		{AuditEventType("unknown"), "CSRF protection event"},
+	}
+
+	for _, tt := range tests {
+		result := logger.formatCSRFMessage(tt.eventType)
+		if result != tt.expected {
+			t.Errorf("Expected message %q, got %q", tt.expected, result)
+		}
+	}
+}
+
+// TestFormatAuthMessage tests authentication message formatting edge cases
+func TestFormatAuthMessage(t *testing.T) {
+	mockLogger := &AuditMockLogger{
+		logs: make([]LogEntry, 0),
+	}
+
+	logger := NewDefaultAuditLogger(mockLogger)
+
+	tests := []struct {
+		eventType AuditEventType
+		success   bool
+		expected  string
+	}{
+		{AuditEventAuthLogout, true, "User logout"},
+		{AuditEventAuthTokenRefresh, true, "Authentication token refreshed"},
+		{AuditEventAuthTokenInvalid, false, "Invalid authentication token"},
+		{AuditEventAuthUnauthorized, false, "Unauthorized access attempt"},
+		{AuditEventAuthForbidden, false, "Forbidden access attempt"},
+		{AuditEventType("unknown"), true, "Authentication event"},
+	}
+
+	for _, tt := range tests {
+		result := logger.formatAuthMessage(tt.eventType, tt.success)
+		if result != tt.expected {
+			t.Errorf("For event type %s: expected message %q, got %q", tt.eventType, tt.expected, result)
+		}
+	}
+}
+
+// TestFormatFilterMessage tests filter message formatting edge cases
+func TestFormatFilterMessage(t *testing.T) {
+	mockLogger := &AuditMockLogger{
+		logs: make([]LogEntry, 0),
+	}
+
+	logger := NewDefaultAuditLogger(mockLogger)
+
+	tests := []struct {
+		eventType  AuditEventType
+		filterType string
+		expected   string
+	}{
+		{AuditEventType("unknown"), "CustomFilter", "Request blocked by CustomFilter filter"},
+	}
+
+	for _, tt := range tests {
+		result := logger.formatFilterMessage(tt.eventType, tt.filterType)
+		if result != tt.expected {
+			t.Errorf("Expected message %q, got %q", tt.expected, result)
+		}
+	}
+}
+
+// TestNoopAuditLogger tests that the noop logger doesn't panic
+func TestNoopAuditLogger(t *testing.T) {
+	logger := &NoopAuditLogger{}
+
+	req := httptest.NewRequest(GET, "/test", nil)
+	req.RemoteAddr = "192.168.1.100:12345"
+
+	// All these should not panic
+	logger.LogSecurityEvent(AuditEvent{
+		EventType: AuditEventSecurityViolation,
+		Timestamp: time.Now(),
+	})
+
+	logger.LogAuthenticationEvent(AuditEventAuthLoginSuccess, req, "user1", true, map[string]any{"test": "value"})
+	logger.LogRateLimitEvent(req, "key", map[string]any{"limit": 100})
+	logger.LogFilterEvent(AuditEventFilterIPBlocked, req, "IP", "192.168.1.1", "test rule")
+	logger.LogCSRFEvent(AuditEventCSRFTokenMissing, req, map[string]any{"test": "value"})
+	logger.LogSuspiciousActivity(req, "test activity", map[string]any{"test": "value"})
+}
+
+// TestDefaultAuditLoggerWithHeaders tests audit logging with headers included
+func TestDefaultAuditLoggerWithHeaders(t *testing.T) {
+	mockLogger := &AuditMockLogger{
+		logs: make([]LogEntry, 0),
+	}
+
+	logger := NewDefaultAuditLogger(mockLogger)
+	logger.IncludeHeaders = true
+	logger.SensitiveHeaders = []string{"Authorization"}
+	logger.MaxDetailSize = 100
+
+	req := httptest.NewRequest(POST, "/test", nil)
+	req.RemoteAddr = "192.168.1.100:12345"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer secret-token")
+	req.Header.Set("User-Agent", "TestAgent/1.0")
+
+	logger.LogAuthenticationEvent(AuditEventAuthLoginSuccess, req, "user1", true, map[string]any{"username": "testuser"})
+
+	if len(mockLogger.logs) == 0 {
+		t.Error("Expected log entries but got none")
+	}
+}
