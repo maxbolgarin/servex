@@ -720,7 +720,9 @@ func newTrafficDumpWriter(config TrafficDumpConfig) (*trafficDumpWriter, error) 
 func (tdw *trafficDumpWriter) rotateFile() error {
 	// Close current file if exists
 	if tdw.file != nil {
-		tdw.file.Close()
+		if err := tdw.file.Close(); err != nil {
+			return fmt.Errorf("close old file: %w", err)
+		}
 	}
 
 	// Create new file
@@ -737,7 +739,7 @@ func (tdw *trafficDumpWriter) rotateFile() error {
 	// Clean up old files if we exceed the limit
 	if tdw.config.MaxFiles > 0 && tdw.fileIndex > tdw.config.MaxFiles {
 		oldFile := fmt.Sprintf("%s_%03d.jsonl", tdw.basePath, tdw.fileIndex-tdw.config.MaxFiles-1)
-		os.Remove(oldFile) // Ignore errors
+		_ = os.Remove(oldFile) // Ignore errors - file might not exist
 	}
 
 	return nil
@@ -799,7 +801,11 @@ func (pm *proxyManager) dumpTrafficEnhanced(r *http.Request, rule *ProxyRule, ba
 	}
 
 	// Write entry (response will be added later if response capture is implemented)
-	pm.dumpWriter.writeRawEntry(entry)
+	if err := pm.dumpWriter.writeRawEntry(entry); err != nil {
+		pm.logger.Error("failed to write traffic dump entry",
+			"component", "proxy",
+			"error", err.Error())
+	}
 }
 
 // writeRawEntry writes a raw HTTP dump entry to the file
@@ -854,8 +860,9 @@ func (tdw *trafficDumpWriter) writeRawEntry(entry rawHTTPDumpEntry) error {
 	return nil
 }
 
-// close closes the traffic dump writer
-func (tdw *trafficDumpWriter) close() error {
+// Close closes the traffic dump writer and ensures all data is synced to disk.
+// This method should be called when shutting down the proxy manager.
+func (tdw *trafficDumpWriter) Close() error {
 	tdw.mu.Lock()
 	defer tdw.mu.Unlock()
 
@@ -1028,7 +1035,7 @@ func (pm *proxyManager) performHealthCheckEnhanced(backend *Backend, proxyLogger
 		resp, err := client.Get(healthURL.String())
 		if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			healthy = true
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			break
 		}
 
@@ -1036,7 +1043,7 @@ func (pm *proxyManager) performHealthCheckEnhanced(backend *Backend, proxyLogger
 			lastErr = err
 		} else {
 			lastErr = fmt.Errorf("health check failed with status %d", resp.StatusCode)
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 
 		// Wait a bit before retry
