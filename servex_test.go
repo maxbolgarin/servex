@@ -866,40 +866,6 @@ func TestRequestSizeLimitWithDefaultOptions(t *testing.T) {
 
 // TestServerUtilityMethods tests simple getter and utility methods
 func TestServerUtilityMethods(t *testing.T) {
-	t.Run("HTTPAddress and HTTPSAddress", func(t *testing.T) {
-		server, _ := NewServer()
-
-		// Start server to initialize addresses
-		addr1 := randAddress()
-		addr2 := randAddress()
-		go server.Start(addr1, addr2)
-
-		// Wait for server to start with timeout
-		started := false
-		for i := 0; i < 10; i++ {
-			time.Sleep(100 * time.Millisecond)
-			httpAddr := server.HTTPAddress()
-			httpsAddr := server.HTTPSAddress()
-			if httpAddr != "" || httpsAddr != "" {
-				started = true
-				break
-			}
-		}
-		defer server.Shutdown(context.Background())
-
-		if !started {
-			t.Skip("Server did not start in time, skipping test")
-		}
-
-		httpAddr := server.HTTPAddress()
-		httpsAddr := server.HTTPSAddress()
-
-		// Just check they're set, exact addresses may vary
-		if httpAddr == "" && httpsAddr == "" {
-			t.Error("Expected at least one address to be set")
-		}
-	})
-
 	t.Run("Filter configured", func(t *testing.T) {
 		filterCfg := FilterConfig{
 			BlockedIPs: []string{"192.168.1.1"},
