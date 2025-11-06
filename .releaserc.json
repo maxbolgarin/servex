@@ -6,7 +6,7 @@
     [
       "@semantic-release/commit-analyzer",
       {
-        "preset": "angular",
+        "preset": "conventionalcommits",
         "releaseRules": [
           {"type": "feat", "release": "minor"},
           {"type": "fix", "release": "patch"},
@@ -26,25 +26,27 @@
     [
       "@semantic-release/release-notes-generator",
       {
-        "preset": "angular",
+        "preset": "conventionalcommits",
         "presetConfig": {
           "types": [
-            {"type": "feat", "section": "🚀 Features"},
-            {"type": "fix", "section": "🐛 Bug Fixes"},
-            {"type": "perf", "section": "⚡ Performance Improvements"},
-            {"type": "revert", "section": "⏪ Reverts"},
-            {"type": "docs", "section": "📚 Documentation"},
-            {"type": "style", "section": "💎 Styles"},
-            {"type": "refactor", "section": "📦 Code Refactoring"},
-            {"type": "test", "section": "🚨 Tests"},
-            {"type": "build", "section": "🛠 Build System"},
-            {"type": "ci", "section": "⚙️ Continuous Integration"}
+            {"type": "feat", "section": "🚀 Features", "hidden": false},
+            {"type": "fix", "section": "🐛 Bug Fixes", "hidden": false},
+            {"type": "perf", "section": "⚡ Performance Improvements", "hidden": false},
+            {"type": "revert", "section": "⏪ Reverts", "hidden": false},
+            {"type": "docs", "section": "📚 Documentation", "hidden": false},
+            {"type": "style", "section": "💎 Styles", "hidden": false},
+            {"type": "refactor", "section": "📦 Code Refactoring", "hidden": false},
+            {"type": "test", "section": "🚨 Tests", "hidden": false},
+            {"type": "build", "section": "🛠 Build System", "hidden": false},
+            {"type": "ci", "section": "⚙️ Continuous Integration", "hidden": false},
+            {"type": "chore", "section": "🔧 Chores", "hidden": false}
           ]
+        },
+        "writerOpts": {
+          "commitsSort": ["subject", "scope"]
         }
       }
     ],
-    [
-      "@semantic-release/github"
-    ]
+    "@semantic-release/github"
   ]
 } 

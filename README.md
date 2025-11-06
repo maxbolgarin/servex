@@ -1,6 +1,6 @@
 # Servex - HTTPS Go server / API gateway for Vibe Coding 
 
-[![Go Version][version-img]][doc] [![GoDoc][doc-img]][doc] [![Build][ci-img]][ci] [![GoReport][report-img]][report] [![MIT][mit-img]][mit]
+[![Go Version][version-img]][doc] [![GoDoc][doc-img]][doc] [![Build][ci-img]][ci] [![Coverage][coverage-img]][coverage] [![GoReport][report-img]][report] [![MIT][mit-img]][mit]
 
 ![Servex](./.github/assets/pic.png)
 
@@ -1428,5 +1428,7 @@ Servex is licensed under the MIT License. See the [LICENSE](LICENSE) file for mo
 [ci]: https://github.com/maxbolgarin/servex/actions
 [report-img]: https://goreportcard.com/badge/github.com/maxbolgarin/servex/v2
 [report]: https://goreportcard.com/report/github.com/maxbolgarin/servex/v2
+[coverage-img]: https://codecov.io/gh/maxbolgarin/servex/branch/v2/graph/badge.svg
+[coverage]: https://codecov.io/gh/maxbolgarin/servex/branch/v2
 [mit-img]: https://img.shields.io/badge/License-MIT-blue.svg
 [mit]: https://github.com/maxbolgarin/servex/blob/v2/LICENSE
