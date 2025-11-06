@@ -216,10 +216,8 @@ func RegisterRequestSizeLimitMiddleware(router MiddlewareRouter, opts Options) {
 		maxJSONBodySize = defaultMaxJSONBodySize // 1 MB default
 	}
 
-	maxMultipartMemory := opts.MaxMultipartMemory
-	if maxMultipartMemory <= 0 {
-		maxMultipartMemory = defaultMaxMemoryMultipartForm // 10 MB default
-	}
+	// Note: MaxMultipartMemory is handled by ParseMultipartForm in context.go
+	// and doesn't need to be enforced here in the middleware
 
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -442,7 +440,7 @@ func registerCSRFTokenEndpoint(router MiddlewareRouter, endpoint, cookieName, co
 			// Return token as JSON
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			fmt.Fprintf(w, `{"csrf_token": "%s"}`, token)
+			_, _ = fmt.Fprintf(w, `{"csrf_token": "%s"}`, token)
 		}).Methods(GET)
 	}
 }
@@ -1477,7 +1475,9 @@ func (crw *compressionResponseWriter) Close() error {
 			// Check if buffered content is below minimum size
 			if len(crw.buf) < crw.minSize {
 				// Content too small to compress, write directly without compression
-				crw.ResponseWriter.Write(crw.buf)
+				if _, err := crw.ResponseWriter.Write(crw.buf); err != nil {
+					return fmt.Errorf("write uncompressed buffer: %w", err)
+				}
 				crw.buf = nil
 				return nil
 			}
@@ -1485,10 +1485,14 @@ func (crw *compressionResponseWriter) Close() error {
 			// Content is large enough, set up compression and write buffered data
 			crw.setupCompression()
 			if crw.writer != nil {
-				crw.writer.Write(crw.buf)
+				if _, err := crw.writer.Write(crw.buf); err != nil {
+					return fmt.Errorf("write compressed buffer: %w", err)
+				}
 			} else {
 				// Compression setup failed, write directly
-				crw.ResponseWriter.Write(crw.buf)
+				if _, err := crw.ResponseWriter.Write(crw.buf); err != nil {
+					return fmt.Errorf("write buffer after compression setup failed: %w", err)
+				}
 			}
 			crw.buf = nil
 		}

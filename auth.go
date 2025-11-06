@@ -799,8 +799,6 @@ var (
 	errInvalidCredentials      = errors.New("invalid username or password")
 	errUnauthorized            = errors.New("unauthorized")
 	errInsufficientPermissions = errors.New("insufficient permissions")
-	errInvalidToken            = errors.New("invalid token")
-	errUnknownRefreshToken     = errors.New("unknown refresh token")
 	errUsernameAlreadyExists   = errors.New("username already exists")
 )
 

@@ -96,7 +96,6 @@ type rateLimiterMiddleware struct {
 
 	// Emergency cleanup control
 	emergencyCleanup chan struct{}
-	emergencyOnce    sync.Once
 
 	// Goroutine lifecycle management
 	shutdownOnce sync.Once
