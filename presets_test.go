@@ -377,28 +377,6 @@ func TestHighSecurityPreset(t *testing.T) {
 	}
 }
 
-// Commented out tests for undefined presets
-// TODO: Implement these presets or remove these tests
-
-/*
-func TestMinimalPreset(t *testing.T) {
-	preset := MinimalPreset()
-	// ... test implementation
-}
-
-func TestQuickTLSPreset(t *testing.T) {
-	certFile := "test.crt"
-	keyFile := "test.key"
-	preset := QuickTLSPreset(certFile, keyFile)
-	// ... test implementation
-}
-
-func TestAuthAPIPreset(t *testing.T) {
-	preset := AuthAPIPreset()
-	// ... test implementation
-}
-*/
-
 func TestPresetCombinations(t *testing.T) {
 	// Test combining presets
 	combined := MergeWithPreset(
