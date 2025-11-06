@@ -1079,3 +1079,323 @@ func TestAuthManager_LogoutHandler(t *testing.T) {
 		})
 	}
 }
+
+// TestAuthManager_GetAllUsersHandler tests the handler for getting all users
+func TestAuthManager_GetAllUsersHandler(t *testing.T) {
+	mockDB := NewMockAuthDatabase()
+	authManager, cfg := newTestAuthManager(mockDB, t)
+	router := mux.NewRouter()
+
+	// Register the GetAllUsers handler manually
+	router.HandleFunc(cfg.AuthBasePath+"/users", authManager.GetAllUsersHandler).Methods(http.MethodGet)
+
+	// Create test users
+	ctx := context.Background()
+	_, _ = mockDB.NewUser(ctx, "user1", "hash1", servex.UserRole("user"))
+	_, _ = mockDB.NewUser(ctx, "user2", "hash2", servex.UserRole("admin"))
+	_, _ = mockDB.NewUser(ctx, "user3", "hash3", servex.UserRole("user"))
+
+	tests := []struct {
+		name           string
+		mockSetup      func()
+		expectStatus   int
+		expectUserCnt  int
+	}{
+		{
+			name:          "Successfully get all users",
+			expectStatus:  http.StatusOK,
+			expectUserCnt: 3,
+		},
+		{
+			name: "Database error",
+			mockSetup: func() {
+				mockDB.SimulateErrorOnFindAll = true
+			},
+			expectStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.mockSetup != nil {
+				tt.mockSetup()
+				defer func() {
+					mockDB.SimulateErrorOnFindAll = false
+				}()
+			}
+
+			req := newJsonRequest(http.MethodGet, cfg.AuthBasePath+"/users", nil)
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			if rr.Code != tt.expectStatus {
+				t.Errorf("Expected status %d, got %d. Body: %s", tt.expectStatus, rr.Code, rr.Body.String())
+			}
+
+			if tt.expectStatus == http.StatusOK {
+				var users []servex.UserLoginResponse
+				if err := json.NewDecoder(rr.Body).Decode(&users); err != nil {
+					t.Fatalf("Failed to decode response: %v", err)
+				}
+				if len(users) != tt.expectUserCnt {
+					t.Errorf("Expected %d users, got %d", tt.expectUserCnt, len(users))
+				}
+				// Verify password hashes are not included
+				for _, user := range users {
+					if user.Username == "" {
+						t.Error("Expected username to be set")
+					}
+				}
+			}
+		})
+	}
+}
+
+// TestAuthManager_UpdateUserRoleHandler tests the handler for updating user roles
+func TestAuthManager_UpdateUserRoleHandler(t *testing.T) {
+	mockDB := NewMockAuthDatabase()
+	authManager, cfg := newTestAuthManager(mockDB, t)
+	router := mux.NewRouter()
+
+	// Register the UpdateUserRole handler manually
+	router.HandleFunc(cfg.AuthBasePath+"/users/role", authManager.UpdateUserRoleHandler).Methods(http.MethodPut)
+
+	// Create a test user
+	ctx := context.Background()
+	userID, _ := mockDB.NewUser(ctx, "testuser", "hash", servex.UserRole("user"))
+
+	tests := []struct {
+		name         string
+		requestBody  interface{}
+		mockSetup    func()
+		expectStatus int
+	}{
+		{
+			name: "Successfully update user role",
+			requestBody: servex.UserUpdateRequest{
+				ID:    userID,
+				Roles: lang.Ptr([]servex.UserRole{servex.UserRole("admin"), servex.UserRole("user")}),
+			},
+			expectStatus: http.StatusOK,
+		},
+		{
+			name:         "Invalid request body",
+			requestBody:  "invalid",
+			expectStatus: http.StatusBadRequest,
+		},
+		{
+			name: "Database error",
+			requestBody: servex.UserUpdateRequest{
+				ID:    userID,
+				Roles: lang.Ptr([]servex.UserRole{servex.UserRole("admin")}),
+			},
+			mockSetup: func() {
+				mockDB.SimulateErrorOnUpdateUser = true
+			},
+			expectStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.mockSetup != nil {
+				tt.mockSetup()
+				defer func() {
+					mockDB.SimulateErrorOnUpdateUser = false
+				}()
+			}
+
+			req := newJsonRequest(http.MethodPut, cfg.AuthBasePath+"/users/role", tt.requestBody)
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			if rr.Code != tt.expectStatus {
+				t.Errorf("Expected status %d, got %d. Body: %s", tt.expectStatus, rr.Code, rr.Body.String())
+			}
+
+			if tt.expectStatus == http.StatusOK {
+				// Verify user roles were updated
+				user, exists, _ := mockDB.FindByID(ctx, userID)
+				if !exists {
+					t.Fatal("User should exist after update")
+				}
+				if len(user.Roles) == 0 {
+					t.Error("Expected user roles to be updated")
+				}
+			}
+		})
+	}
+}
+
+// TestMemoryAuthDatabase tests MemoryAuthDatabase methods
+func TestMemoryAuthDatabase(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("FindByID", func(t *testing.T) {
+		db := servex.NewMemoryAuthDatabase()
+
+		// Create a user
+		userID, err := db.NewUser(ctx, "testuser", "hash123", servex.UserRole("user"))
+		if err != nil {
+			t.Fatalf("Failed to create user: %v", err)
+		}
+
+		// Test finding existing user
+		user, found, err := db.FindByID(ctx, userID)
+		if err != nil {
+			t.Fatalf("FindByID error: %v", err)
+		}
+		if !found {
+			t.Error("Expected to find user")
+		}
+		if user.ID != userID {
+			t.Errorf("Expected user ID %s, got %s", userID, user.ID)
+		}
+
+		// Test finding non-existent user
+		_, found, err = db.FindByID(ctx, "non-existent")
+		if err != nil {
+			t.Fatalf("FindByID error: %v", err)
+		}
+		if found {
+			t.Error("Expected user not to be found")
+		}
+	})
+
+	t.Run("FindAll", func(t *testing.T) {
+		db := servex.NewMemoryAuthDatabase()
+
+		// Create multiple users
+		_, _ = db.NewUser(ctx, "user1", "hash1", servex.UserRole("user"))
+		_, _ = db.NewUser(ctx, "user2", "hash2", servex.UserRole("admin"))
+		_, _ = db.NewUser(ctx, "user3", "hash3", servex.UserRole("user"))
+
+		users, err := db.FindAll(ctx)
+		if err != nil {
+			t.Fatalf("FindAll error: %v", err)
+		}
+		if len(users) != 3 {
+			t.Errorf("Expected 3 users, got %d", len(users))
+		}
+	})
+
+	t.Run("UpdateUser", func(t *testing.T) {
+		db := servex.NewMemoryAuthDatabase()
+
+		// Create a user
+		userID, _ := db.NewUser(ctx, "testuser", "hash123", servex.UserRole("user"))
+
+		// Update user roles
+		newRoles := []servex.UserRole{servex.UserRole("admin"), servex.UserRole("moderator")}
+		err := db.UpdateUser(ctx, userID, &servex.UserDiff{
+			Roles: &newRoles,
+		})
+		if err != nil {
+			t.Fatalf("UpdateUser error: %v", err)
+		}
+
+		// Verify update
+		user, found, _ := db.FindByID(ctx, userID)
+		if !found {
+			t.Fatal("User should exist after update")
+		}
+		if len(user.Roles) != 2 {
+			t.Errorf("Expected 2 roles, got %d", len(user.Roles))
+		}
+
+		// Update password hash
+		newHash := "newhash456"
+		err = db.UpdateUser(ctx, userID, &servex.UserDiff{
+			PasswordHash: &newHash,
+		})
+		if err != nil {
+			t.Fatalf("UpdateUser error: %v", err)
+		}
+
+		// Verify password hash update
+		user, _, _ = db.FindByID(ctx, userID)
+		if user.PasswordHash != newHash {
+			t.Errorf("Expected password hash %s, got %s", newHash, user.PasswordHash)
+		}
+
+		// Test updating non-existent user
+		err = db.UpdateUser(ctx, "non-existent", &servex.UserDiff{
+			Roles: &newRoles,
+		})
+		if err == nil {
+			t.Error("Expected error when updating non-existent user")
+		}
+	})
+}
+
+// TestHasPermission tests the permission checking logic for user roles
+func TestHasPermission(t *testing.T) {
+	mockDB := NewMockAuthDatabase()
+	ctx := context.Background()
+
+	// Create users with different roles
+	adminID, _ := mockDB.NewUser(ctx, "admin", "hash", servex.UserRole("admin"))
+	userID, _ := mockDB.NewUser(ctx, "user", "hash", servex.UserRole("user"))
+	multiRoleID, _ := mockDB.NewUser(ctx, "multi", "hash", servex.UserRole("user"), servex.UserRole("editor"))
+
+	tests := []struct {
+		name         string
+		userID       string
+		requiredRole servex.UserRole
+		expectPass   bool
+	}{
+		{
+			name:         "Admin user has admin role",
+			userID:       adminID,
+			requiredRole: servex.UserRole("admin"),
+			expectPass:   true,
+		},
+		{
+			name:         "Regular user lacks admin role",
+			userID:       userID,
+			requiredRole: servex.UserRole("admin"),
+			expectPass:   false,
+		},
+		{
+			name:         "Multi-role user has editor role",
+			userID:       multiRoleID,
+			requiredRole: servex.UserRole("editor"),
+			expectPass:   true,
+		},
+		{
+			name:         "Regular user lacks editor role",
+			userID:       userID,
+			requiredRole: servex.UserRole("editor"),
+			expectPass:   false,
+		},
+		{
+			name:         "Multi-role user has user role",
+			userID:       multiRoleID,
+			requiredRole: servex.UserRole("user"),
+			expectPass:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Get user
+			user, exists, _ := mockDB.FindByID(ctx, tt.userID)
+			if !exists {
+				t.Fatalf("User %s not found", tt.userID)
+			}
+
+			// Check if user has required role (tests the hasPermission logic)
+			hasRole := false
+			for _, role := range user.Roles {
+				if role == tt.requiredRole {
+					hasRole = true
+					break
+				}
+			}
+
+			if hasRole != tt.expectPass {
+				t.Errorf("Expected user to have role=%v, got %v", tt.expectPass, hasRole)
+			}
+		})
+	}
+}

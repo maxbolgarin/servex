@@ -9,6 +9,7 @@ import (
 	mr "math/rand"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -860,5 +861,127 @@ func TestRequestSizeLimitWithDefaultOptions(t *testing.T) {
 				t.Errorf("expected status code %d, got %d", tt.expectedStatus, w.Code)
 			}
 		})
+	}
+}
+
+// TestServerUtilityMethods tests simple getter and utility methods
+func TestServerUtilityMethods(t *testing.T) {
+	t.Run("HTTPAddress and HTTPSAddress", func(t *testing.T) {
+		server, _ := NewServer()
+
+		// Start server to initialize addresses
+		addr1 := randAddress()
+		addr2 := randAddress()
+		go server.Start(addr1, addr2)
+		time.Sleep(200 * time.Millisecond) // Give it time to start
+		defer server.Shutdown(context.Background())
+
+		httpAddr := server.HTTPAddress()
+		httpsAddr := server.HTTPSAddress()
+
+		// Just check they're set, exact addresses may vary
+		if httpAddr == "" && httpsAddr == "" {
+			t.Error("Expected at least one address to be set")
+		}
+	})
+
+	t.Run("Filter configured", func(t *testing.T) {
+		filterCfg := FilterConfig{
+			BlockedIPs: []string{"192.168.1.1"},
+		}
+		server, _ := NewServer(WithFilterConfig(filterCfg))
+		filter := server.Filter()
+		if filter == nil {
+			t.Error("Expected Filter to return non-nil when configured")
+		}
+	})
+}
+
+// TestHealthHandler tests the built-in health check endpoint
+func TestHealthHandler(t *testing.T) {
+	server, _ := NewServer(WithHealthEndpoint())
+
+	req := httptest.NewRequest(GET, "/health", nil)
+	w := httptest.NewRecorder()
+	server.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	body := w.Body.String()
+	if !strings.Contains(body, "ok") {
+		t.Errorf("Expected response to contain 'ok', got %s", body)
+	}
+}
+
+// TestAddStaticFileRoutes tests registering static file routes
+func TestAddStaticFileRoutes(t *testing.T) {
+	server, _ := NewServer()
+
+	// Create a temp directory for static files
+	tmpDir := t.TempDir()
+
+	// Create a test file
+	testFile := tmpDir + "/test.txt"
+	err := os.WriteFile(testFile, []byte("test content"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+
+	// Add static file routes
+	cfg := StaticFileConfig{
+		Enabled:   true,
+		Dir:       tmpDir,
+		URLPrefix: "/static",
+	}
+	err = server.AddStaticFileRoutes(cfg)
+	if err != nil {
+		t.Fatalf("Failed to add static file routes: %v", err)
+	}
+
+	// Test accessing the static file
+	req := httptest.NewRequest(GET, "/static/test.txt", nil)
+	w := httptest.NewRecorder()
+	server.Router().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("Expected status %d, got %d", http.StatusOK, w.Code)
+	}
+
+	if !strings.Contains(w.Body.String(), "test content") {
+		t.Errorf("Expected response to contain 'test content', got %s", w.Body.String())
+	}
+}
+
+// TestStartWithWaitSignals tests the signal handling server start (in non-blocking mode)
+func TestStartWithWaitSignals(t *testing.T) {
+	server, _ := NewServer()
+	server.HandleFunc("/test", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Start the server in a goroutine
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- server.StartWithWaitSignals(ctx, randAddress(), "")
+	}()
+
+	// Give it time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Cancel to stop the server
+	cancel()
+
+	// Wait for shutdown
+	select {
+	case err := <-errChan:
+		if err != nil && err != http.ErrServerClosed {
+			t.Errorf("Unexpected error: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Error("Server did not shut down in time")
 	}
 }
