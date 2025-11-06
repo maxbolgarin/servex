@@ -78,7 +78,7 @@ func TestLoadBalancingStrategies(t *testing.T) {
 		{
 			name:     "Random",
 			strategy: RandomStrategy,
-			requests: 10,
+			requests: 100, // Increased from 10 to reduce flakiness
 			weights:  []int{1, 1},
 		},
 	}
@@ -172,11 +172,13 @@ func TestLoadBalancingStrategies(t *testing.T) {
 				}
 			}
 
-			// For random, just verify both backends got some requests
+			// For random, verify both backends got some requests
+			// With 100 requests, each backend should reasonably get at least 20%
 			if tt.strategy == RandomStrategy {
-				if backendHits["backend1"] == 0 || backendHits["backend2"] == 0 {
-					t.Errorf("Random distribution failed: backend1=%d, backend2=%d (both should get some requests)",
-						backendHits["backend1"], backendHits["backend2"])
+				minHits := tt.requests / 5 // At least 20% per backend
+				if backendHits["backend1"] < minHits || backendHits["backend2"] < minHits {
+					t.Errorf("Random distribution too skewed: backend1=%d, backend2=%d (each should get at least %d out of %d)",
+						backendHits["backend1"], backendHits["backend2"], minHits, tt.requests)
 				}
 			}
 		})
