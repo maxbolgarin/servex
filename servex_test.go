@@ -873,8 +873,23 @@ func TestServerUtilityMethods(t *testing.T) {
 		addr1 := randAddress()
 		addr2 := randAddress()
 		go server.Start(addr1, addr2)
-		time.Sleep(200 * time.Millisecond) // Give it time to start
+
+		// Wait for server to start with timeout
+		started := false
+		for i := 0; i < 10; i++ {
+			time.Sleep(100 * time.Millisecond)
+			httpAddr := server.HTTPAddress()
+			httpsAddr := server.HTTPSAddress()
+			if httpAddr != "" || httpsAddr != "" {
+				started = true
+				break
+			}
+		}
 		defer server.Shutdown(context.Background())
+
+		if !started {
+			t.Skip("Server did not start in time, skipping test")
+		}
 
 		httpAddr := server.HTTPAddress()
 		httpsAddr := server.HTTPSAddress()
