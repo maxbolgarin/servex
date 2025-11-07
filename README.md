@@ -55,6 +55,26 @@ Quick configurations for common scenarios:
 | `HighSecurityPreset()` | Maximum security features |
 | `QuickTLSPreset(cert, key)` | Production + SSL |
 
+## Features & Configuration
+
+| Feature | Configuration Options |
+|---------|----------------------|
+| **Authentication** | `WithAuth(config)` - Full JWT auth with database<br>`WithAuthToken(token)` - Simple bearer token<br>`WithAuthMemoryDatabase()` - In-memory user storage<br>`WithAuthKey(accessKey, refreshKey)` - Custom JWT keys<br>`WithAuthTokensDuration(access, refresh)` - Token lifetimes<br>`WithAuthIssuer(issuer)` - JWT issuer<br>`WithAuthBasePath(path)` - Auth routes prefix<br>`WithAuthInitialRoles(roles...)` - Default user roles |
+| **Rate Limiting** | `WithRPM(requests)` - Requests per minute<br>`WithRPS(requests)` - Requests per second<br>`WithRequestsPerInterval(requests, interval)` - Custom interval<br>`WithBurstSize(size)` - Burst allowance<br>`WithRateLimitConfig(config)` - Full configuration<br>`WithRateLimitExcludePaths(paths...)` - Exclude paths<br>`WithRateLimitIncludePaths(paths...)` - Include only paths |
+| **Request Filtering** | `WithBlockedIPs(ips...)` - Block IP ranges<br>`WithAllowedIPs(ips...)` - Allow only IPs<br>`WithBlockedUserAgents(agents...)` - Block user agents<br>`WithBlockedUserAgentsRegex(patterns...)` - Block by regex<br>`WithAllowedHeaders(headers)` - Allow headers<br>`WithBlockedHeaders(headers)` - Block headers<br>`WithAllowedQueryParams(params)` - Allow query params<br>`WithBlockedQueryParams(params)` - Block query params<br>`WithFilterConfig(config)` - Full configuration |
+| **Security Headers** | `WithSecurityHeaders()` - Basic headers<br>`WithStrictSecurityHeaders()` - Strict CSP, HSTS<br>`WithContentSecurityPolicy(policy)` - Custom CSP<br>`WithHSTSHeader(maxAge, includeSubdomains, preload)` - HSTS config<br>`WithSecurityConfig(config)` - Full configuration |
+| **CSRF Protection** | `WithCSRFProtection()` - Enable CSRF<br>`WithCSRFTokenName(name)` - Token header name<br>`WithCSRFCookieName(name)` - Cookie name<br>`WithCSRFCookieHttpOnly(httpOnly)` - HttpOnly flag<br>`WithCSRFCookieSecure(secure)` - Secure flag<br>`WithCSRFTokenEndpoint(endpoint)` - Token endpoint |
+| **CORS** | `WithCORS()` - Enable with defaults<br>`WithCORSAllowOrigins(origins...)` - Allowed origins<br>`WithCORSAllowMethods(methods...)` - Allowed methods<br>`WithCORSAllowHeaders(headers...)` - Allowed headers<br>`WithCORSAllowCredentials()` - Allow credentials<br>`WithCORSMaxAge(seconds)` - Preflight cache<br>`WithCORSConfig(config)` - Full configuration |
+| **Compression** | `WithCompression()` - Enable gzip<br>`WithCompressionLevel(level)` - Level 1-9<br>`WithCompressionMinSize(size)` - Min size to compress<br>`WithCompressionTypes(types...)` - Content types<br>`WithCompressionConfig(config)` - Full configuration |
+| **Caching** | `WithCachePublic(maxAge)` - Public cache<br>`WithCachePrivate(maxAge)` - Private cache<br>`WithCacheStaticAssets(maxAge)` - Static file cache<br>`WithCacheNoCache()` - Disable caching<br>`WithCacheControl(control)` - Custom Cache-Control<br>`WithCacheConfig(config)` - Full configuration |
+| **Static Files / SPA** | `WithStaticFiles(dir, prefix)` - Serve static files<br>`WithSPAMode(dir, indexFile)` - SPA mode<br>`WithStaticFileConfig(config)` - Full configuration<br>`WithStaticFileCache(maxAge, rules...)` - Cache rules |
+| **Reverse Proxy** | `WithProxyConfig(config)` - Full proxy configuration<br>Supports load balancing, health checks, path rewriting |
+| **HTTPS / TLS** | `WithCertificate(cert)` - TLS certificate<br>`WithCertificateFromFile(cert, key)` - Load from files<br>`WithHTTPSRedirect()` - Redirect HTTP to HTTPS<br>`WithHTTPSRedirectTemporary()` - 307 redirect<br>`WithHTTPSRedirectConfig(config)` - Full redirect config |
+| **Logging & Monitoring** | `WithLogger(logger)` - Custom logger<br>`WithDefaultAuditLogger()` - Security audit logs<br>`WithAuditLogger(logger)` - Custom audit logger<br>`WithDisableRequestLogging()` - Disable request logs<br>`WithNoLogClientErrors()` - Skip 4xx errors<br>`WithLogFields(fields...)` - Additional log fields |
+| **Health & Metrics** | `WithHealthEndpoint()` - Enable `/health`<br>`WithHealthPath(path)` - Custom health path<br>`WithDefaultMetrics(path)` - Prometheus metrics<br>`WithMetrics(metrics)` - Custom metrics<br>`WithDisableHealthEndpoint()` - Disable health |
+| **Server Timeouts** | `WithReadTimeout(duration)` - Request read timeout<br>`WithReadHeaderTimeout(duration)` - Header read timeout<br>`WithIdleTimeout(duration)` - Keep-alive timeout<br>`WithMaxHeaderBytes(size)` - Max header size |
+| **Request Size Limits** | `WithMaxRequestBodySize(size)` - Max body size<br>`WithMaxJSONBodySize(size)` - Max JSON size<br>`WithMaxFileUploadSize(size)` - Max file size<br>`WithMaxMultipartMemory(size)` - Multipart memory<br>`WithRequestSizeLimits()` - Enable defaults<br>`WithStrictRequestSizeLimits()` - Strict limits |
+
 ## Core Features
 
 ### Authentication
@@ -76,12 +96,15 @@ server.HandleFuncWithAuth("/admin", adminHandler, "admin")
 
 ### Rate Limiting
 
-Protect your APIs:
+Protect all your APIs:
 
 ```go
 server, _ := servex.New(servex.WithRPM(100)) // 100 requests per minute
+```
 
-// Or per-endpoint limits
+Or per-endpoint limits via register after server creation:
+
+```go
 locationConfigs := []servex.LocationRateLimitConfig{
     {
         PathPatterns: []string{"/auth/login"},
@@ -91,7 +114,7 @@ locationConfigs := []servex.LocationRateLimitConfig{
         },
     },
 }
-servex.RegisterLocationBasedRateLimitMiddleware(server.R(), locationConfigs)
+servex.RegisterLocationBasedRateLimitMiddleware(server.Router(), locationConfigs)
 ```
 
 ### Request Filtering
