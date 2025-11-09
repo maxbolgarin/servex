@@ -155,8 +155,8 @@ type Options struct {
 	//   - You're implementing custom request logging middleware
 	DisableRequestLogging bool
 
-	// NoLogClientErrors disables logging of client errors (HTTP status codes 400-499).
-	// Server errors (5xx) and successful requests will still be logged if request logging is enabled.
+	// NoLogClientErrors disables logging of client errors in error level (HTTP status codes 400-499).
+	// Server errors (5xx) will still be logged in error level if request logging is enabled.
 	// Set to true via WithNoLogClientErrors().
 	//
 	// Use to:

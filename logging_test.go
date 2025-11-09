@@ -262,8 +262,8 @@ func TestRequestLogger_NoLogClientErrors(t *testing.T) {
 
 	rLogger.Log(bundle)
 
-	if len(mockLogger.Messages) != 0 {
-		t.Errorf("Expected no log messages with NoLogClientErrors=true, got %d", len(mockLogger.Messages))
+	if len(mockLogger.Messages) != 1 {
+		t.Errorf("Expected one log message with NoLogClientErrors=true, got %d messages", len(mockLogger.Messages))
 	}
 
 	// Test that server errors ARE still logged
@@ -312,8 +312,8 @@ func TestRequestLogger_DefaultStatusCode(t *testing.T) {
 		actualFields[key] = value
 	}
 
-	if status, ok := actualFields["status"].(int); !ok || status != 200 {
-		t.Errorf("Expected default status code 200, got %v", actualFields["status"])
+	if _, ok := actualFields["status"].(int); ok {
+		t.Errorf("Expected empty status code, got %v", actualFields["status"])
 	}
 }
 

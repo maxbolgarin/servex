@@ -3,6 +3,7 @@ package servex
 import (
 	"bytes"
 	"net/http"
+	"slices"
 	"sync"
 	"time"
 )
@@ -136,18 +137,10 @@ type BaseRequestLogger struct {
 func (l *BaseRequestLogger) Log(r RequestLogBundle) {
 	duration := time.Since(r.StartTime)
 	statusCode := r.StatusCode
-	if statusCode == 0 {
-		statusCode = 200 // Default status code
-	}
 
 	// Don't log successful requests at error level
 	isError := r.Error != nil || statusCode >= 500
 	isClientError := statusCode >= 400 && statusCode < 500
-
-	// Skip logging client errors if configured
-	if isClientError && r.NoLogClientErrors {
-		return
-	}
 
 	// Get log fields from pool
 	fields := getLogFields()
@@ -156,7 +149,9 @@ func (l *BaseRequestLogger) Log(r RequestLogBundle) {
 	// Always include basic fields
 	fields = append(fields, "method", r.Request.Method)
 	fields = append(fields, "url", r.Request.URL.String())
-	fields = append(fields, "status", statusCode)
+	if statusCode > 0 {
+		fields = append(fields, "status", statusCode)
+	}
 	fields = append(fields, "duration_ms", duration.Milliseconds())
 
 	// Add optional fields based on configuration
@@ -189,9 +184,11 @@ func (l *BaseRequestLogger) Log(r RequestLogBundle) {
 
 	// Log at appropriate level
 	if isError {
-		l.Logger.Error(msg, fields...)
-	} else if isClientError {
-		l.Logger.Info(msg, fields...)
+		if isClientError && r.NoLogClientErrors {
+			l.Logger.Debug(msg, fields...)
+		} else {
+			l.Logger.Error(msg, fields...)
+		}
 	} else {
 		l.Logger.Debug(msg, fields...)
 	}
@@ -202,12 +199,7 @@ func (l *BaseRequestLogger) shouldIncludeField(field string) bool {
 	if len(l.FieldsToInclude) == 0 {
 		return true // Include all fields if none specified
 	}
-	for _, f := range l.FieldsToInclude {
-		if f == field {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(l.FieldsToInclude, field)
 }
 
 type noopRequestLogger struct{}

@@ -124,6 +124,7 @@ func WithMaxHeaderBytes(size int) Option {
 		op.MaxHeaderBytes = lang.If(size <= 0, defaultMaxHeaderBytes, size)
 	}
 }
+
 // WithLogger sets a custom logger for server events, errors, and panics.
 // The logger must implement the [Logger] interface. Set via WithLogger().
 //
@@ -193,12 +194,12 @@ func WithDisableRequestLogging() Option {
 	}
 }
 
-// WithNoLogClientErrors disables logging of client errors (HTTP status codes 400-499).
-// Server errors (5xx) and successful requests will still be logged if request logging is enabled.
+// WithNoLogClientErrors disables logging of client errors in error level (HTTP status codes 400-499).
+// Server errors (5xx) will still be logged in error level if request logging is enabled.
 //
 // Example:
 //
-//	// Don't log 404s, 400s, etc. to reduce noise
+//	// Don't log 404s, 400s, etc. in error level to reduce noise
 //	server := servex.New(servex.WithNoLogClientErrors())
 //
 // Use this to:
@@ -248,6 +249,7 @@ func WithSendErrorToClient() Option {
 		op.SendErrorToClient = true
 	}
 }
+
 // WithLogFields specifies which fields to include in request logs.
 // If not set, all available fields will be logged (default behavior).
 //
