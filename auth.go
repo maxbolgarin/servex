@@ -458,13 +458,17 @@ func (h *AuthManager) CreateUser(ctx context.Context, username, password string,
 	return nil
 }
 
+func (h *AuthManager) isSecureCookie(ctx *Context) bool {
+	return h.service.cfg.ForceSecureCookies || ctx.r.TLS != nil
+}
+
 func (h *AuthManager) setAuthCookie(ctx *Context, token string, expiresAt time.Time) {
 	ctx.SetRawCookie(&http.Cookie{
 		Name:     h.service.cfg.RefreshTokenCookieName,
 		Value:    token,
 		Path:     authBasePath,
 		HttpOnly: true,
-		Secure:   (ctx.Header("X-Forwarded-Proto") == "https") || ctx.r.TLS != nil,
+		Secure:   h.isSecureCookie(ctx),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   int(time.Until(expiresAt).Seconds()),
 	})
@@ -476,7 +480,7 @@ func (h *AuthManager) setLogoutCookie(ctx *Context) {
 		Value:    "",
 		Path:     authBasePath,
 		HttpOnly: true,
-		Secure:   (ctx.Header("X-Forwarded-Proto") == "https") || ctx.r.TLS != nil,
+		Secure:   h.isSecureCookie(ctx),
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   -1, // Delete cookie
 		Expires:  time.Now().Add(-1 * time.Hour),
@@ -769,18 +773,17 @@ func (s *service) generateToken(userID string, userRoles []UserRole, isRefresh b
 
 	claims := jwtClaims{
 		UserID:    userID,
-		Roles:     userRoles,
 		IsRefresh: isRefresh,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    s.cfg.IssuerNameInJWT,
 		},
 	}
 
-	// Make refresh lighter
+	// Make refresh lighter — only include roles in access tokens
 	if !isRefresh {
 		claims.Roles = userRoles
-		claims.Issuer = s.cfg.IssuerNameInJWT
 	}
 
 	// Create token
