@@ -38,7 +38,6 @@ func RegisterStaticFileMiddleware(router MiddlewareRouter, cfg StaticFileConfig)
 
 				// Check if this path should be excluded from static file serving
 				if shouldExcludeFromStatic(r.URL.Path, cfg.ExcludePaths) {
-					fmt.Println("exclude path", r.URL.Path)
 					next.ServeHTTP(w, r)
 					return
 				}
