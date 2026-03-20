@@ -659,12 +659,12 @@ func (ctx *Context) Error(err error, code int, msg string, fields ...any) {
 	ctx.w.WriteHeader(code)
 
 	if _, writeErr := ctx.w.Write(jsonBytes); writeErr != nil {
-		// Log the write error if possible (though Context doesn't have logger)
-		// Cannot call ctx.Error as headers are already written.
-		// We can potentially set the error in context for logging, though the request is mostly finished.
+		origErr := ""
+		if err != nil {
+			origErr = err.Error()
+		}
 		ctx.setError(fmt.Errorf("write error response: %w", writeErr), code,
-			"failed to write error response body, original error: "+err.Error())
-		// No return here, let the handler finish, but the response is likely broken.
+			"failed to write error response body, original error: "+origErr)
 	}
 }
 
