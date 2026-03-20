@@ -114,11 +114,17 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 	if err != nil {
 		return nil, fmt.Errorf("decode access secret: %w", err)
 	}
+	if len(accessSecret) < minSecretKeyLength {
+		return nil, fmt.Errorf("JWT access secret must be at least %d bytes (%d hex characters)", minSecretKeyLength, minSecretKeyLength*2)
+	}
 	cfg.accessSecret = accessSecret
 
 	refreshSecret, err := hex.DecodeString(cfg.JWTRefreshSecret)
 	if err != nil {
 		return nil, fmt.Errorf("decode refresh secret: %w", err)
+	}
+	if len(refreshSecret) < minSecretKeyLength {
+		return nil, fmt.Errorf("JWT refresh secret must be at least %d bytes (%d hex characters)", minSecretKeyLength, minSecretKeyLength*2)
 	}
 	cfg.refreshSecret = refreshSecret
 
@@ -127,6 +133,7 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 	cfg.AccessTokenDuration = lang.Check(cfg.AccessTokenDuration, accessTokenDuration)
 	cfg.RefreshTokenDuration = lang.Check(cfg.RefreshTokenDuration, refreshTokenDuration)
 	cfg.IssuerNameInJWT = lang.Check(cfg.IssuerNameInJWT, "servex")
+	cfg.MinPasswordLength = lang.Check(cfg.MinPasswordLength, defaultMinPasswordLength)
 
 	// Get audit logger (optional parameter)
 	var audit AuditLogger = &NoopAuditLogger{}
@@ -238,6 +245,8 @@ func (h *AuthManager) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	result, err := h.service.register(r.Context(), req)
 	if err != nil {
 		switch err {
+		case errPasswordTooShort:
+			ctx.BadRequest(err, fmt.Sprintf("password must be at least %d characters", h.service.cfg.MinPasswordLength))
 		case errUsernameAlreadyExists:
 			ctx.Conflict(err, err.Error())
 		default:
@@ -515,6 +524,10 @@ func newService(cfg AuthConfig) *service {
 }
 
 func (s *service) register(ctx context.Context, req UserLoginRequest) (loginResult, error) {
+	if s.cfg.MinPasswordLength > 0 && len(req.Password) < s.cfg.MinPasswordLength {
+		return loginResult{}, errPasswordTooShort
+	}
+
 	_, exists, err := s.db.FindByUsername(ctx, req.Username)
 	if err != nil {
 		return loginResult{}, fmt.Errorf("FindByUsername: %w", err)
@@ -803,6 +816,7 @@ var (
 	errUnauthorized            = errors.New("unauthorized")
 	errInsufficientPermissions = errors.New("insufficient permissions")
 	errUsernameAlreadyExists   = errors.New("username already exists")
+	errPasswordTooShort        = errors.New("password too short")
 )
 
 // Validate checks if the UserLoginRequest is valid.
@@ -866,6 +880,9 @@ const (
 
 	accessTokenDuration  = 5 * time.Minute
 	refreshTokenDuration = 7 * 24 * time.Hour
+
+	defaultMinPasswordLength = 8
+	minSecretKeyLength       = 32
 )
 
 // MockAuthDatabase provides a mock implementation of the AuthDatabase interface for testing.
@@ -957,6 +974,9 @@ func (db *MemoryAuthDatabase) UpdateUser(ctx context.Context, id string, diff *U
 	}
 	if diff.RefreshTokenHash != nil {
 		user.RefreshTokenHash = *diff.RefreshTokenHash
+	}
+	if diff.RefreshTokenExpiresAt != nil {
+		user.RefreshTokenExpiresAt = *diff.RefreshTokenExpiresAt
 	}
 
 	// Update maps

@@ -379,8 +379,29 @@ func RegisterHTTPSRedirectMiddleware(router MiddlewareRouter, cfg HTTPSRedirectC
 				return
 			}
 
+			// Validate Host header to prevent open redirect via spoofed Host
+			host := r.Host
+			if len(cfg.AllowedHosts) > 0 {
+				// Strip port for comparison
+				h := host
+				if colonIdx := strings.LastIndex(h, ":"); colonIdx != -1 {
+					h = h[:colonIdx]
+				}
+				allowed := false
+				for _, ah := range cfg.AllowedHosts {
+					if strings.EqualFold(h, ah) {
+						allowed = true
+						break
+					}
+				}
+				if !allowed {
+					w.WriteHeader(http.StatusMisdirectedRequest)
+					return
+				}
+			}
+
 			// Perform HTTP to HTTPS redirect
-			httpsURL := "https://" + r.Host + r.RequestURI
+			httpsURL := "https://" + host + r.RequestURI
 
 			// Choose redirect status code
 			statusCode := http.StatusMovedPermanently // 301

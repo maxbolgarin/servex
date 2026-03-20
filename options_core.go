@@ -734,6 +734,10 @@ type AuthConfig struct {
 	// The users are created if they don't already exist in the database.
 	InitialUsers []InitialUser
 
+	// MinPasswordLength is the minimum required password length for registration.
+	// Defaults to 8 if not set. Only enforced during registration, not login.
+	MinPasswordLength int
+
 	// ForceSecureCookies forces the Secure flag on auth cookies regardless of the request protocol.
 	// When true, cookies are always marked Secure (requiring HTTPS).
 	// When false (default), the Secure flag is determined by ctx.r.TLS != nil.
@@ -2062,6 +2066,14 @@ type HTTPSRedirectConfig struct {
 	// Path matching supports wildcards (*) for pattern matching.
 	// Leave empty to redirect all paths (recommended for production).
 	IncludePaths []string
+
+	// AllowedHosts restricts HTTPS redirects to the listed hostnames.
+	// If set, the Host header must match one of these values (case-insensitive,
+	// port stripped before comparison). Requests with unrecognized Host headers
+	// receive 421 Misdirected Request instead of a redirect, preventing open-redirect
+	// attacks via spoofed Host headers.
+	// Leave empty to allow any host (less secure but simpler for single-host deployments).
+	AllowedHosts []string
 }
 
 // CORSConfig holds configuration for Cross-Origin Resource Sharing (CORS).

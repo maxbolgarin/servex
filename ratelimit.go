@@ -538,7 +538,7 @@ func getUsernameKeyFuncWithProxies(trustedProxies []string) func(r *http.Request
 	ipKeyFunc := getIPKeyFuncWithProxies(trustedProxies)
 	return func(r *http.Request) string {
 		// Only try to extract username from login/register endpoints
-		if r.Method == http.MethodPost && (r.URL.Path == "/login" || r.URL.Path == "/register") {
+		if r.Method == http.MethodPost && (strings.HasSuffix(r.URL.Path, "/login") || strings.HasSuffix(r.URL.Path, "/register")) {
 			// Read body with size limit to prevent DoS attacks
 			body, err := io.ReadAll(io.LimitReader(r.Body, defaultMaxUsernameBodySize)) // 1KB limit for username extraction
 			if err == nil && len(body) > 0 {
