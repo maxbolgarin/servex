@@ -318,13 +318,13 @@ func (ctx *Context) ReadWithLimit(maxSize int64) ([]byte, error) {
 		maxSize = ctx.maxRequestBodySize
 	}
 
-	bytes, err := io.ReadAll(io.LimitReader(ctx.r.Body, maxSize))
+	bytes, err := io.ReadAll(io.LimitReader(ctx.r.Body, maxSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("read: %w", err)
 	}
 
 	// Check if we hit the size limit
-	if int64(len(bytes)) >= maxSize {
+	if int64(len(bytes)) > maxSize {
 		return nil, fmt.Errorf("request body too large (max: %d bytes)", maxSize)
 	}
 
@@ -406,13 +406,13 @@ func (ctx *Context) ReadJSONWithLimit(body any, maxSize int64) error {
 		maxSize = ctx.maxJSONBodySize
 	}
 
-	bytes, err := io.ReadAll(io.LimitReader(ctx.r.Body, maxSize))
+	bytes, err := io.ReadAll(io.LimitReader(ctx.r.Body, maxSize+1))
 	if err != nil {
 		return fmt.Errorf("read: %w", err)
 	}
 
 	// Check if we hit the size limit
-	if int64(len(bytes)) >= maxSize {
+	if int64(len(bytes)) > maxSize {
 		return fmt.Errorf("request body too large (max: %d bytes)", maxSize)
 	}
 

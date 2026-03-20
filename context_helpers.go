@@ -72,18 +72,10 @@ var (
 
 func getRandomBytes(n int) []byte {
 	out := make([]byte, n)
-	_, err := rand.Read(out)
-	if err != nil {
-		// Fallback to crypto/rand with a different approach
-		fallbackBytes := make([]byte, n)
-		if _, fallbackErr := rand.Read(fallbackBytes); fallbackErr != nil {
-			// If crypto/rand completely fails, use time-based seed as last resort
-			r := mr.New(mr.NewSource(time.Now().UnixNano()))
-			for i := range out {
-				out[i] = byte(r.Intn(math.MaxUint8))
-			}
-		} else {
-			out = fallbackBytes
+	if _, err := rand.Read(out); err != nil {
+		r := mr.New(mr.NewSource(time.Now().UnixNano()))
+		for i := range out {
+			out[i] = byte(r.Intn(math.MaxUint8))
 		}
 	}
 	for i := range out {
