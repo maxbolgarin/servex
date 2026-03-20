@@ -734,6 +734,12 @@ type AuthConfig struct {
 	// The users are created if they don't already exist in the database.
 	InitialUsers []InitialUser
 
+	// ForceSecureCookies forces the Secure flag on auth cookies regardless of the request protocol.
+	// When true, cookies are always marked Secure (requiring HTTPS).
+	// When false (default), the Secure flag is determined by ctx.r.TLS != nil.
+	// Set this to true when running behind a TLS-terminating reverse proxy.
+	ForceSecureCookies bool
+
 	// NotRegisterRoutes prevents automatic registration of default authentication routes.
 	// Set to true via WithAuthNotRegisterRoutes() when you want to implement custom auth endpoints.
 	//
