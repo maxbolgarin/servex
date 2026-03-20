@@ -59,7 +59,7 @@ Quick configurations for common scenarios:
 
 | Feature | Configuration Options |
 |---------|----------------------|
-| **Authentication** | `WithAuth(config)` - Full JWT auth with database<br>`WithAuthToken(token)` - Simple bearer token<br>`WithAuthMemoryDatabase()` - In-memory user storage<br>`WithAuthKey(accessKey, refreshKey)` - Custom JWT keys<br>`WithAuthTokensDuration(access, refresh)` - Token lifetimes<br>`WithAuthIssuer(issuer)` - JWT issuer<br>`WithAuthBasePath(path)` - Auth routes prefix<br>`WithAuthInitialRoles(roles...)` - Default user roles |
+| **Authentication** | `WithAuth(db)` - JWT auth with custom database<br>`WithAuthToken(token)` - Simple bearer token<br>`WithAuthMemoryDatabase()` - In-memory user storage<br>`WithAuthKey(accessKey, refreshKey)` - JWT signing keys<br>`WithAuthTokensDuration(access, refresh)` - Token lifetimes<br>`WithAuthIssuer(issuer)` - JWT issuer<br>`WithAuthBasePath(path)` - Auth routes prefix<br>`WithAuthInitialRoles(roles...)` - Default user roles |
 | **Rate Limiting** | `WithRPM(requests)` - Requests per minute<br>`WithRPS(requests)` - Requests per second<br>`WithRequestsPerInterval(requests, interval)` - Custom interval<br>`WithBurstSize(size)` - Burst allowance<br>`WithRateLimitConfig(config)` - Full configuration<br>`WithRateLimitExcludePaths(paths...)` - Exclude paths<br>`WithRateLimitIncludePaths(paths...)` - Include only paths |
 | **Request Filtering** | `WithBlockedIPs(ips...)` - Block IP ranges<br>`WithAllowedIPs(ips...)` - Allow only IPs<br>`WithBlockedUserAgents(agents...)` - Block user agents<br>`WithBlockedUserAgentsRegex(patterns...)` - Block by regex<br>`WithAllowedHeaders(headers)` - Allow headers<br>`WithBlockedHeaders(headers)` - Block headers<br>`WithAllowedQueryParams(params)` - Allow query params<br>`WithBlockedQueryParams(params)` - Block query params<br>`WithFilterConfig(config)` - Full configuration |
 | **Security Headers** | `WithSecurityHeaders()` - Basic headers<br>`WithStrictSecurityHeaders()` - Strict CSP, HSTS<br>`WithContentSecurityPolicy(policy)` - Custom CSP<br>`WithHSTSHeader(maxAge, includeSubdomains, preload)` - HSTS config<br>`WithSecurityConfig(config)` - Full configuration |
@@ -79,20 +79,198 @@ Quick configurations for common scenarios:
 
 ### Authentication
 
-Built-in JWT authentication with user management:
+Servex provides a complete JWT authentication system with user registration, login, token refresh, logout, and role-based access control.
+
+#### Setup
 
 ```go
-server, _ := servex.New(
-    servex.WithAuth(servex.AuthConfig{
-        Database:            authDB,
-        RolesOnRegister:     []servex.UserRole{"user"},
-        AccessTokenDuration: 15 * time.Minute,
-    }),
+// Development (in-memory, data lost on restart)
+server, _ := servex.NewServer(
+    servex.WithAuthMemoryDatabase(),
+    servex.WithAuthKey(accessKeyHex, refreshKeyHex), // hex-encoded, ≥64 chars each
 )
 
-// Auto-registers: /auth/login, /auth/register, /auth/refresh, /auth/logout
-server.HandleFuncWithAuth("/admin", adminHandler, "admin")
+// Production (custom database)
+server, _ := servex.NewServer(
+    servex.WithAuth(myDB),                           // your AuthDatabase implementation
+    servex.WithAuthKey(os.Getenv("JWT_ACCESS"), os.Getenv("JWT_REFRESH")),
+    servex.WithAuthTokensDuration(15*time.Minute, 30*24*time.Hour),
+    servex.WithAuthInitialRoles("user"),
+    servex.WithAuthInitialUsers(servex.InitialUser{
+        Username: "admin",
+        Password: os.Getenv("ADMIN_PASS"),
+        Roles:    []servex.UserRole{"admin"},
+    }),
+)
 ```
+
+Generate secrets: `openssl rand -hex 32` (produces 64 hex characters = 32 bytes).
+
+#### Auto-Registered Endpoints
+
+These endpoints are registered automatically under `AuthBasePath` (default `/api/v1/auth`):
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/auth/register` | Create user account |
+| `POST` | `/api/v1/auth/login` | Authenticate and get tokens |
+| `POST` | `/api/v1/auth/refresh` | Exchange refresh token for new tokens |
+| `POST` | `/api/v1/auth/logout` | Invalidate refresh token |
+| `GET` | `/api/v1/auth/me` | Get current user (requires auth) |
+
+**Register / Login:**
+```
+POST /api/v1/auth/register
+Content-Type: application/json
+
+{"username": "john", "password": "securepass1"}
+```
+Response `201 Created` (register) or `200 OK` (login):
+```json
+{"id": "user-1", "username": "john", "roles": ["user"], "accessToken": "eyJ..."}
+```
+The refresh token is set as an `HttpOnly` cookie (not in the JSON body).
+
+**Refresh** — `POST /api/v1/auth/refresh` with the cookie. Returns new access token and rotates the refresh token.
+
+**Logout** — `POST /api/v1/auth/logout`. Invalidates the refresh token and clears the cookie. Returns `204`.
+
+#### Protecting Routes
+
+```go
+// Any authenticated user
+server.HandleFuncWithAuth("/api/profile", profileHandler)
+
+// Require specific role
+server.GetWithAuth("/api/admin/users", listUsersHandler, "admin")
+server.PostWithAuth("/api/posts", createPostHandler, "user", "editor")
+
+// Or use the middleware directly
+server.HandleFunc("/api/data", server.WithAuth(dataHandler, "user"))
+```
+
+Clients send the access token in the `Authorization` header:
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiJ9...
+```
+
+#### Accessing User Context
+
+Inside protected handlers:
+```go
+func handler(w http.ResponseWriter, r *http.Request) {
+    ctx := servex.C(w, r)
+    userID := ctx.UserID()      // string
+    roles  := ctx.UserRoles()   // []UserRole
+    ctx.Response(200, map[string]string{"user": userID})
+}
+```
+
+#### How It Works
+
+```
+Login/Register
+    ├─ Access Token (short-lived, default 5m)
+    │   - Returned in JSON response
+    │   - Sent by client as Authorization: Bearer <token>
+    │   - Contains user_id, roles, issuer
+    │   - Signed with HMAC-SHA256 (access secret)
+    │
+    └─ Refresh Token (long-lived, default 7 days)
+        - Stored as HttpOnly/Secure/SameSite=Strict cookie
+        - Hashed (bcrypt) and stored in database
+        - Rotated on every refresh
+        - Revoked on logout by clearing the DB hash
+```
+
+Token validation chain (for access tokens):
+1. JWT signature verification
+2. Token type check (`IsRefresh` must be false)
+3. Issuer claim validation
+4. Expiry check
+
+Refresh token validation chain:
+1. JWT signature verification (refresh secret)
+2. User lookup in database
+3. Token type check (`IsRefresh` must be true)
+4. JWT expiry check
+5. Bcrypt hash comparison against stored hash
+6. Database-stored expiry check
+
+#### Implementing AuthDatabase
+
+To use auth in production, implement the `AuthDatabase` interface:
+
+```go
+type AuthDatabase interface {
+    NewUser(ctx context.Context, username, passwordHash string, roles ...UserRole) (id string, err error)
+    FindByID(ctx context.Context, id string) (User, bool, error)
+    FindByUsername(ctx context.Context, username string) (User, bool, error)
+    FindAll(ctx context.Context) ([]User, error)
+    UpdateUser(ctx context.Context, id string, diff *UserDiff) error
+}
+```
+
+The `User` struct fields you need to store:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `ID` | `string` | Unique user identifier |
+| `Username` | `string` | Unique username |
+| `Roles` | `[]UserRole` | Assigned roles |
+| `PasswordHash` | `string` | Bcrypt-hashed password |
+| `RefreshTokenHash` | `string` | Bcrypt hash of current refresh token |
+| `RefreshTokenExpiresAt` | `time.Time` | Refresh token expiry |
+
+`UpdateUser` receives a `UserDiff` with pointer fields — apply only non-nil fields:
+```go
+func (db *MyDB) UpdateUser(ctx context.Context, id string, diff *servex.UserDiff) error {
+    // diff.Username, diff.Roles, diff.PasswordHash,
+    // diff.RefreshTokenHash, diff.RefreshTokenExpiresAt
+    // Each is a pointer — nil means "don't change"
+}
+```
+
+DB field name constants are exported for building queries: `servex.IDDBField`, `servex.UsernameDBField`, `servex.PasswordHashDBField`, `servex.RefreshTokenHashDBField`, `servex.RefreshTokenExpiresAtDBField`.
+
+#### Auth Configuration Options
+
+| Option | Description |
+|--------|-------------|
+| `WithAuth(db)` | Enable JWT auth with custom database |
+| `WithAuthMemoryDatabase()` | Enable with in-memory DB (dev only) |
+| `WithAuthConfig(cfg)` | Set full `AuthConfig` at once |
+| `WithAuthKey(access, refresh)` | Set JWT signing keys (hex-encoded) |
+| `WithAuthTokensDuration(access, refresh)` | Token lifetimes |
+| `WithAuthIssuer(name)` | JWT issuer claim |
+| `WithAuthBasePath(path)` | Auth endpoint prefix (default `/api/v1/auth`) |
+| `WithAuthInitialRoles(roles...)` | Default roles for new users |
+| `WithAuthInitialUsers(users...)` | Users created on startup |
+| `WithAuthRefreshTokenCookieName(name)` | Cookie name (default `_servexrt`) |
+| `WithAuthNotRegisterRoutes(true)` | Skip auto-registering endpoints |
+
+`AuthConfig` fields with defaults:
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `MinPasswordLength` | `8` | Minimum password length (0 disables) |
+| `ForceSecureCookies` | `false` | Always set Secure flag (use behind TLS proxy) |
+| `AccessTokenDuration` | `5m` | Access token validity |
+| `RefreshTokenDuration` | `7 days` | Refresh token validity |
+| `IssuerNameInJWT` | `"servex"` | JWT issuer claim |
+| `AuthBasePath` | `"/api/v1/auth"` | Endpoint base path |
+| `RefreshTokenCookieName` | `"_servexrt"` | Refresh token cookie name |
+
+#### Simple Bearer Auth
+
+For APIs that don't need user accounts, use a pre-shared token:
+
+```go
+server, _ := servex.NewServer(servex.WithAuthToken("my-secret-api-key"))
+// All requests must include: Authorization: Bearer my-secret-api-key
+```
+
+This uses constant-time comparison and applies to all routes globally.
 
 ### Rate Limiting
 
@@ -267,9 +445,10 @@ server.StartHTTPS(":8443")
 - `WithIdleTimeout(duration)` - Keep-alive timeout
 
 ### Authentication
-- `WithAuth(config)` - JWT authentication
+- `WithAuth(db)` - JWT auth with custom AuthDatabase
 - `WithAuthMemoryDatabase()` - In-memory user database
 - `WithAuthToken(token)` - Simple bearer token
+- `WithAuthKey(access, refresh)` - JWT signing keys (hex-encoded)
 - `WithAuthTokensDuration(access, refresh)` - Token lifetimes
 
 ### Rate Limiting
