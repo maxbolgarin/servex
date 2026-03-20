@@ -189,20 +189,25 @@ type trafficDumpWriter struct {
 //
 // Returns:
 //   - *ProxyManager: The proxy manager
-func RegisterProxyMiddleware(router MiddlewareRouter, config ProxyConfiguration, logger ...Logger) error {
+func RegisterProxyMiddleware(router MiddlewareRouter, config ProxyConfiguration, logger ...Logger) (func(), error) {
 	if !config.Enabled {
-		return nil
+		return func() {}, nil
 	}
 
 	pm, err := newProxyManager(config, lang.First(logger))
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// Register proxy middleware
 	router.Use(pm.proxyMiddleware)
 
-	return nil
+	return pm.shutdown, nil
+}
+
+// shutdown cancels the shutdown context to stop health check goroutines.
+func (pm *proxyManager) shutdown() {
+	pm.shutdownCancel()
 }
 
 // newProxyManager creates a new proxy manager

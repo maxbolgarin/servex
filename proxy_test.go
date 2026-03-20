@@ -112,7 +112,7 @@ func TestLoadBalancingStrategies(t *testing.T) {
 
 			// Create router and register middleware
 			router := mux.NewRouter()
-			if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+			if _, err := RegisterProxyMiddleware(router, config, logger); err != nil {
 				t.Fatalf("Failed to register proxy middleware: %v", err)
 			}
 
@@ -210,7 +210,7 @@ func TestIPHashLoadBalancing(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	if _, err := RegisterProxyMiddleware(router, config, logger); err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
 
@@ -283,7 +283,7 @@ func TestLeastConnectionsLoadBalancing(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	if _, err := RegisterProxyMiddleware(router, config, logger); err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
 
@@ -370,7 +370,7 @@ func TestHealthChecking(t *testing.T) {
 
 	// Create router and register proxy middleware first
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	if _, err := RegisterProxyMiddleware(router, config, logger); err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
 
@@ -439,7 +439,7 @@ func TestTrafficDumping(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	if _, err := RegisterProxyMiddleware(router, config, logger); err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
 
@@ -569,7 +569,7 @@ func TestPathManipulation(t *testing.T) {
 
 			logger := &testLogger{}
 			router := mux.NewRouter()
-			if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+			if _, err := RegisterProxyMiddleware(router, config, logger); err != nil {
 				t.Fatalf("Failed to register proxy middleware: %v", err)
 			}
 
@@ -632,7 +632,7 @@ func TestHeaderBasedRouting(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	if _, err := RegisterProxyMiddleware(router, config, logger); err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
 
@@ -692,7 +692,7 @@ func TestMethodFiltering(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	if _, err := RegisterProxyMiddleware(router, config, logger); err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
 
@@ -753,7 +753,7 @@ func TestNoHealthyBackends(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	if _, err := RegisterProxyMiddleware(router, config, logger); err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
 
@@ -796,7 +796,7 @@ func TestRequestTimeout(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	if _, err := RegisterProxyMiddleware(router, config, logger); err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
 
@@ -929,7 +929,7 @@ func TestProxyRuleMatching(t *testing.T) {
 
 	logger := &testLogger{}
 	router := mux.NewRouter()
-	if err := RegisterProxyMiddleware(router, config, logger); err != nil {
+	if _, err := RegisterProxyMiddleware(router, config, logger); err != nil {
 		t.Fatalf("Failed to register proxy middleware: %v", err)
 	}
 
