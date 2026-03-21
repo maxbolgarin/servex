@@ -170,8 +170,9 @@ type UserLoginResponse struct {
 
 // AuthManager handles authentication and authorization logic.
 type AuthManager struct {
-	service     *service
-	auditLogger AuditLogger
+	service        *service
+	auditLogger    AuditLogger
+	attemptTracker *attemptTracker
 }
 
 type (
@@ -271,6 +272,24 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 		}
 	}
 
+	if cfg.TwoFactor.Enabled {
+		if cfg.TwoFactor.EncryptionKey == "" {
+			return nil, errors.New("2FA encryption key is required")
+		}
+		encKey, err := hex.DecodeString(cfg.TwoFactor.EncryptionKey)
+		if err != nil {
+			return nil, fmt.Errorf("decode 2FA encryption key: %w", err)
+		}
+		if len(encKey) != 32 {
+			return nil, fmt.Errorf("2FA encryption key must be exactly 32 bytes (64 hex characters)")
+		}
+		cfg.TwoFactor.encryptionKey = encKey
+		cfg.TwoFactor.BackupCodes = lang.Check(cfg.TwoFactor.BackupCodes, 10)
+		cfg.TwoFactor.MaxVerifyAttempts = lang.Check(cfg.TwoFactor.MaxVerifyAttempts, 5)
+		cfg.TwoFactor.CodeDuration = lang.Check(cfg.TwoFactor.CodeDuration, 10*time.Minute)
+		cfg.TwoFactor.Issuer = lang.Check(cfg.TwoFactor.Issuer, "servex")
+	}
+
 	// Get audit logger (optional parameter)
 	var audit AuditLogger = &NoopAuditLogger{}
 	if len(auditLogger) > 0 && auditLogger[0] != nil {
@@ -280,6 +299,10 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 	authManager := &AuthManager{
 		service:     newService(cfg),
 		auditLogger: audit,
+	}
+
+	if cfg.TwoFactor.Enabled {
+		authManager.attemptTracker = newAttemptTracker()
 	}
 
 	return authManager, nil
@@ -317,6 +340,17 @@ func (h *AuthManager) RegisterRoutes(r *mux.Router) {
 			rr.HandleFunc(oauthBase+"/{provider}/callback", h.OAuthCallbackHandler).Methods(http.MethodGet)
 			rr.HandleFunc(oauthBase+"/{provider}/link", h.WithAuth(h.OAuthLinkHandler)).Methods(http.MethodPost)
 			rr.HandleFunc(oauthBase+"/{provider}/link", h.WithAuth(h.OAuthUnlinkHandler)).Methods(http.MethodDelete)
+		}
+
+		// 2FA routes
+		if h.service.cfg.TwoFactor.Enabled {
+			rr.HandleFunc("/2fa/setup", h.WithAuth(h.TwoFactorSetupHandler)).Methods(http.MethodPost)
+			rr.HandleFunc("/2fa/enable", h.WithAuth(h.TwoFactorEnableHandler)).Methods(http.MethodPost)
+			rr.HandleFunc("/2fa/disable", h.WithAuth(h.TwoFactorDisableHandler)).Methods(http.MethodPost)
+			rr.HandleFunc("/2fa/verify", h.TwoFactorVerifyHandler).Methods(http.MethodPost)
+			if h.service.cfg.TwoFactor.EmailFallback && h.service.cfg.Email.Enabled {
+				rr.HandleFunc("/2fa/send-email-code", h.TwoFactorSendEmailCodeHandler).Methods(http.MethodPost)
+			}
 		}
 
 		// This roles should be set with custom roles by library user

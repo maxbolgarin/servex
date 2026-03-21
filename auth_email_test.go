@@ -582,8 +582,8 @@ func newTestAuthManagerWithEmailRequireVerification(t *testing.T, sender *MockEm
 	return am, db
 }
 
-// newTestAuthManagerWith2FA creates an AuthManager with 2FA enabled.
-func newTestAuthManagerWith2FA(t *testing.T) (*servex.AuthManager, *servex.MemoryAuthDatabase) {
+// newTestAuthManagerWith2FABasic creates an AuthManager with 2FA enabled (basic config for login tests).
+func newTestAuthManagerWith2FABasic(t *testing.T) (*servex.AuthManager, *servex.MemoryAuthDatabase) {
 	t.Helper()
 	db := servex.NewMemoryAuthDatabase()
 	cfg := servex.AuthConfig{
@@ -596,7 +596,8 @@ func newTestAuthManagerWith2FA(t *testing.T) (*servex.AuthManager, *servex.Memor
 		IssuerNameInJWT:      "test-issuer",
 		RolesOnRegister:      []servex.UserRole{"user"},
 		TwoFactor: servex.TwoFactorConfig{
-			Enabled: true,
+			Enabled:       true,
+			EncryptionKey: hex.EncodeToString(getRandomBytes(32)),
 		},
 	}
 	am, err := servex.NewAuthManager(cfg)
@@ -767,7 +768,8 @@ func TestRegisterRequireVerificationNoTokens(t *testing.T) {
 }
 
 func TestLoginWith2FAReturnsPendingToken(t *testing.T) {
-	am, db := newTestAuthManagerWith2FA(t)
+	am, db := newTestAuthManagerWith2FABasic(t)
+	defer am.StopAttemptTracker()
 
 	router := mux.NewRouter()
 	am.RegisterRoutes(router)
@@ -824,7 +826,8 @@ func TestLoginWith2FAReturnsPendingToken(t *testing.T) {
 }
 
 func TestLoginWithout2FAReturnsTokensNormally(t *testing.T) {
-	am, db := newTestAuthManagerWith2FA(t)
+	am, db := newTestAuthManagerWith2FABasic(t)
+	defer am.StopAttemptTracker()
 
 	router := mux.NewRouter()
 	am.RegisterRoutes(router)
