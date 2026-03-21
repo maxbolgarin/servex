@@ -553,6 +553,330 @@ func TestNewAuthManager_EmailValidation(t *testing.T) {
 	}
 }
 
+// newTestAuthManagerWithEmailRequireVerification creates an AuthManager with email enabled and RequireVerification=true.
+func newTestAuthManagerWithEmailRequireVerification(t *testing.T, sender *MockEmailSender) (*servex.AuthManager, *servex.MemoryAuthDatabase) {
+	t.Helper()
+	db := servex.NewMemoryAuthDatabase()
+	cfg := servex.AuthConfig{
+		Enabled:              true,
+		Database:             db,
+		JWTAccessSecret:      hex.EncodeToString(getRandomBytes(32)),
+		JWTRefreshSecret:     hex.EncodeToString(getRandomBytes(32)),
+		AccessTokenDuration:  5 * time.Minute,
+		RefreshTokenDuration: 10 * time.Minute,
+		IssuerNameInJWT:      "test-issuer",
+		RolesOnRegister:      []servex.UserRole{"user"},
+		Email: servex.EmailConfig{
+			Enabled:             true,
+			Sender:              sender,
+			RequireVerification: true,
+			VerifyTokenDuration: 24 * time.Hour,
+			ResetTokenDuration:  time.Hour,
+			ResendCooldown:      60 * time.Second,
+		},
+	}
+	am, err := servex.NewAuthManager(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	return am, db
+}
+
+// newTestAuthManagerWith2FA creates an AuthManager with 2FA enabled.
+func newTestAuthManagerWith2FA(t *testing.T) (*servex.AuthManager, *servex.MemoryAuthDatabase) {
+	t.Helper()
+	db := servex.NewMemoryAuthDatabase()
+	cfg := servex.AuthConfig{
+		Enabled:              true,
+		Database:             db,
+		JWTAccessSecret:      hex.EncodeToString(getRandomBytes(32)),
+		JWTRefreshSecret:     hex.EncodeToString(getRandomBytes(32)),
+		AccessTokenDuration:  5 * time.Minute,
+		RefreshTokenDuration: 10 * time.Minute,
+		IssuerNameInJWT:      "test-issuer",
+		RolesOnRegister:      []servex.UserRole{"user"},
+		TwoFactor: servex.TwoFactorConfig{
+			Enabled: true,
+		},
+	}
+	am, err := servex.NewAuthManager(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	return am, db
+}
+
+func TestRegisterWithEmailSendsVerification(t *testing.T) {
+	sender := &MockEmailSender{}
+	am, db := newTestAuthManagerWithEmail(t, sender)
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	body, _ := json.Marshal(servex.RegisterRequest{
+		Username: "emailuser",
+		Password: "password123",
+		Email:    "emailuser@example.com",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify email sender was called
+	sender.mu.Lock()
+	sent := len(sender.VerificationEmails)
+	var sentTo string
+	if sent > 0 {
+		sentTo = sender.VerificationEmails[0].To
+	}
+	sender.mu.Unlock()
+
+	if sent != 1 {
+		t.Fatalf("expected 1 verification email sent, got %d", sent)
+	}
+	if sentTo != "emailuser@example.com" {
+		t.Errorf("expected email sent to emailuser@example.com, got %s", sentTo)
+	}
+
+	// Since RequireVerification is false by default, tokens should be returned
+	var resp servex.UserLoginResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.AccessToken == "" {
+		t.Error("expected accessToken in response when RequireVerification is false")
+	}
+	if resp.Username != "emailuser" {
+		t.Errorf("expected username 'emailuser', got %q", resp.Username)
+	}
+
+	// Verify user has email and verification token stored in DB
+	users, err := db.FindAll(context.Background())
+	if err != nil {
+		t.Fatalf("failed to find users: %v", err)
+	}
+	if len(users) != 1 {
+		t.Fatalf("expected 1 user, got %d", len(users))
+	}
+	user := users[0]
+	if user.Email != "emailuser@example.com" {
+		t.Errorf("expected email 'emailuser@example.com', got %q", user.Email)
+	}
+	if user.EmailVerifyTokenHash == "" {
+		t.Error("expected EmailVerifyTokenHash to be set")
+	}
+	if user.EmailVerifyTokenExpiresAt.IsZero() {
+		t.Error("expected EmailVerifyTokenExpiresAt to be set")
+	}
+}
+
+func TestRegisterWithoutEmailNoVerification(t *testing.T) {
+	sender := &MockEmailSender{}
+	am, _ := newTestAuthManagerWithEmail(t, sender)
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	// Register without email — should behave exactly like before
+	body, _ := json.Marshal(servex.RegisterRequest{
+		Username: "noemailer",
+		Password: "password123",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify no email was sent
+	sender.mu.Lock()
+	sent := len(sender.VerificationEmails)
+	sender.mu.Unlock()
+	if sent != 0 {
+		t.Errorf("expected 0 verification emails sent, got %d", sent)
+	}
+
+	// Tokens should be returned normally
+	var resp servex.UserLoginResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.AccessToken == "" {
+		t.Error("expected accessToken in response")
+	}
+}
+
+func TestRegisterRequireVerificationNoTokens(t *testing.T) {
+	sender := &MockEmailSender{}
+	am, _ := newTestAuthManagerWithEmailRequireVerification(t, sender)
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	body, _ := json.Marshal(servex.RegisterRequest{
+		Username: "verifyuser",
+		Password: "password123",
+		Email:    "verifyuser@example.com",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Verify email was sent
+	sender.mu.Lock()
+	sent := len(sender.VerificationEmails)
+	sender.mu.Unlock()
+	if sent != 1 {
+		t.Errorf("expected 1 verification email sent, got %d", sent)
+	}
+
+	// Response should have message, NOT accessToken
+	var resp map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp["message"] != "check your email to verify your account" {
+		t.Errorf("expected verification message, got %q", resp["message"])
+	}
+	if resp["accessToken"] != "" {
+		t.Error("expected no accessToken in response when RequireVerification is true")
+	}
+
+	// Verify no auth cookie was set
+	for _, cookie := range rr.Result().Cookies() {
+		if cookie.Name == "_servexrt" {
+			t.Error("expected no refresh token cookie when RequireVerification is true")
+		}
+	}
+}
+
+func TestLoginWith2FAReturnsPendingToken(t *testing.T) {
+	am, db := newTestAuthManagerWith2FA(t)
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	// Create a user with 2FA enabled
+	password := "password123"
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("failed to hash password: %v", err)
+	}
+	id, err := db.NewUser(context.Background(), "twofa_user", string(hashedPassword), "user")
+	if err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+	if err := db.UpdateUser(context.Background(), id, &servex.UserDiff{
+		TwoFactorEnabled: lang.Ptr(true),
+	}); err != nil {
+		t.Fatalf("failed to enable 2FA: %v", err)
+	}
+
+	// Login
+	body, _ := json.Marshal(servex.UserLoginRequest{
+		Username: "twofa_user",
+		Password: password,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Response should have twoFactorToken, NOT accessToken
+	var resp map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp["twoFactorToken"] == "" {
+		t.Error("expected twoFactorToken in response")
+	}
+	if resp["accessToken"] != "" {
+		t.Error("expected no accessToken when 2FA is required")
+	}
+
+	// Verify no auth cookie was set
+	for _, cookie := range rr.Result().Cookies() {
+		if cookie.Name == "_servexrt" {
+			t.Error("expected no refresh token cookie when 2FA is required")
+		}
+	}
+}
+
+func TestLoginWithout2FAReturnsTokensNormally(t *testing.T) {
+	am, db := newTestAuthManagerWith2FA(t)
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	// Create a user WITHOUT 2FA enabled
+	password := "password123"
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("failed to hash password: %v", err)
+	}
+	_, err = db.NewUser(context.Background(), "normal_user", string(hashedPassword), "user")
+	if err != nil {
+		t.Fatalf("failed to create user: %v", err)
+	}
+
+	// Login
+	body, _ := json.Marshal(servex.UserLoginRequest{
+		Username: "normal_user",
+		Password: password,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	// Response should have accessToken, NOT twoFactorToken
+	var resp servex.UserLoginResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.AccessToken == "" {
+		t.Error("expected accessToken in response when user has 2FA disabled")
+	}
+
+	// Verify auth cookie was set
+	foundCookie := false
+	for _, cookie := range rr.Result().Cookies() {
+		if cookie.Name == "_servexrt" {
+			foundCookie = true
+			break
+		}
+	}
+	if !foundCookie {
+		t.Error("expected refresh token cookie to be set when 2FA is not required")
+	}
+}
+
 func TestGenerateEmailToken(t *testing.T) {
 	token, hash, err := servex.ExportGenerateEmailToken("user-123")
 	if err != nil {

@@ -335,11 +335,12 @@ func (m *AuthManager) WithAuth(next http.HandlerFunc, roles ...UserRole) http.Ha
 
 // RegisterHandler handles the HTTP request for user registration.
 // It reads the request body, validates it, and registers a new user.
-// It sets the auth cookie and returns the user login response.
+// If email config is enabled and an email is provided, it sends a verification email.
+// If RequireVerification is true, no tokens are returned until the email is verified.
 func (h *AuthManager) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := NewContext(w, r)
 
-	var req UserLoginRequest
+	var req RegisterRequest
 	if err := ctx.ReadAndValidate(&req); err != nil {
 		ctx.BadRequest(err, "invalid request body")
 		return
@@ -357,6 +358,41 @@ func (h *AuthManager) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 			ctx.InternalServerError(err, "failed to register user")
 		}
 		return
+	}
+
+	// Handle email verification if email config is enabled and email was provided
+	if h.service.cfg.Email.Enabled && req.Email != "" {
+		rawToken, tokenHash, err := generateEmailToken(result.ID)
+		if err != nil {
+			ctx.InternalServerError(err, "failed to generate verification token")
+			return
+		}
+
+		now := time.Now()
+		expiresAt := now.Add(h.service.cfg.Email.VerifyTokenDuration)
+
+		if err := h.service.db.UpdateUser(r.Context(), result.ID, &UserDiff{
+			Email:                     &req.Email,
+			EmailVerifyTokenHash:      lang.Ptr(tokenHash),
+			EmailVerifyTokenExpiresAt: lang.Ptr(expiresAt),
+			EmailVerifyLastSentAt:     lang.Ptr(now),
+		}); err != nil {
+			ctx.InternalServerError(err, "failed to store email verification token")
+			return
+		}
+
+		if h.service.cfg.Email.Sender != nil {
+			if err := h.service.cfg.Email.Sender.SendVerificationEmail(r.Context(), req.Email, rawToken); err != nil {
+				ctx.InternalServerError(err, "failed to send verification email")
+				return
+			}
+		}
+
+		// If verification is required, return message without tokens
+		if h.service.cfg.Email.RequireVerification {
+			ctx.Response(http.StatusCreated, map[string]string{"message": "check your email to verify your account"})
+			return
+		}
 	}
 
 	h.setAuthCookie(ctx, result.RefreshToken, result.RefreshTokenExpiresAt)
@@ -404,6 +440,17 @@ func (h *AuthManager) LoginHandler(w http.ResponseWriter, r *http.Request) {
 			"roles":    result.Roles,
 		}
 		h.auditLogger.LogAuthenticationEvent(AuditEventAuthLoginSuccess, r, result.ID, true, details)
+	}
+
+	// Check if 2FA is required
+	if h.service.cfg.TwoFactor.Enabled && result.user.TwoFactorEnabled {
+		pendingToken, _, err := h.service.generate2FAPendingToken(result.user.ID)
+		if err != nil {
+			ctx.InternalServerError(err, "failed to generate 2FA token")
+			return
+		}
+		ctx.Response(http.StatusOK, map[string]string{"twoFactorToken": pendingToken})
+		return
 	}
 
 	h.setAuthCookie(ctx, result.RefreshToken, result.RefreshTokenExpiresAt)
@@ -620,6 +667,7 @@ type loginResult struct {
 	UserLoginResponse
 	RefreshToken          string
 	RefreshTokenExpiresAt time.Time
+	user                  User // internal, for checking 2FA status etc.
 }
 
 // service provides auth operations
@@ -636,7 +684,7 @@ func newService(cfg AuthConfig) *service {
 	}
 }
 
-func (s *service) register(ctx context.Context, req UserLoginRequest) (loginResult, error) {
+func (s *service) register(ctx context.Context, req RegisterRequest) (loginResult, error) {
 	if s.cfg.MinPasswordLength > 0 && len(req.Password) < s.cfg.MinPasswordLength {
 		return loginResult{}, errPasswordTooShort
 	}
@@ -712,6 +760,7 @@ func (s *service) login(ctx context.Context, req UserLoginRequest) (loginResult,
 		},
 		RefreshToken:          refreshToken,
 		RefreshTokenExpiresAt: refreshTokenExpiresAt,
+		user:                  user,
 	}
 
 	return out, nil
