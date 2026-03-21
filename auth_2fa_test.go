@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -649,5 +650,363 @@ func TestTwoFactorPendingTokenRejectedByWithAuth(t *testing.T) {
 	// Should be rejected because WithAuth rejects 2fa_pending tokens
 	if rec.Code != http.StatusUnauthorized {
 		t.Errorf("Expected 401 for pending token on protected route, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// TestLoginWith2FA_FullFlow is a cross-feature integration test that exercises
+// the full registration → login → 2FA setup → 2FA enable → login with 2FA → verify flow.
+func TestLoginWith2FA_FullFlow(t *testing.T) {
+	db := servex.NewMemoryAuthDatabase()
+	encKey := hex.EncodeToString(getRandomBytes(32))
+	cfg := servex.AuthConfig{
+		Enabled:              true,
+		Database:             db,
+		JWTAccessSecret:      hex.EncodeToString(getRandomBytes(32)),
+		JWTRefreshSecret:     hex.EncodeToString(getRandomBytes(32)),
+		AccessTokenDuration:  5 * time.Minute,
+		RefreshTokenDuration: 10 * time.Minute,
+		IssuerNameInJWT:      "test-issuer",
+		AuthBasePath:         "/api/v1/auth",
+		RefreshTokenCookieName: "_servexrt",
+		RolesOnRegister:      []servex.UserRole{"user"},
+		Email: servex.EmailConfig{
+			Enabled:             true,
+			Sender:              &MockEmailSender{},
+			VerifyTokenDuration: 24 * time.Hour,
+			ResetTokenDuration:  time.Hour,
+			ResendCooldown:      60 * time.Second,
+		},
+		TwoFactor: servex.TwoFactorConfig{
+			Enabled:           true,
+			EncryptionKey:     encKey,
+			Issuer:            "test-app",
+			BackupCodes:       5,
+			MaxVerifyAttempts: 3,
+		},
+	}
+	am, err := servex.NewAuthManager(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	defer am.StopAttemptTracker()
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	// Step 1: Register a user
+	regBody, _ := json.Marshal(servex.RegisterRequest{
+		Username: "2fa_full_user",
+		Password: "password123",
+		Email:    "2fa_full@example.com",
+	})
+	regReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(string(regBody)))
+	regReq.Header.Set("Content-Type", "application/json")
+	regRR := httptest.NewRecorder()
+	router.ServeHTTP(regRR, regReq)
+
+	if regRR.Code != http.StatusCreated {
+		t.Fatalf("Register: expected 201, got %d; body: %s", regRR.Code, regRR.Body.String())
+	}
+
+	var regResp servex.UserLoginResponse
+	decodeJsonResponse(t, regRR, &regResp)
+	if regResp.AccessToken == "" {
+		t.Fatal("Register: expected accessToken in response")
+	}
+
+	// Step 2: Login to get access token
+	loginBody, _ := json.Marshal(servex.UserLoginRequest{
+		Username: "2fa_full_user",
+		Password: "password123",
+	})
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(string(loginBody)))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginRR := httptest.NewRecorder()
+	router.ServeHTTP(loginRR, loginReq)
+
+	if loginRR.Code != http.StatusOK {
+		t.Fatalf("Login: expected 200, got %d; body: %s", loginRR.Code, loginRR.Body.String())
+	}
+
+	var loginResp servex.UserLoginResponse
+	decodeJsonResponse(t, loginRR, &loginResp)
+	accessToken := loginResp.AccessToken
+	if accessToken == "" {
+		t.Fatal("Login: expected accessToken (2FA not yet enabled)")
+	}
+
+	// Step 3: Setup 2FA with Bearer token
+	setupReq := newJsonRequest(http.MethodPost, "/api/v1/auth/2fa/setup", nil)
+	setupReq.Header.Set("Authorization", "Bearer "+accessToken)
+	setupRR := httptest.NewRecorder()
+	router.ServeHTTP(setupRR, setupReq)
+
+	if setupRR.Code != http.StatusOK {
+		t.Fatalf("2FA setup: expected 200, got %d; body: %s", setupRR.Code, setupRR.Body.String())
+	}
+
+	var setupResp struct {
+		Secret      string   `json:"secret"`
+		URL         string   `json:"url"`
+		BackupCodes []string `json:"backupCodes"`
+	}
+	decodeJsonResponse(t, setupRR, &setupResp)
+	if setupResp.Secret == "" {
+		t.Fatal("2FA setup: expected non-empty secret")
+	}
+
+	// Step 4: Enable 2FA with a valid TOTP code
+	enableCode, err := totp.GenerateCode(setupResp.Secret, time.Now())
+	if err != nil {
+		t.Fatalf("Failed to generate TOTP code: %v", err)
+	}
+	enableReq := newJsonRequest(http.MethodPost, "/api/v1/auth/2fa/enable", map[string]string{"code": enableCode})
+	enableReq.Header.Set("Authorization", "Bearer "+accessToken)
+	enableRR := httptest.NewRecorder()
+	router.ServeHTTP(enableRR, enableReq)
+
+	if enableRR.Code != http.StatusOK {
+		t.Fatalf("2FA enable: expected 200, got %d; body: %s", enableRR.Code, enableRR.Body.String())
+	}
+
+	// Verify 2FA is enabled in DB
+	user, _, _ := db.FindByID(context.Background(), regResp.ID)
+	if !user.TwoFactorEnabled {
+		t.Fatal("2FA should be enabled after enable handler")
+	}
+
+	// Step 5: Login again — should get twoFactorToken instead of accessToken
+	loginReq2 := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(string(loginBody)))
+	loginReq2.Header.Set("Content-Type", "application/json")
+	loginRR2 := httptest.NewRecorder()
+	router.ServeHTTP(loginRR2, loginReq2)
+
+	if loginRR2.Code != http.StatusOK {
+		t.Fatalf("Login with 2FA: expected 200, got %d; body: %s", loginRR2.Code, loginRR2.Body.String())
+	}
+
+	var login2FAResp map[string]string
+	if err := json.Unmarshal(loginRR2.Body.Bytes(), &login2FAResp); err != nil {
+		t.Fatalf("Failed to decode login response: %v", err)
+	}
+	twoFactorToken := login2FAResp["twoFactorToken"]
+	if twoFactorToken == "" {
+		t.Fatal("Login with 2FA: expected twoFactorToken in response")
+	}
+	if login2FAResp["accessToken"] != "" {
+		t.Error("Login with 2FA: expected no accessToken when 2FA is required")
+	}
+
+	// Step 6: Verify with TOTP code — should get accessToken + refresh cookie
+	verifyCode, err := totp.GenerateCode(setupResp.Secret, time.Now())
+	if err != nil {
+		t.Fatalf("Failed to generate TOTP code for verify: %v", err)
+	}
+	verifyReq := newJsonRequest(http.MethodPost, "/api/v1/auth/2fa/verify", servex.TwoFactorVerifyRequest{
+		Token: twoFactorToken,
+		Code:  verifyCode,
+	})
+	verifyRR := httptest.NewRecorder()
+	router.ServeHTTP(verifyRR, verifyReq)
+
+	if verifyRR.Code != http.StatusOK {
+		t.Fatalf("2FA verify: expected 200, got %d; body: %s", verifyRR.Code, verifyRR.Body.String())
+	}
+
+	var verifyResp servex.UserLoginResponse
+	decodeJsonResponse(t, verifyRR, &verifyResp)
+	if verifyResp.AccessToken == "" {
+		t.Error("2FA verify: expected accessToken in response")
+	}
+	if verifyResp.ID != regResp.ID {
+		t.Errorf("2FA verify: expected user ID %q, got %q", regResp.ID, verifyResp.ID)
+	}
+
+	// Check refresh token cookie was set
+	foundRefreshCookie := false
+	for _, cookie := range verifyRR.Result().Cookies() {
+		if cookie.Name == "_servexrt" {
+			foundRefreshCookie = true
+			if cookie.Value == "" {
+				t.Error("2FA verify: expected non-empty refresh token cookie")
+			}
+			break
+		}
+	}
+	if !foundRefreshCookie {
+		t.Error("2FA verify: expected refresh token cookie to be set")
+	}
+}
+
+// TestOAuthLoginWith2FA is a cross-feature integration test that exercises
+// the OAuth login flow when the user has 2FA enabled.
+func TestOAuthLoginWith2FA(t *testing.T) {
+	db := servex.NewMemoryAuthDatabase()
+	encKey := hex.EncodeToString(getRandomBytes(32))
+	stateKey := hex.EncodeToString(getRandomBytes(32))
+
+	provider := &MockOAuthProvider{
+		name:    "testprovider",
+		authURL: "https://provider.example.com/auth",
+		userInfo: &servex.OAuthUserInfo{
+			ProviderID: "oauth-2fa-user-id",
+			Email:      "oauth2fa@example.com",
+			Username:   "oauth2fauser",
+			Verified:   true,
+		},
+	}
+
+	cfg := servex.AuthConfig{
+		Enabled:              true,
+		Database:             db,
+		JWTAccessSecret:      hex.EncodeToString(getRandomBytes(32)),
+		JWTRefreshSecret:     hex.EncodeToString(getRandomBytes(32)),
+		AccessTokenDuration:  5 * time.Minute,
+		RefreshTokenDuration: 10 * time.Minute,
+		IssuerNameInJWT:      "test-issuer",
+		AuthBasePath:         "/api/v1/auth",
+		RefreshTokenCookieName: "_servexrt",
+		RolesOnRegister:      []servex.UserRole{"user"},
+		TwoFactor: servex.TwoFactorConfig{
+			Enabled:           true,
+			EncryptionKey:     encKey,
+			Issuer:            "test-app",
+			BackupCodes:       5,
+			MaxVerifyAttempts: 3,
+		},
+		OAuth: servex.OAuthConfig{
+			Enabled:         true,
+			Providers:       []servex.OAuthProvider{provider},
+			AutoLinkByEmail: true,
+			StateSigningKey: stateKey,
+		},
+	}
+	am, err := servex.NewAuthManager(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+	defer am.StopAttemptTracker()
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	// Step 1: Register a user, get access token, setup and enable 2FA
+	regBody, _ := json.Marshal(servex.RegisterRequest{
+		Username: "oauth2fauser_reg",
+		Password: "password123",
+	})
+	regReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(string(regBody)))
+	regReq.Header.Set("Content-Type", "application/json")
+	regRR := httptest.NewRecorder()
+	router.ServeHTTP(regRR, regReq)
+
+	if regRR.Code != http.StatusCreated {
+		t.Fatalf("Register: expected 201, got %d; body: %s", regRR.Code, regRR.Body.String())
+	}
+
+	var regResp servex.UserLoginResponse
+	decodeJsonResponse(t, regRR, &regResp)
+	accessToken := regResp.AccessToken
+
+	// Setup 2FA
+	setupReq := newJsonRequest(http.MethodPost, "/api/v1/auth/2fa/setup", nil)
+	setupReq.Header.Set("Authorization", "Bearer "+accessToken)
+	setupRR := httptest.NewRecorder()
+	router.ServeHTTP(setupRR, setupReq)
+
+	if setupRR.Code != http.StatusOK {
+		t.Fatalf("2FA setup: expected 200, got %d; body: %s", setupRR.Code, setupRR.Body.String())
+	}
+
+	var setupResp struct {
+		Secret string `json:"secret"`
+	}
+	decodeJsonResponse(t, setupRR, &setupResp)
+
+	// Enable 2FA
+	enableCode, _ := totp.GenerateCode(setupResp.Secret, time.Now())
+	enableReq := newJsonRequest(http.MethodPost, "/api/v1/auth/2fa/enable", map[string]string{"code": enableCode})
+	enableReq.Header.Set("Authorization", "Bearer "+accessToken)
+	enableRR := httptest.NewRecorder()
+	router.ServeHTTP(enableRR, enableReq)
+
+	if enableRR.Code != http.StatusOK {
+		t.Fatalf("2FA enable: expected 200, got %d; body: %s", enableRR.Code, enableRR.Body.String())
+	}
+
+	// Step 2: Link an OAuth provider to this user
+	linkReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth/testprovider/link", strings.NewReader(`{"code":"link-code-123"}`))
+	linkReq.Header.Set("Content-Type", "application/json")
+	linkReq = linkReq.WithContext(context.WithValue(linkReq.Context(), servex.UserContextKey{}, regResp.ID))
+	linkRR := httptest.NewRecorder()
+
+	linkRouter := mux.NewRouter()
+	linkRouter.HandleFunc("/api/v1/auth/oauth/{provider}/link", am.OAuthLinkHandler).Methods(http.MethodPost)
+	linkRouter.ServeHTTP(linkRR, linkReq)
+
+	if linkRR.Code != http.StatusOK {
+		t.Fatalf("OAuth link: expected 200, got %d; body: %s", linkRR.Code, linkRR.Body.String())
+	}
+
+	// Step 3: Simulate OAuth callback for that user — should redirect with twoFactorToken
+	_, stateCookie := performOAuthRedirect(t, am, "testprovider")
+	parts := strings.SplitN(stateCookie.Value, ":", 2)
+	state := parts[0]
+
+	callbackURL := "/api/v1/auth/oauth/testprovider/callback?code=oauth-code-123&state=" + state
+	callbackReq := httptest.NewRequest(http.MethodGet, callbackURL, nil)
+	callbackReq.AddCookie(stateCookie)
+	callbackRR := httptest.NewRecorder()
+	router.ServeHTTP(callbackRR, callbackReq)
+
+	// Should redirect (302) to 2FA page with twoFactorToken
+	if callbackRR.Code != http.StatusFound {
+		t.Fatalf("OAuth callback with 2FA: expected 302, got %d; body: %s", callbackRR.Code, callbackRR.Body.String())
+	}
+
+	location := callbackRR.Header().Get("Location")
+	if !strings.Contains(location, "twoFactorToken=") {
+		t.Fatalf("OAuth callback: expected redirect with twoFactorToken, got Location: %s", location)
+	}
+
+	// Extract twoFactorToken from redirect URL
+	locParts := strings.SplitN(location, "twoFactorToken=", 2)
+	if len(locParts) != 2 {
+		t.Fatalf("Failed to extract twoFactorToken from Location: %s", location)
+	}
+	twoFactorToken := locParts[1]
+
+	// Step 4: Verify with TOTP code — should get tokens
+	verifyCode, _ := totp.GenerateCode(setupResp.Secret, time.Now())
+	verifyReq := newJsonRequest(http.MethodPost, "/api/v1/auth/2fa/verify", servex.TwoFactorVerifyRequest{
+		Token: twoFactorToken,
+		Code:  verifyCode,
+	})
+	verifyRR := httptest.NewRecorder()
+	router.ServeHTTP(verifyRR, verifyReq)
+
+	if verifyRR.Code != http.StatusOK {
+		t.Fatalf("2FA verify after OAuth: expected 200, got %d; body: %s", verifyRR.Code, verifyRR.Body.String())
+	}
+
+	var verifyResp servex.UserLoginResponse
+	decodeJsonResponse(t, verifyRR, &verifyResp)
+	if verifyResp.AccessToken == "" {
+		t.Error("2FA verify after OAuth: expected accessToken")
+	}
+	if verifyResp.ID != regResp.ID {
+		t.Errorf("2FA verify after OAuth: expected user ID %q, got %q", regResp.ID, verifyResp.ID)
+	}
+
+	// Check refresh token cookie
+	foundRefreshCookie := false
+	for _, cookie := range verifyRR.Result().Cookies() {
+		if cookie.Name == "_servexrt" {
+			foundRefreshCookie = true
+			break
+		}
+	}
+	if !foundRefreshCookie {
+		t.Error("2FA verify after OAuth: expected refresh token cookie")
 	}
 }

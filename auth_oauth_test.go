@@ -763,3 +763,146 @@ func decodeJsonResponseMap(t *testing.T, rr *httptest.ResponseRecorder) map[stri
 	}
 	return result
 }
+
+// TestOAuthAutoLinkCollision is a cross-feature integration test that verifies
+// multiple OAuth providers can auto-link to the same existing user by email.
+func TestOAuthAutoLinkCollision(t *testing.T) {
+	sharedEmail := "shared@example.com"
+
+	googleProvider := &MockOAuthProvider{
+		name:    "google",
+		authURL: "https://accounts.google.com/auth",
+		userInfo: &servex.OAuthUserInfo{
+			ProviderID: "google-user-777",
+			Email:      sharedEmail,
+			Username:   "googleuser",
+			Verified:   true,
+		},
+	}
+
+	githubProvider := &MockOAuthProvider{
+		name:    "github",
+		authURL: "https://github.com/login/oauth",
+		userInfo: &servex.OAuthUserInfo{
+			ProviderID: "github-user-888",
+			Email:      sharedEmail,
+			Username:   "githubuser",
+			Verified:   true,
+		},
+	}
+
+	db := servex.NewMemoryAuthDatabase()
+	stateKey := hex.EncodeToString(getRandomBytes(32))
+	cfg := servex.AuthConfig{
+		Enabled:              true,
+		Database:             db,
+		JWTAccessSecret:      hex.EncodeToString(getRandomBytes(32)),
+		JWTRefreshSecret:     hex.EncodeToString(getRandomBytes(32)),
+		AccessTokenDuration:  5 * time.Minute,
+		RefreshTokenDuration: 10 * time.Minute,
+		IssuerNameInJWT:      "test-issuer",
+		RolesOnRegister:      []servex.UserRole{"user"},
+		OAuth: servex.OAuthConfig{
+			Enabled:         true,
+			Providers:       []servex.OAuthProvider{googleProvider, githubProvider},
+			AutoLinkByEmail: true,
+			StateSigningKey: stateKey,
+		},
+	}
+	am, err := servex.NewAuthManager(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	// Step 1: Create a user with verified email
+	ctx := context.Background()
+	hashedPassword, _ := bcrypt.GenerateFromPassword([]byte("password123"), bcrypt.DefaultCost)
+	userID, err := db.NewUser(ctx, "localuser", string(hashedPassword), "user")
+	if err != nil {
+		t.Fatalf("Failed to create test user: %v", err)
+	}
+	err = db.UpdateUser(ctx, userID, &servex.UserDiff{
+		Email:         lang.Ptr(sharedEmail),
+		EmailVerified: lang.Ptr(true),
+	})
+	if err != nil {
+		t.Fatalf("Failed to update user email: %v", err)
+	}
+
+	// Step 2: OAuth login with Google provider returning same email — should auto-link
+	_, stateCookie1 := performOAuthRedirect(t, am, "google")
+	parts1 := strings.SplitN(stateCookie1.Value, ":", 2)
+	state1 := parts1[0]
+
+	callbackURL1 := "/api/v1/auth/oauth/google/callback?code=google-code&state=" + state1
+	req1 := httptest.NewRequest(http.MethodGet, callbackURL1, nil)
+	req1.AddCookie(stateCookie1)
+	rr1 := httptest.NewRecorder()
+	router.ServeHTTP(rr1, req1)
+
+	if rr1.Code != http.StatusOK {
+		t.Fatalf("Google OAuth: expected 200, got %d; body: %s", rr1.Code, rr1.Body.String())
+	}
+
+	var googleResp servex.UserLoginResponse
+	decodeJsonResponse(t, rr1, &googleResp)
+	if googleResp.ID != userID {
+		t.Fatalf("Google OAuth: expected auto-link to existing user %q, got %q", userID, googleResp.ID)
+	}
+	if googleResp.Username != "localuser" {
+		t.Fatalf("Google OAuth: expected username 'localuser', got %q", googleResp.Username)
+	}
+
+	// Verify Google provider was linked
+	user, _, _ := db.FindByID(ctx, userID)
+	if len(user.OAuthProviders) != 1 {
+		t.Fatalf("After Google: expected 1 OAuth provider, got %d", len(user.OAuthProviders))
+	}
+	if user.OAuthProviders[0].Provider != "google" {
+		t.Fatalf("After Google: expected provider 'google', got %q", user.OAuthProviders[0].Provider)
+	}
+
+	// Step 3: OAuth login with GitHub provider returning same email — should also auto-link to same user
+	_, stateCookie2 := performOAuthRedirect(t, am, "github")
+	parts2 := strings.SplitN(stateCookie2.Value, ":", 2)
+	state2 := parts2[0]
+
+	callbackURL2 := "/api/v1/auth/oauth/github/callback?code=github-code&state=" + state2
+	req2 := httptest.NewRequest(http.MethodGet, callbackURL2, nil)
+	req2.AddCookie(stateCookie2)
+	rr2 := httptest.NewRecorder()
+	router.ServeHTTP(rr2, req2)
+
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("GitHub OAuth: expected 200, got %d; body: %s", rr2.Code, rr2.Body.String())
+	}
+
+	var githubResp servex.UserLoginResponse
+	decodeJsonResponse(t, rr2, &githubResp)
+	if githubResp.ID != userID {
+		t.Fatalf("GitHub OAuth: expected auto-link to same user %q, got %q", userID, githubResp.ID)
+	}
+	if githubResp.Username != "localuser" {
+		t.Fatalf("GitHub OAuth: expected username 'localuser', got %q", githubResp.Username)
+	}
+
+	// Step 4: Verify user now has both OAuth providers linked
+	user, _, _ = db.FindByID(ctx, userID)
+	if len(user.OAuthProviders) != 2 {
+		t.Fatalf("After both: expected 2 OAuth providers, got %d", len(user.OAuthProviders))
+	}
+
+	providerNames := make(map[string]bool)
+	for _, link := range user.OAuthProviders {
+		providerNames[link.Provider] = true
+	}
+	if !providerNames["google"] {
+		t.Error("Expected 'google' provider to be linked")
+	}
+	if !providerNames["github"] {
+		t.Error("Expected 'github' provider to be linked")
+	}
+}

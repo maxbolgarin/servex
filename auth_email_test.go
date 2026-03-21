@@ -897,3 +897,221 @@ func TestGenerateEmailToken(t *testing.T) {
 		t.Error("hash does not match token's random part")
 	}
 }
+
+// TestRequireVerificationThenVerifyThenLogin is a cross-feature integration test that exercises
+// the full registration (blocked) → email verification → login flow with RequireVerification=true.
+func TestRequireVerificationThenVerifyThenLogin(t *testing.T) {
+	sender := &MockEmailSender{}
+	am, _ := newTestAuthManagerWithEmailRequireVerification(t, sender)
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	// Step 1: Register with email — should get 201 with message, no tokens
+	regBody, _ := json.Marshal(servex.RegisterRequest{
+		Username: "verify_flow_user",
+		Password: "password123",
+		Email:    "verify_flow@example.com",
+	})
+	regReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(string(regBody)))
+	regReq.Header.Set("Content-Type", "application/json")
+	regRR := httptest.NewRecorder()
+	router.ServeHTTP(regRR, regReq)
+
+	if regRR.Code != http.StatusCreated {
+		t.Fatalf("Register: expected 201, got %d; body: %s", regRR.Code, regRR.Body.String())
+	}
+
+	// Response should have message, NOT accessToken
+	var regResp map[string]string
+	if err := json.Unmarshal(regRR.Body.Bytes(), &regResp); err != nil {
+		t.Fatalf("Failed to decode register response: %v", err)
+	}
+	if regResp["message"] != "check your email to verify your account" {
+		t.Errorf("Register: expected verification message, got %q", regResp["message"])
+	}
+	if regResp["accessToken"] != "" {
+		t.Error("Register: expected no accessToken with RequireVerification=true")
+	}
+
+	// No refresh cookie should be set
+	for _, cookie := range regRR.Result().Cookies() {
+		if cookie.Name == "_servexrt" {
+			t.Error("Register: expected no refresh token cookie with RequireVerification=true")
+		}
+	}
+
+	// Step 2: Extract verification token from MockEmailSender
+	sender.mu.Lock()
+	if len(sender.VerificationEmails) != 1 {
+		t.Fatalf("Expected 1 verification email sent, got %d", len(sender.VerificationEmails))
+	}
+	verifyToken := sender.VerificationEmails[0].Token
+	sender.mu.Unlock()
+
+	if verifyToken == "" {
+		t.Fatal("Expected non-empty verification token from email sender")
+	}
+
+	// Step 3: Verify email using the token
+	verifyBody, _ := json.Marshal(map[string]string{"token": verifyToken})
+	verifyReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify-email", strings.NewReader(string(verifyBody)))
+	verifyReq.Header.Set("Content-Type", "application/json")
+	verifyRR := httptest.NewRecorder()
+	router.ServeHTTP(verifyRR, verifyReq)
+
+	if verifyRR.Code != http.StatusOK {
+		t.Fatalf("Verify email: expected 200, got %d; body: %s", verifyRR.Code, verifyRR.Body.String())
+	}
+
+	// Step 4: Login — should now get tokens
+	loginBody, _ := json.Marshal(servex.UserLoginRequest{
+		Username: "verify_flow_user",
+		Password: "password123",
+	})
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(string(loginBody)))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginRR := httptest.NewRecorder()
+	router.ServeHTTP(loginRR, loginReq)
+
+	if loginRR.Code != http.StatusOK {
+		t.Fatalf("Login: expected 200, got %d; body: %s", loginRR.Code, loginRR.Body.String())
+	}
+
+	var loginResp servex.UserLoginResponse
+	if err := json.Unmarshal(loginRR.Body.Bytes(), &loginResp); err != nil {
+		t.Fatalf("Failed to decode login response: %v", err)
+	}
+	if loginResp.AccessToken == "" {
+		t.Error("Login: expected accessToken after email verification")
+	}
+	if loginResp.Username != "verify_flow_user" {
+		t.Errorf("Login: expected username 'verify_flow_user', got %q", loginResp.Username)
+	}
+
+	// Refresh cookie should be set
+	foundRefreshCookie := false
+	for _, cookie := range loginRR.Result().Cookies() {
+		if cookie.Name == "_servexrt" {
+			foundRefreshCookie = true
+			break
+		}
+	}
+	if !foundRefreshCookie {
+		t.Error("Login: expected refresh token cookie after email verification")
+	}
+}
+
+// TestOAuthWithRequireVerification is a cross-feature integration test that verifies
+// OAuth callback behavior when RequireVerification is enabled.
+func TestOAuthWithRequireVerification(t *testing.T) {
+	sender := &MockEmailSender{}
+	db := servex.NewMemoryAuthDatabase()
+	stateKey := hex.EncodeToString(getRandomBytes(32))
+
+	// Provider that returns verified=true
+	verifiedProvider := &MockOAuthProvider{
+		name:    "google",
+		authURL: "https://accounts.google.com/auth",
+		userInfo: &servex.OAuthUserInfo{
+			ProviderID: "google-verified-123",
+			Email:      "oauth_verified@example.com",
+			Username:   "oauth_verified_user",
+			Verified:   true,
+		},
+	}
+
+	// Provider that returns verified=false
+	unverifiedProvider := &MockOAuthProvider{
+		name:    "github",
+		authURL: "https://github.com/login/oauth",
+		userInfo: &servex.OAuthUserInfo{
+			ProviderID: "github-unverified-456",
+			Email:      "oauth_unverified@example.com",
+			Username:   "oauth_unverified_user",
+			Verified:   false,
+		},
+	}
+
+	cfg := servex.AuthConfig{
+		Enabled:              true,
+		Database:             db,
+		JWTAccessSecret:      hex.EncodeToString(getRandomBytes(32)),
+		JWTRefreshSecret:     hex.EncodeToString(getRandomBytes(32)),
+		AccessTokenDuration:  5 * time.Minute,
+		RefreshTokenDuration: 10 * time.Minute,
+		IssuerNameInJWT:      "test-issuer",
+		RolesOnRegister:      []servex.UserRole{"user"},
+		Email: servex.EmailConfig{
+			Enabled:             true,
+			Sender:              sender,
+			RequireVerification: true,
+			VerifyTokenDuration: 24 * time.Hour,
+			ResetTokenDuration:  time.Hour,
+			ResendCooldown:      60 * time.Second,
+		},
+		OAuth: servex.OAuthConfig{
+			Enabled:         true,
+			Providers:       []servex.OAuthProvider{verifiedProvider, unverifiedProvider},
+			AutoLinkByEmail: true,
+			StateSigningKey: stateKey,
+		},
+	}
+	am, err := servex.NewAuthManager(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	// Test 1: OAuth callback with Verified=true provider — tokens issued immediately
+	_, stateCookie := performOAuthRedirect(t, am, "google")
+	parts := strings.SplitN(stateCookie.Value, ":", 2)
+	state := parts[0]
+
+	callbackURL := "/api/v1/auth/oauth/google/callback?code=google-code&state=" + state
+	req := httptest.NewRequest(http.MethodGet, callbackURL, nil)
+	req.AddCookie(stateCookie)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Verified OAuth: expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	var verifiedResp servex.UserLoginResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &verifiedResp); err != nil {
+		t.Fatalf("Failed to decode verified OAuth response: %v", err)
+	}
+	if verifiedResp.AccessToken == "" {
+		t.Error("Verified OAuth: expected accessToken (RequireVerification satisfied by verified provider)")
+	}
+
+	// Test 2: OAuth callback with Verified=false provider — no tokens (RequireVerification blocks)
+	_, stateCookie2 := performOAuthRedirect(t, am, "github")
+	parts2 := strings.SplitN(stateCookie2.Value, ":", 2)
+	state2 := parts2[0]
+
+	callbackURL2 := "/api/v1/auth/oauth/github/callback?code=github-code&state=" + state2
+	req2 := httptest.NewRequest(http.MethodGet, callbackURL2, nil)
+	req2.AddCookie(stateCookie2)
+	rr2 := httptest.NewRecorder()
+	router.ServeHTTP(rr2, req2)
+
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("Unverified OAuth: expected 200, got %d; body: %s", rr2.Code, rr2.Body.String())
+	}
+
+	// Response should be a message, not tokens
+	var unverifiedResp map[string]string
+	if err := json.Unmarshal(rr2.Body.Bytes(), &unverifiedResp); err != nil {
+		t.Fatalf("Failed to decode unverified OAuth response: %v", err)
+	}
+	if unverifiedResp["accessToken"] != "" {
+		t.Error("Unverified OAuth: expected no accessToken when provider is not verified and RequireVerification is true")
+	}
+	if unverifiedResp["message"] == "" {
+		t.Error("Unverified OAuth: expected a message indicating verification needed")
+	}
+}
