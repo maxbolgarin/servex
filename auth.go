@@ -252,6 +252,23 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 			}
 			cfg.OAuth.stateSigningKey = key
 		}
+
+		// Build providers from convenience configs
+		if cfg.OAuth.Google != nil {
+			cfg.OAuth.Providers = append(cfg.OAuth.Providers, NewGoogleOAuthProvider(*cfg.OAuth.Google))
+		}
+		if cfg.OAuth.GitHub != nil {
+			cfg.OAuth.Providers = append(cfg.OAuth.Providers, NewGitHubOAuthProvider(*cfg.OAuth.GitHub))
+		}
+		if cfg.OAuth.Apple != nil {
+			cfg.OAuth.Providers = append(cfg.OAuth.Providers, NewAppleOAuthProvider(*cfg.OAuth.Apple))
+		}
+		if cfg.OAuth.Telegram != nil {
+			cfg.OAuth.Providers = append(cfg.OAuth.Providers, NewTelegramOAuthProvider(*cfg.OAuth.Telegram))
+		}
+		if cfg.OAuth.Yandex != nil {
+			cfg.OAuth.Providers = append(cfg.OAuth.Providers, NewYandexOAuthProvider(*cfg.OAuth.Yandex))
+		}
 	}
 
 	// Get audit logger (optional parameter)
