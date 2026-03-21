@@ -77,10 +77,11 @@ func decryptTOTPSecret(encoded string, key []byte) (string, error) {
 
 // attemptEntry tracks 2FA verification attempts for a single pending token.
 type attemptEntry struct {
-	count         int
-	emailCodeHash string
-	lastEmailSent time.Time
-	expiresAt     time.Time
+	count            int
+	emailCodeHash    string
+	emailCodeExpires time.Time // when the email code expires (per CodeDuration)
+	lastEmailSent    time.Time
+	expiresAt        time.Time
 }
 
 // attemptTracker tracks 2FA verification attempts and email cooldowns.
@@ -179,20 +180,26 @@ func (t *attemptTracker) canSendEmail(jti string, cooldown time.Duration) bool {
 }
 
 // markEmailSent records that an email code was sent, storing the bcrypt hash.
-func (t *attemptTracker) markEmailSent(jti string, codeHash string) {
+func (t *attemptTracker) markEmailSent(jti string, codeHash string, codeDuration time.Duration) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	entry := t.getOrCreate(jti)
 	entry.emailCodeHash = codeHash
+	entry.emailCodeExpires = time.Now().Add(codeDuration)
 	entry.lastEmailSent = time.Now()
 }
 
 // getEmailCodeHash returns the stored bcrypt hash of the email code for the given jti.
+// Returns empty string if no code exists or if the code has expired.
 func (t *attemptTracker) getEmailCodeHash(jti string) string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	entry, ok := t.entries[jti]
 	if !ok {
+		return ""
+	}
+	if !entry.emailCodeExpires.IsZero() && time.Now().After(entry.emailCodeExpires) {
+		entry.emailCodeHash = "" // expired, clear it
 		return ""
 	}
 	return entry.emailCodeHash
@@ -666,7 +673,7 @@ func (h *AuthManager) TwoFactorSendEmailCodeHandler(w http.ResponseWriter, r *ht
 	}
 
 	// Store hash in tracker
-	h.attemptTracker.markEmailSent(claims.ID, string(codeHash))
+	h.attemptTracker.markEmailSent(claims.ID, string(codeHash), h.service.cfg.TwoFactor.CodeDuration)
 
 	// Send email
 	if h.service.cfg.Email.Sender == nil {

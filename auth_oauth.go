@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/maxbolgarin/lang"
@@ -311,13 +312,22 @@ func (h *AuthManager) OAuthCallbackHandler(w http.ResponseWriter, r *http.Reques
 func (h *AuthManager) oauthIssueTokensOrRedirect2FA(ctx *Context, r *http.Request, w http.ResponseWriter, user User, providerName string) {
 	// Check 2FA
 	if h.service.cfg.TwoFactor.Enabled && user.TwoFactorEnabled {
-		pendingToken, _, err := h.service.generate2FAPendingToken(user.ID)
+		pendingToken, expiresAt, err := h.service.generate2FAPendingToken(user.ID)
 		if err != nil {
 			ctx.InternalServerError(err, "failed to generate 2FA token")
 			return
 		}
-		// For browser OAuth flow, redirect with twoFactorToken query param
-		redirectURL := h.service.cfg.AuthBasePath + "/2fa?twoFactorToken=" + pendingToken
+		// Store pending token in HttpOnly cookie (not in URL to avoid log exposure)
+		ctx.SetRawCookie(&http.Cookie{
+			Name:     "_servex_2fa_pending",
+			Value:    pendingToken,
+			Path:     h.service.cfg.AuthBasePath,
+			HttpOnly: true,
+			Secure:   h.isSecureCookie(ctx),
+			SameSite: http.SameSiteStrictMode,
+			MaxAge:   int(time.Until(expiresAt).Seconds()),
+		})
+		redirectURL := h.service.cfg.AuthBasePath + "/2fa"
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
 	}

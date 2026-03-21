@@ -51,8 +51,12 @@ func (t *attemptTracker) CanSendEmail(jti string, cooldown time.Duration) bool {
 }
 
 // MarkEmailSent exposes attemptTracker.markEmailSent for testing.
-func (t *attemptTracker) MarkEmailSent(jti string, codeHash string) {
-	t.markEmailSent(jti, codeHash)
+func (t *attemptTracker) MarkEmailSent(jti string, codeHash string, codeDuration ...time.Duration) {
+	d := 10 * time.Minute
+	if len(codeDuration) > 0 {
+		d = codeDuration[0]
+	}
+	t.markEmailSent(jti, codeHash, d)
 }
 
 // GetEmailCodeHash exposes attemptTracker.getEmailCodeHash for testing.

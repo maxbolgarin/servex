@@ -302,14 +302,14 @@ func WithOAuthStateSigningKey(key string) Option {
 }
 
 // WithOAuthConfig sets the complete OAuth configuration.
-// Use this when you need to configure multiple OAuth settings at once
-// or when loading configuration from files or environment variables.
+// Unlike the individual WithOAuth* functions, this sets the struct as-is with no defaulting.
+// You must explicitly set AutoLinkByEmail: true if you want the default auto-linking behavior.
 //
 // Example:
 //
 //	oauthCfg := servex.OAuthConfig{
 //		Enabled:         true,
-//		AutoLinkByEmail: true,
+//		AutoLinkByEmail: true, // must set explicitly, defaults to false in struct literal
 //		BasePath:        "/oauth",
 //		Google: &servex.GoogleOAuthConfig{
 //			ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),

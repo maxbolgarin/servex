@@ -965,16 +965,21 @@ func TestOAuthLoginWith2FA(t *testing.T) {
 	}
 
 	location := callbackRR.Header().Get("Location")
-	if !strings.Contains(location, "twoFactorToken=") {
-		t.Fatalf("OAuth callback: expected redirect with twoFactorToken, got Location: %s", location)
+	if !strings.Contains(location, "/2fa") {
+		t.Fatalf("OAuth callback: expected redirect to 2FA page, got Location: %s", location)
 	}
 
-	// Extract twoFactorToken from redirect URL
-	locParts := strings.SplitN(location, "twoFactorToken=", 2)
-	if len(locParts) != 2 {
-		t.Fatalf("Failed to extract twoFactorToken from Location: %s", location)
+	// Extract twoFactorToken from the _servex_2fa_pending cookie
+	var twoFactorToken string
+	for _, c := range callbackRR.Result().Cookies() {
+		if c.Name == "_servex_2fa_pending" {
+			twoFactorToken = c.Value
+			break
+		}
 	}
-	twoFactorToken := locParts[1]
+	if twoFactorToken == "" {
+		t.Fatal("OAuth callback with 2FA: expected _servex_2fa_pending cookie, not found")
+	}
 
 	// Step 4: Verify with TOTP code — should get tokens
 	verifyCode, _ := totp.GenerateCode(setupResp.Secret, time.Now())
