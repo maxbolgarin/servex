@@ -217,6 +217,18 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 	cfg.IssuerNameInJWT = lang.Check(cfg.IssuerNameInJWT, "servex")
 	cfg.MinPasswordLength = lang.Check(cfg.MinPasswordLength, defaultMinPasswordLength)
 
+	if cfg.Email.Enabled {
+		if _, ok := cfg.Database.(EmailAuthDatabase); !ok {
+			return nil, errors.New("email auth requires AuthDatabase to implement EmailAuthDatabase")
+		}
+		cfg.Email.VerifyTokenDuration = lang.Check(cfg.Email.VerifyTokenDuration, 24*time.Hour)
+		cfg.Email.ResetTokenDuration = lang.Check(cfg.Email.ResetTokenDuration, time.Hour)
+		cfg.Email.ResendCooldown = lang.Check(cfg.Email.ResendCooldown, 60*time.Second)
+		if cfg.Email.Sender == nil && cfg.Email.SMTP != nil {
+			cfg.Email.Sender = NewSMTPEmailSender(*cfg.Email.SMTP)
+		}
+	}
+
 	// Get audit logger (optional parameter)
 	var audit AuditLogger = &NoopAuditLogger{}
 	if len(auditLogger) > 0 && auditLogger[0] != nil {
@@ -247,6 +259,14 @@ func (h *AuthManager) RegisterRoutes(r *mux.Router) {
 		rr.HandleFunc("/refresh", h.RefreshHandler).Methods(http.MethodPost)
 		rr.HandleFunc("/logout", h.LogoutHandler).Methods(http.MethodPost)
 		rr.HandleFunc("/me", h.WithAuth(h.GetCurrentUserHandler)).Methods(http.MethodGet)
+
+		// Email verification and password reset routes
+		if h.service.cfg.Email.Enabled {
+			rr.HandleFunc("/verify-email", h.VerifyEmailHandler).Methods(http.MethodPost)
+			rr.HandleFunc("/resend-verification", h.WithAuth(h.ResendVerificationHandler)).Methods(http.MethodPost)
+			rr.HandleFunc("/forgot-password", h.ForgotPasswordHandler).Methods(http.MethodPost)
+			rr.HandleFunc("/reset-password", h.ResetPasswordHandler).Methods(http.MethodPost)
+		}
 
 		// This roles should be set with custom roles by library user
 		// rr.HandleFunc("/users", h.WithAuth(h.GetAllUsers)).Methods(http.MethodGet)
