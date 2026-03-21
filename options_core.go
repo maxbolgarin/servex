@@ -757,6 +757,15 @@ type AuthConfig struct {
 	// You can still use the AuthManager methods for token generation and validation.
 	NotRegisterRoutes bool
 
+	// Email configures email verification and password reset.
+	Email EmailConfig
+
+	// OAuth configures social login providers.
+	OAuth OAuthConfig
+
+	// TwoFactor configures TOTP and email code 2FA.
+	TwoFactor TwoFactorConfig
+
 	// accessSecret is the decoded access secret key (internal use).
 	// This field is populated automatically from JWTAccessSecret during initialization.
 	accessSecret []byte
