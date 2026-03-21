@@ -22,6 +22,14 @@ import (
 )
 
 // oauthPostForm sends a POST request with form-encoded values and returns the JSON response as a map.
+// oauthHTTPClient is a shared HTTP client with sensible timeouts for OAuth provider calls.
+var oauthHTTPClient = &http.Client{
+	Timeout: 30 * time.Second,
+}
+
+// maxOAuthResponseSize limits OAuth provider response bodies to 1 MB.
+const maxOAuthResponseSize = 1 << 20
+
 func oauthPostForm(ctx context.Context, tokenURL string, values url.Values) (map[string]any, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, tokenURL, strings.NewReader(values.Encode()))
 	if err != nil {
@@ -30,13 +38,13 @@ func oauthPostForm(ctx context.Context, tokenURL string, values url.Values) (map
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := oauthHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxOAuthResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
@@ -63,13 +71,13 @@ func oauthGetJSON(ctx context.Context, apiURL string, authHeader string) (map[st
 		req.Header.Set("Authorization", authHeader)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := oauthHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxOAuthResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
@@ -96,13 +104,13 @@ func oauthGetJSONSlice(ctx context.Context, apiURL string, authHeader string) ([
 		req.Header.Set("Authorization", authHeader)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := oauthHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("execute request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxOAuthResponseSize))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}

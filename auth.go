@@ -511,6 +511,8 @@ func (h *AuthManager) LoginHandler(w http.ResponseWriter, r *http.Request) {
 		switch err {
 		case errInvalidCredentials:
 			ctx.Unauthorized(err, "invalid email or password")
+		case errEmailNotVerified:
+			ctx.Forbidden(err, "email not verified")
 		default:
 			ctx.InternalServerError(err, "failed to login user")
 		}
@@ -829,6 +831,11 @@ func (s *service) login(ctx context.Context, req UserLoginRequest) (loginResult,
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
 		return loginResult{}, errInvalidCredentials
+	}
+
+	// Block login if email verification is required but not completed
+	if s.cfg.Email.Enabled && s.cfg.Email.RequireVerification && !user.EmailVerified {
+		return loginResult{}, errEmailNotVerified
 	}
 
 	accessToken, refreshToken, refreshTokenExpiresAt, err := s.generateTokens(ctx, user)

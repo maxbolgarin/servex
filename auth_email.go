@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/smtp"
+	"net/url"
 	"strings"
 	"time"
 
@@ -32,14 +33,14 @@ func NewSMTPEmailSender(cfg SMTPConfig) *SMTPEmailSender {
 // SendVerificationEmail sends an email verification link to the user.
 func (s *SMTPEmailSender) SendVerificationEmail(ctx context.Context, to string, token string) error {
 	subject := lang.Check(s.cfg.VerificationSubject, "Verify your email")
-	body := fmt.Sprintf("Please verify your email by clicking the following link:\n\n%s?token=%s", s.cfg.VerificationURL, token)
+	body := fmt.Sprintf("Please verify your email by clicking the following link:\n\n%s?token=%s", s.cfg.VerificationURL, url.QueryEscape(token))
 	return s.send(to, subject, body)
 }
 
 // SendPasswordResetEmail sends a password reset link to the user.
 func (s *SMTPEmailSender) SendPasswordResetEmail(ctx context.Context, to string, token string) error {
 	subject := lang.Check(s.cfg.PasswordResetSubject, "Reset your password")
-	body := fmt.Sprintf("To reset your password, click the following link:\n\n%s?token=%s", s.cfg.PasswordResetURL, token)
+	body := fmt.Sprintf("To reset your password, click the following link:\n\n%s?token=%s", s.cfg.PasswordResetURL, url.QueryEscape(token))
 	return s.send(to, subject, body)
 }
 

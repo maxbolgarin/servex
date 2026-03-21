@@ -155,6 +155,9 @@ type YandexOAuthConfig struct {
 // Each provider must implement the OAuthProvider interface.
 func WithOAuth(providers ...OAuthProvider) Option {
 	return func(op *Options) {
+		if !op.Auth.OAuth.Enabled {
+			op.Auth.OAuth.AutoLinkByEmail = true // default per spec
+		}
 		op.Auth.OAuth.Enabled = true
 		op.Auth.OAuth.Providers = append(op.Auth.OAuth.Providers, providers...)
 	}
@@ -171,6 +174,9 @@ func WithOAuth(providers ...OAuthProvider) Option {
 //	}))
 func WithOAuthGoogle(cfg GoogleOAuthConfig) Option {
 	return func(op *Options) {
+		if !op.Auth.OAuth.Enabled {
+			op.Auth.OAuth.AutoLinkByEmail = true
+		}
 		op.Auth.OAuth.Enabled = true
 		op.Auth.OAuth.Google = &cfg
 	}
@@ -187,6 +193,9 @@ func WithOAuthGoogle(cfg GoogleOAuthConfig) Option {
 //	}))
 func WithOAuthGitHub(cfg GitHubOAuthConfig) Option {
 	return func(op *Options) {
+		if !op.Auth.OAuth.Enabled {
+			op.Auth.OAuth.AutoLinkByEmail = true
+		}
 		op.Auth.OAuth.Enabled = true
 		op.Auth.OAuth.GitHub = &cfg
 	}
@@ -205,6 +214,9 @@ func WithOAuthGitHub(cfg GitHubOAuthConfig) Option {
 //	}))
 func WithOAuthApple(cfg AppleOAuthConfig) Option {
 	return func(op *Options) {
+		if !op.Auth.OAuth.Enabled {
+			op.Auth.OAuth.AutoLinkByEmail = true
+		}
 		op.Auth.OAuth.Enabled = true
 		op.Auth.OAuth.Apple = &cfg
 	}
@@ -220,6 +232,9 @@ func WithOAuthApple(cfg AppleOAuthConfig) Option {
 //	}))
 func WithOAuthTelegram(cfg TelegramOAuthConfig) Option {
 	return func(op *Options) {
+		if !op.Auth.OAuth.Enabled {
+			op.Auth.OAuth.AutoLinkByEmail = true
+		}
 		op.Auth.OAuth.Enabled = true
 		op.Auth.OAuth.Telegram = &cfg
 	}
@@ -236,6 +251,9 @@ func WithOAuthTelegram(cfg TelegramOAuthConfig) Option {
 //	}))
 func WithOAuthYandex(cfg YandexOAuthConfig) Option {
 	return func(op *Options) {
+		if !op.Auth.OAuth.Enabled {
+			op.Auth.OAuth.AutoLinkByEmail = true
+		}
 		op.Auth.OAuth.Enabled = true
 		op.Auth.OAuth.Yandex = &cfg
 	}
