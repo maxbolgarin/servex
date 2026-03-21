@@ -2,6 +2,7 @@ package servex
 
 import (
 	"context"
+	crand "crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -305,6 +306,8 @@ func (m *AuthManager) WithAuth(next http.HandlerFunc, roles ...UserRole) http.Ha
 
 		reqWithContext := r.WithContext(context.WithValue(r.Context(), UserContextKey{}, claims.UserID))
 		reqWithContext = reqWithContext.WithContext(context.WithValue(reqWithContext.Context(), RoleContextKey{}, claims.Roles))
+		reqWithContext = reqWithContext.WithContext(context.WithValue(reqWithContext.Context(), EmailVerifiedContextKey{}, claims.EmailVerified))
+		reqWithContext = reqWithContext.WithContext(context.WithValue(reqWithContext.Context(), TwoFactorEnabledContextKey{}, claims.TwoFactorEnabled))
 
 		next(w, reqWithContext)
 	}
@@ -578,11 +581,20 @@ func (h *AuthManager) setLogoutCookie(ctx *Context) {
 }
 
 type jwtClaims struct {
-	UserID    string     `json:"user_id"`
-	Roles     []UserRole `json:"roles"`
-	IsRefresh bool       `json:"is_refresh"`
+	UserID           string     `json:"user_id"`
+	Roles            []UserRole `json:"roles"`
+	IsRefresh        bool       `json:"is_refresh"`
+	TokenPurpose     string     `json:"purpose,omitempty"`
+	EmailVerified    bool       `json:"email_verified,omitempty"`
+	TwoFactorEnabled bool       `json:"two_factor_enabled,omitempty"`
 	jwt.RegisteredClaims
 }
+
+const (
+	tokenPurposeAccess     = "access"
+	tokenPurposeRefresh    = "refresh"
+	tokenPurpose2FAPending = "2fa_pending"
+)
 
 type loginResult struct {
 	UserLoginResponse
@@ -753,6 +765,10 @@ func (s *service) validateAccessToken(tokenString string) (claims *jwtClaims, er
 		return nil, fmt.Errorf("unexpected refresh token")
 	}
 
+	if claims.TokenPurpose != "" && claims.TokenPurpose != tokenPurposeAccess {
+		return nil, errTwoFactorRequired
+	}
+
 	if claims.Issuer != s.cfg.IssuerNameInJWT {
 		return nil, fmt.Errorf("invalid issuer")
 	}
@@ -781,6 +797,10 @@ func (s *service) validateRefreshToken(ctx context.Context, tokenString string) 
 
 	if !claims.IsRefresh {
 		return user, fmt.Errorf("unexpected access token")
+	}
+
+	if claims.TokenPurpose != "" && claims.TokenPurpose != tokenPurposeRefresh {
+		return user, fmt.Errorf("unexpected token purpose")
 	}
 
 	if claims.ExpiresAt.Before(time.Now()) {
@@ -833,11 +853,11 @@ func (s *service) generateTokens(ctx context.Context, user User) (string, string
 }
 
 func (s *service) generateAccessToken(user User) (string, time.Time, error) {
-	return s.generateToken(user.ID, user.Roles, false)
+	return s.generateToken(user, false)
 }
 
 func (s *service) generateAndSaveRefreshToken(ctx context.Context, user User) (string, time.Time, error) {
-	token, expiresAt, err := s.generateToken(user.ID, user.Roles, true)
+	token, expiresAt, err := s.generateToken(user, true)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("generating refresh token: %w", err)
 	}
@@ -857,17 +877,20 @@ func (s *service) generateAndSaveRefreshToken(ctx context.Context, user User) (s
 	return token, expiresAt, nil
 }
 
-func (s *service) generateToken(userID string, userRoles []UserRole, isRefresh bool) (string, time.Time, error) {
+func (s *service) generateToken(user User, isRefresh bool) (string, time.Time, error) {
 	expiresAt := time.Now().Add(s.cfg.AccessTokenDuration)
 	secret := s.cfg.accessSecret
+	purpose := tokenPurposeAccess
 	if isRefresh {
 		expiresAt = time.Now().Add(s.cfg.RefreshTokenDuration)
 		secret = s.cfg.refreshSecret
+		purpose = tokenPurposeRefresh
 	}
 
 	claims := jwtClaims{
-		UserID:    userID,
-		IsRefresh: isRefresh,
+		UserID:       user.ID,
+		IsRefresh:    isRefresh,
+		TokenPurpose: purpose,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -875,9 +898,11 @@ func (s *service) generateToken(userID string, userRoles []UserRole, isRefresh b
 		},
 	}
 
-	// Make refresh lighter — only include roles in access tokens
+	// Make refresh lighter — only include roles and user flags in access tokens
 	if !isRefresh {
-		claims.Roles = userRoles
+		claims.Roles = user.Roles
+		claims.EmailVerified = user.EmailVerified
+		claims.TwoFactorEnabled = user.TwoFactorEnabled
 	}
 
 	// Create token
@@ -890,6 +915,51 @@ func (s *service) generateToken(userID string, userRoles []UserRole, isRefresh b
 	}
 
 	return tokenString, expiresAt, nil
+}
+
+func (s *service) generate2FAPendingToken(userID string) (string, time.Time, error) {
+	expiresAt := time.Now().Add(5 * time.Minute)
+	claims := jwtClaims{
+		UserID:       userID,
+		TokenPurpose: tokenPurpose2FAPending,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        generateRandomHex(16),
+			ExpiresAt: jwt.NewNumericDate(expiresAt),
+			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			Issuer:    s.cfg.IssuerNameInJWT,
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(s.cfg.accessSecret)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("signing 2FA pending token: %w", err)
+	}
+	return tokenString, expiresAt, nil
+}
+
+func (s *service) validate2FAPendingToken(tokenString string) (*jwtClaims, error) {
+	claims, err := s.parseToken(tokenString, s.cfg.accessSecret)
+	if err != nil {
+		return nil, fmt.Errorf("parsing 2FA pending token: %w", err)
+	}
+	if claims.TokenPurpose != tokenPurpose2FAPending {
+		return nil, errUnauthorized
+	}
+	if claims.ID == "" {
+		return nil, errUnauthorized
+	}
+	if claims.ExpiresAt.Before(time.Now()) {
+		return nil, fmt.Errorf("expired 2FA pending token")
+	}
+	return claims, nil
+}
+
+func generateRandomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := crand.Read(b); err != nil {
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+	}
+	return hex.EncodeToString(b)
 }
 
 var (
