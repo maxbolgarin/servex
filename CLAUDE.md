@@ -39,6 +39,9 @@ Servex is a production-ready HTTP(S) server library built on `net/http` and `gor
 | Options (100+ `With*` builder functions) | `options_core.go`, `options_*.go` |
 | Context helpers (`C(w,r)`) | `context_core.go`, `context_request.go`, `context_response.go`, `context_validation.go` |
 | JWT authentication | `auth.go`, `middleware_auth.go` |
+| Email verification & password reset | `auth_email.go`, `options_email.go` |
+| OAuth providers | `auth_oauth.go`, `auth_oauth_providers.go`, `options_oauth.go` |
+| Two-factor authentication | `auth_2fa.go`, `options_2fa.go` |
 | Rate limiting | `ratelimit.go` |
 | Request filtering (IP/UA/header/query) | `filter.go` |
 | Reverse proxy with load balancing | `proxy.go` |
@@ -53,17 +56,21 @@ Servex is a production-ready HTTP(S) server library built on `net/http` and `gor
 - **Options pattern**: Configuration via `With*()` functions passed to `NewServer()`. Options are split across `options_*.go` files by domain.
 - **Middleware chain**: Registered in a fixed order in `servex.go` — rate limiting → size limits → filtering → security → CORS → cache → compression → logging → recovery → auth → proxy → static.
 - **Context helpers**: `servex.C(w, r)` wraps the standard `http.ResponseWriter` and `*http.Request` to provide convenient JSON reading/writing, parameter extraction, and error responses.
-- **Interface-based extensibility**: Provide custom implementations of `Logger`, `RequestLogger`, `AuditLogger`, `Metrics`, and `AuthDatabase` interfaces.
+- **Interface-based extensibility**: Provide custom implementations of `Logger`, `RequestLogger`, `AuditLogger`, `Metrics`, `AuthDatabase`, `EmailSender`, and `OAuthProvider` interfaces.
 
 ### Key Interfaces
 
 - `AuthDatabase` — user storage backend (see `auth.go`)
+- `EmailAuthDatabase` — email lookup (optional sub-interface, see `auth_email.go`)
+- `OAuthAuthDatabase` — OAuth provider lookup (optional sub-interface, see `auth_oauth.go`)
+- `EmailSender` — email delivery (see `options_email.go`)
+- `OAuthProvider` — OAuth provider flow (see `options_oauth.go`)
 - `Metrics` — custom metrics collection (see `metrics.go`)
 - `Logger` / `RequestLogger` / `AuditLogger` — logging backends (see `logging.go`, `audit.go`)
 
 ## Authentication System
 
-Servex includes a complete JWT-based authentication system in `auth.go` and `middleware_auth.go`, configured via `options_auth.go`.
+Servex includes a complete JWT-based authentication system with email verification, OAuth social login, and 2FA support. Core auth is in `auth.go` and `middleware_auth.go`. Extended features: `auth_email.go` (email/password reset), `auth_oauth.go` + `auth_oauth_providers.go` (OAuth), `auth_2fa.go` (2FA/TOTP).
 
 ### Quick Setup
 
@@ -91,6 +98,34 @@ server, _ := servex.NewServer(
 )
 ```
 
+**Full-featured setup (email + OAuth + 2FA):**
+```go
+server, _ := servex.NewServer(
+    servex.WithAuth(myDB),  // implements AuthDatabase + EmailAuthDatabase + OAuthAuthDatabase
+    servex.WithAuthKey(os.Getenv("ACCESS_KEY"), os.Getenv("REFRESH_KEY")),
+
+    // Email verification & password reset
+    servex.WithEmailSMTP(servex.SMTPConfig{
+        Host: "smtp.gmail.com", Port: 587,
+        Username: os.Getenv("SMTP_USER"), Password: os.Getenv("SMTP_PASS"),
+        From: "noreply@myapp.com",
+        VerificationURL: "https://myapp.com/verify-email",
+        PasswordResetURL: "https://myapp.com/reset-password",
+    }),
+
+    // OAuth providers
+    servex.WithOAuthGoogle(servex.GoogleOAuthConfig{
+        ClientID: os.Getenv("GOOGLE_ID"), ClientSecret: os.Getenv("GOOGLE_SECRET"),
+        RedirectURL: "https://myapp.com/api/v1/auth/oauth/google/callback",
+    }),
+    servex.WithOAuthStateSigningKey(os.Getenv("OAUTH_STATE_KEY")),
+
+    // Two-factor authentication
+    servex.WithTwoFactor(os.Getenv("2FA_ENCRYPTION_KEY")),
+    servex.WithTwoFactorIssuer("MyApp"),
+)
+```
+
 **YAML configuration:**
 ```yaml
 auth:
@@ -105,26 +140,88 @@ auth:
   initial_roles: ["user"]
   not_register_routes: false
   use_memory_database: false
+
+  email:
+    enabled: true
+    require_verification: false
+    verify_token_duration: "24h"
+    reset_token_duration: "1h"
+    resend_cooldown: "60s"
+    smtp:
+      host: "smtp.gmail.com"
+      port: 587
+      username: "..."
+      password: "..."   # env: SERVEX_AUTH_EMAIL_SMTP_PASSWORD
+      from: "noreply@myapp.com"
+      verification_url: "https://myapp.com/verify-email"
+      password_reset_url: "https://myapp.com/reset-password"
+
+  oauth:
+    enabled: true
+    auto_link_by_email: true
+    state_signing_key: "hex-64-chars"  # env: SERVEX_AUTH_OAUTH_STATE_SIGNING_KEY
+    google:
+      client_id: "..."
+      client_secret: "..."  # env: SERVEX_AUTH_OAUTH_GOOGLE_CLIENT_SECRET
+      redirect_url: "https://myapp.com/api/v1/auth/oauth/google/callback"
+
+  two_factor:
+    enabled: true
+    issuer: "MyApp"
+    email_fallback: true
+    backup_codes: 10
+    encryption_key: "hex-64-chars"  # env: SERVEX_AUTH_2FA_ENCRYPTION_KEY
+    max_verify_attempts: 5
 ```
 
 ### Auth Endpoints
 
 When `NotRegisterRoutes` is false (default), these routes are auto-registered under `AuthBasePath` (default `/api/v1/auth`):
 
-| Method | Path | Handler | Auth Required | Description |
-|--------|------|---------|---------------|-------------|
-| POST | `/api/v1/auth/register` | `RegisterHandler` | No | Create user, return tokens |
-| POST | `/api/v1/auth/login` | `LoginHandler` | No | Verify credentials, return tokens |
-| POST | `/api/v1/auth/refresh` | `RefreshHandler` | No (cookie) | Exchange refresh token for new tokens |
-| POST | `/api/v1/auth/logout` | `LogoutHandler` | No (cookie) | Invalidate refresh token |
-| GET | `/api/v1/auth/me` | `GetCurrentUserHandler` | Yes (Bearer) | Get current user info |
+**Core endpoints:**
+
+| Method | Path | Handler | Auth | Description |
+|--------|------|---------|------|-------------|
+| POST | `/register` | `RegisterHandler` | No | Create user, return tokens |
+| POST | `/login` | `LoginHandler` | No | Verify credentials, return tokens |
+| POST | `/refresh` | `RefreshHandler` | No (cookie) | Exchange refresh token for new tokens |
+| POST | `/logout` | `LogoutHandler` | No (cookie) | Invalidate refresh token |
+| GET | `/me` | `GetCurrentUserHandler` | Yes (Bearer) | Get current user info |
+
+**Email endpoints** (when `Email.Enabled`):
+
+| Method | Path | Handler | Auth | Description |
+|--------|------|---------|------|-------------|
+| POST | `/verify-email` | `VerifyEmailHandler` | No | Verify email with token |
+| POST | `/resend-verification` | `ResendVerificationHandler` | Yes (Bearer) | Resend verification email |
+| POST | `/forgot-password` | `ForgotPasswordHandler` | No | Request password reset |
+| POST | `/reset-password` | `ResetPasswordHandler` | No | Reset password with token |
+
+**OAuth endpoints** (when `OAuth.Enabled`):
+
+| Method | Path | Handler | Auth | Description |
+|--------|------|---------|------|-------------|
+| GET | `/oauth/{provider}` | `OAuthRedirectHandler` | No | Redirect to provider |
+| GET | `/oauth/{provider}/callback` | `OAuthCallbackHandler` | No | Handle provider callback |
+| POST | `/oauth/{provider}/link` | `OAuthLinkHandler` | Yes (Bearer) | Link provider to account |
+| DELETE | `/oauth/{provider}/link` | `OAuthUnlinkHandler` | Yes (Bearer) | Unlink provider |
+
+**2FA endpoints** (when `TwoFactor.Enabled`):
+
+| Method | Path | Handler | Auth | Description |
+|--------|------|---------|------|-------------|
+| POST | `/2fa/setup` | `TwoFactorSetupHandler` | Yes (Bearer) | Generate TOTP secret + backup codes |
+| POST | `/2fa/enable` | `TwoFactorEnableHandler` | Yes (Bearer) | Verify code, enable 2FA |
+| POST | `/2fa/disable` | `TwoFactorDisableHandler` | Yes (Bearer) | Disable 2FA |
+| POST | `/2fa/verify` | `TwoFactorVerifyHandler` | Pending token | Complete login with 2FA code |
+| POST | `/2fa/send-email-code` | `TwoFactorSendEmailCodeHandler` | Pending token | Send 2FA code via email |
 
 **Request/Response formats:**
 
 Register & Login request:
 ```json
 POST /api/v1/auth/register  (or /login)
-{"username": "john", "password": "securepass123"}
+{"username": "john", "password": "securepass123", "email": "john@example.com"}
 ```
 
 Success response (201 for register, 200 for login/refresh):
