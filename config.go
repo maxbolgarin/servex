@@ -143,6 +143,95 @@ type AuthConfiguration struct {
 	InitialRoles           []string      `yaml:"initial_roles" json:"initial_roles" env:"SERVEX_AUTH_INITIAL_ROLES"`
 	NotRegisterRoutes      bool          `yaml:"not_register_routes" json:"not_register_routes" env:"SERVEX_AUTH_NOT_REGISTER_ROUTES"`
 	UseMemoryDatabase      bool          `yaml:"use_memory_database" json:"use_memory_database" env:"SERVEX_AUTH_USE_MEMORY_DATABASE"`
+	MinPasswordLength      int           `yaml:"min_password_length" json:"min_password_length" env:"SERVEX_AUTH_MIN_PASSWORD_LENGTH"`
+
+	Email     EmailConfiguration     `yaml:"email" json:"email"`
+	OAuth     OAuthConfiguration     `yaml:"oauth" json:"oauth"`
+	TwoFactor TwoFactorConfiguration `yaml:"two_factor" json:"two_factor"`
+}
+
+// EmailConfiguration represents email feature configuration within auth.
+type EmailConfiguration struct {
+	Enabled             bool          `yaml:"enabled" json:"enabled" env:"SERVEX_AUTH_EMAIL_ENABLED"`
+	RequireVerification bool          `yaml:"require_verification" json:"require_verification" env:"SERVEX_AUTH_EMAIL_REQUIRE_VERIFICATION"`
+	VerifyTokenDuration time.Duration `yaml:"verify_token_duration" json:"verify_token_duration" env:"SERVEX_AUTH_EMAIL_VERIFY_TOKEN_DURATION"`
+	ResetTokenDuration  time.Duration `yaml:"reset_token_duration" json:"reset_token_duration" env:"SERVEX_AUTH_EMAIL_RESET_TOKEN_DURATION"`
+	ResendCooldown      time.Duration `yaml:"resend_cooldown" json:"resend_cooldown" env:"SERVEX_AUTH_EMAIL_RESEND_COOLDOWN"`
+	SMTP                SMTPConfiguration `yaml:"smtp" json:"smtp"`
+}
+
+// SMTPConfiguration represents SMTP server configuration for sending emails.
+type SMTPConfiguration struct {
+	Host                 string `yaml:"host" json:"host" env:"SERVEX_AUTH_EMAIL_SMTP_HOST"`
+	Port                 int    `yaml:"port" json:"port" env:"SERVEX_AUTH_EMAIL_SMTP_PORT"`
+	Username             string `yaml:"username" json:"username" env:"SERVEX_AUTH_EMAIL_SMTP_USERNAME"`
+	Password             string `yaml:"password" json:"password" env:"SERVEX_AUTH_EMAIL_SMTP_PASSWORD"`
+	From                 string `yaml:"from" json:"from" env:"SERVEX_AUTH_EMAIL_SMTP_FROM"`
+	VerificationSubject  string `yaml:"verification_subject" json:"verification_subject"`
+	PasswordResetSubject string `yaml:"password_reset_subject" json:"password_reset_subject"`
+	TwoFactorCodeSubject string `yaml:"two_factor_code_subject" json:"two_factor_code_subject"`
+	VerificationURL      string `yaml:"verification_url" json:"verification_url" env:"SERVEX_AUTH_EMAIL_SMTP_VERIFICATION_URL"`
+	PasswordResetURL     string `yaml:"password_reset_url" json:"password_reset_url" env:"SERVEX_AUTH_EMAIL_SMTP_PASSWORD_RESET_URL"`
+}
+
+// OAuthConfiguration represents OAuth social login configuration within auth.
+type OAuthConfiguration struct {
+	Enabled         bool   `yaml:"enabled" json:"enabled" env:"SERVEX_AUTH_OAUTH_ENABLED"`
+	AutoLinkByEmail bool   `yaml:"auto_link_by_email" json:"auto_link_by_email" env:"SERVEX_AUTH_OAUTH_AUTO_LINK_BY_EMAIL"`
+	StateSigningKey string `yaml:"state_signing_key" json:"state_signing_key" env:"SERVEX_AUTH_OAUTH_STATE_SIGNING_KEY"`
+
+	Google   *GoogleOAuthConfiguration   `yaml:"google" json:"google"`
+	GitHub   *GitHubOAuthConfiguration   `yaml:"github" json:"github"`
+	Apple    *AppleOAuthConfiguration    `yaml:"apple" json:"apple"`
+	Telegram *TelegramOAuthConfiguration `yaml:"telegram" json:"telegram"`
+	Yandex   *YandexOAuthConfiguration   `yaml:"yandex" json:"yandex"`
+}
+
+// GoogleOAuthConfiguration represents Google OAuth 2.0 YAML configuration.
+type GoogleOAuthConfiguration struct {
+	ClientID     string `yaml:"client_id" json:"client_id" env:"SERVEX_AUTH_OAUTH_GOOGLE_CLIENT_ID"`
+	ClientSecret string `yaml:"client_secret" json:"client_secret" env:"SERVEX_AUTH_OAUTH_GOOGLE_CLIENT_SECRET"`
+	RedirectURL  string `yaml:"redirect_url" json:"redirect_url" env:"SERVEX_AUTH_OAUTH_GOOGLE_REDIRECT_URL"`
+}
+
+// GitHubOAuthConfiguration represents GitHub OAuth YAML configuration.
+type GitHubOAuthConfiguration struct {
+	ClientID     string `yaml:"client_id" json:"client_id" env:"SERVEX_AUTH_OAUTH_GITHUB_CLIENT_ID"`
+	ClientSecret string `yaml:"client_secret" json:"client_secret" env:"SERVEX_AUTH_OAUTH_GITHUB_CLIENT_SECRET"`
+	RedirectURL  string `yaml:"redirect_url" json:"redirect_url" env:"SERVEX_AUTH_OAUTH_GITHUB_REDIRECT_URL"`
+}
+
+// AppleOAuthConfiguration represents Apple Sign In YAML configuration.
+type AppleOAuthConfiguration struct {
+	ClientID    string `yaml:"client_id" json:"client_id" env:"SERVEX_AUTH_OAUTH_APPLE_CLIENT_ID"`
+	TeamID      string `yaml:"team_id" json:"team_id" env:"SERVEX_AUTH_OAUTH_APPLE_TEAM_ID"`
+	KeyID       string `yaml:"key_id" json:"key_id" env:"SERVEX_AUTH_OAUTH_APPLE_KEY_ID"`
+	PrivateKey  string `yaml:"private_key" json:"private_key" env:"SERVEX_AUTH_OAUTH_APPLE_PRIVATE_KEY"`
+	RedirectURL string `yaml:"redirect_url" json:"redirect_url" env:"SERVEX_AUTH_OAUTH_APPLE_REDIRECT_URL"`
+}
+
+// TelegramOAuthConfiguration represents Telegram Login Widget YAML configuration.
+type TelegramOAuthConfiguration struct {
+	BotToken    string `yaml:"bot_token" json:"bot_token" env:"SERVEX_AUTH_OAUTH_TELEGRAM_BOT_TOKEN"`
+	RedirectURL string `yaml:"redirect_url" json:"redirect_url" env:"SERVEX_AUTH_OAUTH_TELEGRAM_REDIRECT_URL"`
+}
+
+// YandexOAuthConfiguration represents Yandex OAuth YAML configuration.
+type YandexOAuthConfiguration struct {
+	ClientID     string `yaml:"client_id" json:"client_id" env:"SERVEX_AUTH_OAUTH_YANDEX_CLIENT_ID"`
+	ClientSecret string `yaml:"client_secret" json:"client_secret" env:"SERVEX_AUTH_OAUTH_YANDEX_CLIENT_SECRET"`
+	RedirectURL  string `yaml:"redirect_url" json:"redirect_url" env:"SERVEX_AUTH_OAUTH_YANDEX_REDIRECT_URL"`
+}
+
+// TwoFactorConfiguration represents 2FA YAML configuration within auth.
+type TwoFactorConfiguration struct {
+	Enabled           bool          `yaml:"enabled" json:"enabled" env:"SERVEX_AUTH_2FA_ENABLED"`
+	Issuer            string        `yaml:"issuer" json:"issuer" env:"SERVEX_AUTH_2FA_ISSUER"`
+	EmailFallback     bool          `yaml:"email_fallback" json:"email_fallback" env:"SERVEX_AUTH_2FA_EMAIL_FALLBACK"`
+	CodeDuration      time.Duration `yaml:"code_duration" json:"code_duration" env:"SERVEX_AUTH_2FA_CODE_DURATION"`
+	BackupCodes       int           `yaml:"backup_codes" json:"backup_codes" env:"SERVEX_AUTH_2FA_BACKUP_CODES"`
+	EncryptionKey     string        `yaml:"encryption_key" json:"encryption_key" env:"SERVEX_AUTH_2FA_ENCRYPTION_KEY"`
+	MaxVerifyAttempts int           `yaml:"max_verify_attempts" json:"max_verify_attempts" env:"SERVEX_AUTH_2FA_MAX_VERIFY_ATTEMPTS"`
 }
 
 // RateLimitConfiguration represents rate limiting configuration
@@ -398,6 +487,99 @@ func (c *Config) ToOptions() ([]Option, error) {
 		}
 		if c.Auth.NotRegisterRoutes {
 			opts = append(opts, WithAuthNotRegisterRoutes(true))
+		}
+	}
+
+	// Email configuration
+	if c.Auth.Email.Enabled {
+		if c.Auth.Email.SMTP.Host != "" {
+			opts = append(opts, WithEmailSMTP(SMTPConfig{
+				Host:                 c.Auth.Email.SMTP.Host,
+				Port:                 c.Auth.Email.SMTP.Port,
+				Username:             c.Auth.Email.SMTP.Username,
+				Password:             c.Auth.Email.SMTP.Password,
+				From:                 c.Auth.Email.SMTP.From,
+				VerificationSubject:  c.Auth.Email.SMTP.VerificationSubject,
+				PasswordResetSubject: c.Auth.Email.SMTP.PasswordResetSubject,
+				TwoFactorCodeSubject: c.Auth.Email.SMTP.TwoFactorCodeSubject,
+				VerificationURL:      c.Auth.Email.SMTP.VerificationURL,
+				PasswordResetURL:     c.Auth.Email.SMTP.PasswordResetURL,
+			}))
+		}
+		if c.Auth.Email.RequireVerification {
+			opts = append(opts, WithEmailRequireVerification(true))
+		}
+		if c.Auth.Email.VerifyTokenDuration > 0 && c.Auth.Email.ResetTokenDuration > 0 {
+			opts = append(opts, WithEmailTokenDurations(c.Auth.Email.VerifyTokenDuration, c.Auth.Email.ResetTokenDuration))
+		}
+		if c.Auth.Email.ResendCooldown > 0 {
+			opts = append(opts, WithEmailResendCooldown(c.Auth.Email.ResendCooldown))
+		}
+	}
+
+	// OAuth configuration
+	if c.Auth.OAuth.Enabled {
+		if c.Auth.OAuth.StateSigningKey != "" {
+			opts = append(opts, WithOAuthStateSigningKey(c.Auth.OAuth.StateSigningKey))
+		}
+		if c.Auth.OAuth.AutoLinkByEmail {
+			opts = append(opts, WithOAuthAutoLink(true))
+		}
+		if c.Auth.OAuth.Google != nil {
+			opts = append(opts, WithOAuthGoogle(GoogleOAuthConfig{
+				ClientID:     c.Auth.OAuth.Google.ClientID,
+				ClientSecret: c.Auth.OAuth.Google.ClientSecret,
+				RedirectURL:  c.Auth.OAuth.Google.RedirectURL,
+			}))
+		}
+		if c.Auth.OAuth.GitHub != nil {
+			opts = append(opts, WithOAuthGitHub(GitHubOAuthConfig{
+				ClientID:     c.Auth.OAuth.GitHub.ClientID,
+				ClientSecret: c.Auth.OAuth.GitHub.ClientSecret,
+				RedirectURL:  c.Auth.OAuth.GitHub.RedirectURL,
+			}))
+		}
+		if c.Auth.OAuth.Apple != nil {
+			opts = append(opts, WithOAuthApple(AppleOAuthConfig{
+				ClientID:    c.Auth.OAuth.Apple.ClientID,
+				TeamID:      c.Auth.OAuth.Apple.TeamID,
+				KeyID:       c.Auth.OAuth.Apple.KeyID,
+				PrivateKey:  c.Auth.OAuth.Apple.PrivateKey,
+				RedirectURL: c.Auth.OAuth.Apple.RedirectURL,
+			}))
+		}
+		if c.Auth.OAuth.Telegram != nil {
+			opts = append(opts, WithOAuthTelegram(TelegramOAuthConfig{
+				BotToken:    c.Auth.OAuth.Telegram.BotToken,
+				RedirectURL: c.Auth.OAuth.Telegram.RedirectURL,
+			}))
+		}
+		if c.Auth.OAuth.Yandex != nil {
+			opts = append(opts, WithOAuthYandex(YandexOAuthConfig{
+				ClientID:     c.Auth.OAuth.Yandex.ClientID,
+				ClientSecret: c.Auth.OAuth.Yandex.ClientSecret,
+				RedirectURL:  c.Auth.OAuth.Yandex.RedirectURL,
+			}))
+		}
+	}
+
+	// 2FA configuration
+	if c.Auth.TwoFactor.Enabled && c.Auth.TwoFactor.EncryptionKey != "" {
+		opts = append(opts, WithTwoFactor(c.Auth.TwoFactor.EncryptionKey))
+		if c.Auth.TwoFactor.Issuer != "" {
+			opts = append(opts, WithTwoFactorIssuer(c.Auth.TwoFactor.Issuer))
+		}
+		if c.Auth.TwoFactor.EmailFallback {
+			opts = append(opts, WithTwoFactorEmailFallback(true))
+		}
+		if c.Auth.TwoFactor.CodeDuration > 0 {
+			opts = append(opts, WithTwoFactorCodeDuration(c.Auth.TwoFactor.CodeDuration))
+		}
+		if c.Auth.TwoFactor.BackupCodes > 0 {
+			opts = append(opts, WithTwoFactorBackupCodes(c.Auth.TwoFactor.BackupCodes))
+		}
+		if c.Auth.TwoFactor.MaxVerifyAttempts > 0 {
+			opts = append(opts, WithTwoFactorMaxAttempts(c.Auth.TwoFactor.MaxVerifyAttempts))
 		}
 	}
 
