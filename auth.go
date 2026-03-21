@@ -229,6 +229,31 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 		}
 	}
 
+	if cfg.OAuth.Enabled {
+		if _, ok := cfg.Database.(OAuthAuthDatabase); !ok {
+			return nil, errors.New("OAuth auth requires AuthDatabase to implement OAuthAuthDatabase")
+		}
+		cfg.OAuth.BasePath = lang.Check(cfg.OAuth.BasePath, "/oauth")
+		if cfg.OAuth.StateSigningKey != "" {
+			stateKey, err := hex.DecodeString(cfg.OAuth.StateSigningKey)
+			if err != nil {
+				return nil, fmt.Errorf("decode OAuth state signing key: %w", err)
+			}
+			if len(stateKey) < 32 {
+				return nil, fmt.Errorf("OAuth state signing key must be at least 32 bytes")
+			}
+			cfg.OAuth.stateSigningKey = stateKey
+		}
+		// If no explicit state signing key, generate a random one
+		if len(cfg.OAuth.stateSigningKey) == 0 {
+			key := make([]byte, 32)
+			if _, err := crand.Read(key); err != nil {
+				return nil, fmt.Errorf("generate OAuth state signing key: %w", err)
+			}
+			cfg.OAuth.stateSigningKey = key
+		}
+	}
+
 	// Get audit logger (optional parameter)
 	var audit AuditLogger = &NoopAuditLogger{}
 	if len(auditLogger) > 0 && auditLogger[0] != nil {
@@ -266,6 +291,15 @@ func (h *AuthManager) RegisterRoutes(r *mux.Router) {
 			rr.HandleFunc("/resend-verification", h.WithAuth(h.ResendVerificationHandler)).Methods(http.MethodPost)
 			rr.HandleFunc("/forgot-password", h.ForgotPasswordHandler).Methods(http.MethodPost)
 			rr.HandleFunc("/reset-password", h.ResetPasswordHandler).Methods(http.MethodPost)
+		}
+
+		// OAuth routes
+		if h.service.cfg.OAuth.Enabled {
+			oauthBase := lang.Check(h.service.cfg.OAuth.BasePath, "/oauth")
+			rr.HandleFunc(oauthBase+"/{provider}", h.OAuthRedirectHandler).Methods(http.MethodGet)
+			rr.HandleFunc(oauthBase+"/{provider}/callback", h.OAuthCallbackHandler).Methods(http.MethodGet)
+			rr.HandleFunc(oauthBase+"/{provider}/link", h.WithAuth(h.OAuthLinkHandler)).Methods(http.MethodPost)
+			rr.HandleFunc(oauthBase+"/{provider}/link", h.WithAuth(h.OAuthUnlinkHandler)).Methods(http.MethodDelete)
 		}
 
 		// This roles should be set with custom roles by library user
