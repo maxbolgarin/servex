@@ -620,3 +620,17 @@ func parseAndValidateIP(value string) string {
 
 	return ""
 }
+
+// EmailVerified returns whether the authenticated user's email is verified.
+// This value is embedded in the JWT access token at token creation time.
+// Returns false if user is not authenticated or field is not set.
+func (ctx *Context) EmailVerified() bool {
+	return getValueFromContext[bool](ctx.r, EmailVerifiedContextKey{})
+}
+
+// TwoFactorEnabled returns whether the authenticated user has 2FA enabled.
+// This value is embedded in the JWT access token at token creation time.
+// Returns false if user is not authenticated or field is not set.
+func (ctx *Context) TwoFactorEnabled() bool {
+	return getValueFromContext[bool](ctx.r, TwoFactorEnabledContextKey{})
+}
