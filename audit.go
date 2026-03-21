@@ -47,6 +47,30 @@ const (
 	// System Events
 	AuditEventSecurityViolation AuditEventType = "security.violation"
 	AuditEventAnomalousActivity AuditEventType = "security.anomaly"
+
+	// Email Verification Events
+	AuditEventEmailVerified     AuditEventType = "auth.email.verified"
+	AuditEventEmailVerifyFailed AuditEventType = "auth.email.verify_failed"
+
+	// Password Reset Events
+	AuditEventPasswordResetReq    AuditEventType = "auth.password_reset.requested"
+	AuditEventPasswordResetDone   AuditEventType = "auth.password_reset.completed"
+	AuditEventPasswordResetFailed AuditEventType = "auth.password_reset.failed"
+
+	// OAuth Events
+	AuditEventOAuthLogin       AuditEventType = "auth.oauth.login"
+	AuditEventOAuthLoginFailed AuditEventType = "auth.oauth.login_failed"
+	AuditEventOAuthLink        AuditEventType = "auth.oauth.link"
+	AuditEventOAuthUnlink      AuditEventType = "auth.oauth.unlink"
+
+	// 2FA Events
+	AuditEvent2FASetup       AuditEventType = "auth.2fa.setup"
+	AuditEvent2FAEnabled     AuditEventType = "auth.2fa.enabled"
+	AuditEvent2FADisabled    AuditEventType = "auth.2fa.disabled"
+	AuditEvent2FAVerified    AuditEventType = "auth.2fa.verified"
+	AuditEvent2FAFailed      AuditEventType = "auth.2fa.failed"
+	AuditEvent2FALocked      AuditEventType = "auth.2fa.locked"
+	AuditEventBackupCodeUsed AuditEventType = "auth.2fa.backup_code_used"
 )
 
 // AuditSeverity represents the severity level of an audit event

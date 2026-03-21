@@ -46,6 +46,34 @@ type User struct {
 	PasswordHash          string     `json:"password_hash" bson:"password_hash" db:"password_hash"`
 	RefreshTokenHash      string     `json:"refresh_token_hash" bson:"refresh_token_hash" db:"refresh_token_hash"`
 	RefreshTokenExpiresAt time.Time  `json:"refresh_token_expires_at" bson:"refresh_token_expires_at" db:"refresh_token_expires_at"`
+
+	// Email
+	Email         string `json:"email,omitempty" bson:"email,omitempty" db:"email"`
+	EmailVerified bool   `json:"email_verified" bson:"email_verified" db:"email_verified"`
+
+	// Email verification
+	EmailVerifyTokenHash      string    `json:"email_verify_token_hash,omitempty" bson:"email_verify_token_hash,omitempty" db:"email_verify_token_hash"`
+	EmailVerifyTokenExpiresAt time.Time `json:"email_verify_token_expires_at,omitempty" bson:"email_verify_token_expires_at,omitempty" db:"email_verify_token_expires_at"`
+	EmailVerifyLastSentAt     time.Time `json:"email_verify_last_sent_at,omitempty" bson:"email_verify_last_sent_at,omitempty" db:"email_verify_last_sent_at"`
+
+	// Password reset
+	PasswordResetTokenHash      string    `json:"password_reset_token_hash,omitempty" bson:"password_reset_token_hash,omitempty" db:"password_reset_token_hash"`
+	PasswordResetTokenExpiresAt time.Time `json:"password_reset_token_expires_at,omitempty" bson:"password_reset_token_expires_at,omitempty" db:"password_reset_token_expires_at"`
+
+	// OAuth
+	OAuthProviders []OAuthLink `json:"oauth_providers,omitempty" bson:"oauth_providers,omitempty" db:"oauth_providers"`
+
+	// 2FA
+	TwoFactorEnabled     bool     `json:"two_factor_enabled" bson:"two_factor_enabled" db:"two_factor_enabled"`
+	TwoFactorSecret      string   `json:"two_factor_secret,omitempty" bson:"two_factor_secret,omitempty" db:"two_factor_secret"`
+	TwoFactorBackupCodes []string `json:"two_factor_backup_codes,omitempty" bson:"two_factor_backup_codes,omitempty" db:"two_factor_backup_codes"`
+}
+
+// OAuthLink represents a linked OAuth provider for a user.
+type OAuthLink struct {
+	Provider   string `json:"provider" bson:"provider" db:"provider"`
+	ProviderID string `json:"provider_id" bson:"provider_id" db:"provider_id"`
+	Email      string `json:"email,omitempty" bson:"email,omitempty" db:"email"`
 }
 
 type UserDiff struct {
@@ -54,6 +82,27 @@ type UserDiff struct {
 	PasswordHash          *string     `json:"password_hash,omitempty" bson:"password_hash,omitempty" db:"password_hash,omitempty"`
 	RefreshTokenHash      *string     `json:"refresh_token_hash,omitempty" bson:"refresh_token_hash,omitempty" db:"refresh_token_hash,omitempty"`
 	RefreshTokenExpiresAt *time.Time  `json:"refresh_token_expires_at,omitempty" bson:"refresh_token_expires_at,omitempty" db:"refresh_token_expires_at,omitempty"`
+
+	// Email
+	Email         *string `json:"email,omitempty" bson:"email,omitempty" db:"email,omitempty"`
+	EmailVerified *bool   `json:"email_verified,omitempty" bson:"email_verified,omitempty" db:"email_verified,omitempty"`
+
+	// Email verification
+	EmailVerifyTokenHash      *string    `json:"email_verify_token_hash,omitempty" bson:"email_verify_token_hash,omitempty" db:"email_verify_token_hash,omitempty"`
+	EmailVerifyTokenExpiresAt *time.Time `json:"email_verify_token_expires_at,omitempty" bson:"email_verify_token_expires_at,omitempty" db:"email_verify_token_expires_at,omitempty"`
+	EmailVerifyLastSentAt     *time.Time `json:"email_verify_last_sent_at,omitempty" bson:"email_verify_last_sent_at,omitempty" db:"email_verify_last_sent_at,omitempty"`
+
+	// Password reset
+	PasswordResetTokenHash      *string    `json:"password_reset_token_hash,omitempty" bson:"password_reset_token_hash,omitempty" db:"password_reset_token_hash,omitempty"`
+	PasswordResetTokenExpiresAt *time.Time `json:"password_reset_token_expires_at,omitempty" bson:"password_reset_token_expires_at,omitempty" db:"password_reset_token_expires_at,omitempty"`
+
+	// OAuth
+	OAuthProviders *[]OAuthLink `json:"oauth_providers,omitempty" bson:"oauth_providers,omitempty" db:"oauth_providers,omitempty"`
+
+	// 2FA
+	TwoFactorEnabled     *bool     `json:"two_factor_enabled,omitempty" bson:"two_factor_enabled,omitempty" db:"two_factor_enabled,omitempty"`
+	TwoFactorSecret      *string   `json:"two_factor_secret,omitempty" bson:"two_factor_secret,omitempty" db:"two_factor_secret,omitempty"`
+	TwoFactorBackupCodes *[]string `json:"two_factor_backup_codes,omitempty" bson:"two_factor_backup_codes,omitempty" db:"two_factor_backup_codes,omitempty"`
 }
 
 const (
@@ -64,12 +113,42 @@ const (
 	PasswordHashDBField          = "password_hash"
 	RefreshTokenHashDBField      = "refresh_token_hash"
 	RefreshTokenExpiresAtDBField = "refresh_token_expires_at"
+
+	EmailDBField                      = "email"
+	EmailVerifiedDBField              = "email_verified"
+	EmailVerifyTokenHashDBField       = "email_verify_token_hash"
+	EmailVerifyTokenExpiresAtDBField  = "email_verify_token_expires_at"
+	EmailVerifyLastSentAtDBField      = "email_verify_last_sent_at"
+	PasswordResetTokenHashDBField     = "password_reset_token_hash"
+	PasswordResetTokenExpiresAtDBField = "password_reset_token_expires_at"
+	OAuthProvidersDBField             = "oauth_providers"
+	TwoFactorEnabledDBField           = "two_factor_enabled"
+	TwoFactorSecretDBField            = "two_factor_secret"
+	TwoFactorBackupCodesDBField       = "two_factor_backup_codes"
 )
 
 // UserLoginRequest represents the request body for user login and registration.
 type UserLoginRequest struct {
 	Username string `json:"username"`
 	Password string `json:"password"`
+}
+
+// RegisterRequest represents the request body for user registration with optional email.
+type RegisterRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+	Email    string `json:"email,omitempty"`
+}
+
+// Validate checks if the RegisterRequest is valid.
+func (req RegisterRequest) Validate() error {
+	if req.Username == "" {
+		return errors.New("username is required")
+	}
+	if req.Password == "" {
+		return errors.New("password is required")
+	}
+	return nil
 }
 
 // UserUpdateRequest represents the request body for updating user information.
@@ -95,8 +174,10 @@ type AuthManager struct {
 }
 
 type (
-	UserContextKey struct{}
-	RoleContextKey struct{}
+	UserContextKey             struct{}
+	RoleContextKey             struct{}
+	EmailVerifiedContextKey    struct{}
+	TwoFactorEnabledContextKey struct{}
 )
 
 // NewAuthManager creates a new [AuthManager] with the provided configuration.
@@ -817,6 +898,20 @@ var (
 	errInsufficientPermissions = errors.New("insufficient permissions")
 	errUsernameAlreadyExists   = errors.New("username already exists")
 	errPasswordTooShort        = errors.New("password too short")
+
+	errEmailNotVerified         = errors.New("email not verified")
+	errInvalidVerifyToken       = errors.New("invalid or expired verification token")
+	errVerifyCooldown           = errors.New("verification email sent recently")
+	errInvalidResetToken        = errors.New("invalid or expired reset token")
+	errOAuthProviderNotFound    = errors.New("OAuth provider not found")
+	errOAuthStateMismatch       = errors.New("OAuth state mismatch")
+	errOAuthEmailNotVerified    = errors.New("email already registered, verify your email first or log in to link this provider")
+	errOAuthAlreadyLinked       = errors.New("OAuth provider already linked")
+	errTwoFactorRequired        = errors.New("2FA verification required")
+	errTwoFactorAlreadyEnabled  = errors.New("2FA already enabled")
+	errTwoFactorNotEnabled      = errors.New("2FA not enabled")
+	errInvalidTwoFactorCode     = errors.New("invalid 2FA code")
+	errTwoFactorTooManyAttempts = errors.New("too many 2FA attempts, re-authenticate")
 )
 
 // Validate checks if the UserLoginRequest is valid.
@@ -890,13 +985,15 @@ type MemoryAuthDatabase struct {
 	mu            sync.RWMutex
 	users         map[string]User // Map username to User
 	usersByID     map[string]User // Map ID to User
+	usersByEmail  map[string]User // Map email to User
 	userIDCounter int
 }
 
 func NewMemoryAuthDatabase() *MemoryAuthDatabase {
 	return &MemoryAuthDatabase{
-		users:     make(map[string]User),
-		usersByID: make(map[string]User),
+		users:        make(map[string]User),
+		usersByID:    make(map[string]User),
+		usersByEmail: make(map[string]User),
 	}
 }
 
@@ -979,9 +1076,87 @@ func (db *MemoryAuthDatabase) UpdateUser(ctx context.Context, id string, diff *U
 		user.RefreshTokenExpiresAt = *diff.RefreshTokenExpiresAt
 	}
 
+	// Email
+	if diff.Email != nil && *diff.Email != user.Email {
+		// Remove old email index entry
+		if user.Email != "" {
+			delete(db.usersByEmail, user.Email)
+		}
+		user.Email = *diff.Email
+		// Add new email index entry
+		if user.Email != "" {
+			db.usersByEmail[user.Email] = user
+		}
+	}
+	if diff.EmailVerified != nil {
+		user.EmailVerified = *diff.EmailVerified
+	}
+
+	// Email verification
+	if diff.EmailVerifyTokenHash != nil {
+		user.EmailVerifyTokenHash = *diff.EmailVerifyTokenHash
+	}
+	if diff.EmailVerifyTokenExpiresAt != nil {
+		user.EmailVerifyTokenExpiresAt = *diff.EmailVerifyTokenExpiresAt
+	}
+	if diff.EmailVerifyLastSentAt != nil {
+		user.EmailVerifyLastSentAt = *diff.EmailVerifyLastSentAt
+	}
+
+	// Password reset
+	if diff.PasswordResetTokenHash != nil {
+		user.PasswordResetTokenHash = *diff.PasswordResetTokenHash
+	}
+	if diff.PasswordResetTokenExpiresAt != nil {
+		user.PasswordResetTokenExpiresAt = *diff.PasswordResetTokenExpiresAt
+	}
+
+	// OAuth
+	if diff.OAuthProviders != nil {
+		user.OAuthProviders = *diff.OAuthProviders
+	}
+
+	// 2FA
+	if diff.TwoFactorEnabled != nil {
+		user.TwoFactorEnabled = *diff.TwoFactorEnabled
+	}
+	if diff.TwoFactorSecret != nil {
+		user.TwoFactorSecret = *diff.TwoFactorSecret
+	}
+	if diff.TwoFactorBackupCodes != nil {
+		user.TwoFactorBackupCodes = *diff.TwoFactorBackupCodes
+	}
+
 	// Update maps
 	db.users[user.Username] = user
 	db.usersByID[id] = user
+	if user.Email != "" {
+		db.usersByEmail[user.Email] = user
+	}
 
 	return nil
+}
+
+// FindByEmail finds a user by their email address.
+func (db *MemoryAuthDatabase) FindByEmail(ctx context.Context, email string) (User, bool, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	user, exists := db.usersByEmail[email]
+	return user, exists, nil
+}
+
+// FindByOAuthProvider finds a user by their OAuth provider and provider ID.
+func (db *MemoryAuthDatabase) FindByOAuthProvider(ctx context.Context, provider, providerID string) (User, bool, error) {
+	db.mu.RLock()
+	defer db.mu.RUnlock()
+
+	for _, user := range db.usersByID {
+		for _, link := range user.OAuthProviders {
+			if link.Provider == provider && link.ProviderID == providerID {
+				return user, true, nil
+			}
+		}
+	}
+	return User{}, false, nil
 }
