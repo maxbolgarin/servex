@@ -197,6 +197,33 @@ func TestAttemptTrackerEmailCooldown(t *testing.T) {
 	}
 }
 
+func TestNewNumericCodeGenerator(t *testing.T) {
+	t.Parallel()
+	gen := servex.NewNumericCodeGenerator(8)
+	for range 100 {
+		code, err := gen.Generate()
+		if err != nil {
+			t.Fatalf("Generate: %v", err)
+		}
+		if len(code) != 8 {
+			t.Fatalf("length: got %d, want 8: %q", len(code), code)
+		}
+		for _, r := range code {
+			if r < '0' || r > '9' {
+				t.Fatalf("non-digit in %q", code)
+			}
+		}
+	}
+	gen6 := servex.NewNumericCodeGenerator(0)
+	code, err := gen6.Generate()
+	if err != nil {
+		t.Fatalf("Generate default: %v", err)
+	}
+	if len(code) != 6 {
+		t.Errorf("default length: got %d, want 6", len(code))
+	}
+}
+
 func TestGenerateBackupCodes(t *testing.T) {
 	count := 8
 	plain, hashed, err := servex.ExportGenerateBackupCodes(count)
@@ -669,16 +696,22 @@ func TestLoginWith2FA_FullFlow(t *testing.T) {
 		AuthBasePath:         "/api/v1/auth",
 		RefreshTokenCookieName: "_servexrt",
 		RolesOnRegister:      []servex.UserRole{"user"},
-		Email: servex.EmailConfig{
-			Enabled:             true,
-			Sender:              &MockEmailSender{},
-			VerifyTokenDuration: 24 * time.Hour,
-			ResetTokenDuration:  time.Hour,
-			ResendCooldown:      60 * time.Second,
+		EmailVerification: servex.EmailVerificationConfig{
+			Enabled:       true,
+			Sender:        &MockEmailSender{},
+			Mode:          servex.EmailVerificationTokenMode,
+			TokenDuration: 24 * time.Hour,
+			ResendCooldown: 60 * time.Second,
+		},
+		PasswordReset: servex.PasswordResetConfig{
+			Enabled:       true,
+			Sender:        &MockEmailSender{},
+			TokenDuration: time.Hour,
 		},
 		TwoFactor: servex.TwoFactorConfig{
 			Enabled:           true,
 			EncryptionKey:     encKey,
+			EmailSender:       &MockEmailSender{},
 			Issuer:            "test-app",
 			BackupCodes:       5,
 			MaxVerifyAttempts: 3,

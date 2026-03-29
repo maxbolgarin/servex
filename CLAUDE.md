@@ -56,14 +56,17 @@ Servex is a production-ready HTTP(S) server library built on `net/http` and `gor
 - **Options pattern**: Configuration via `With*()` functions passed to `NewServer()`. Options are split across `options_*.go` files by domain.
 - **Middleware chain**: Registered in a fixed order in `servex.go` — rate limiting → size limits → filtering → security → CORS → cache → compression → logging → recovery → auth → proxy → static.
 - **Context helpers**: `servex.C(w, r)` wraps the standard `http.ResponseWriter` and `*http.Request` to provide convenient JSON reading/writing, parameter extraction, and error responses.
-- **Interface-based extensibility**: Provide custom implementations of `Logger`, `RequestLogger`, `AuditLogger`, `Metrics`, `AuthDatabase`, `EmailSender`, and `OAuthProvider` interfaces.
+- **Interface-based extensibility**: Provide custom implementations of `Logger`, `RequestLogger`, `AuditLogger`, `Metrics`, `AuthDatabase`, `VerificationEmailSender`, `PasswordResetEmailSender`, `TwoFactorEmailSender`, and `OAuthProvider` interfaces.
 
 ### Key Interfaces
 
 - `AuthDatabase` — user storage backend (see `auth.go`)
 - `EmailAuthDatabase` — email lookup (optional sub-interface, see `auth_email.go`)
 - `OAuthAuthDatabase` — OAuth provider lookup (optional sub-interface, see `auth_oauth.go`)
-- `EmailSender` — email delivery (see `options_email.go`)
+- `VerificationEmailSender` — sends email verification codes or tokens (see `options_email.go`)
+- `PasswordResetEmailSender` — sends password reset tokens (see `options_email.go`)
+- `TwoFactorEmailSender` — sends 2FA verification codes via email (see `options_2fa.go`)
+- `CodeGenerator` — generates short numeric codes; shared by email verification (code mode) and 2FA email fallback (see `auth_email.go`)
 - `OAuthProvider` — OAuth provider flow (see `options_oauth.go`)
 - `Metrics` — custom metrics collection (see `metrics.go`)
 - `Logger` / `RequestLogger` / `AuditLogger` — logging backends (see `logging.go`, `audit.go`)
@@ -104,7 +107,7 @@ server, _ := servex.NewServer(
     servex.WithAuth(myDB),  // implements AuthDatabase + EmailAuthDatabase + OAuthAuthDatabase
     servex.WithAuthKey(os.Getenv("ACCESS_KEY"), os.Getenv("REFRESH_KEY")),
 
-    // Email verification & password reset
+    // Email verification & password reset — WithEmailSMTP sets sender on all three flows
     servex.WithEmailSMTP(servex.SMTPConfig{
         Host: "smtp.gmail.com", Port: 587,
         Username: os.Getenv("SMTP_USER"), Password: os.Getenv("SMTP_PASS"),
@@ -141,19 +144,32 @@ auth:
   not_register_routes: false
   use_memory_database: false
 
-  email:
+  email_verification:
     enabled: true
     require_verification: false
-    verify_token_duration: "24h"
-    reset_token_duration: "1h"
+    mode: "code"          # "code" (default, short numeric) or "token" (long link token)
+    code_digits: 6        # number of digits when mode=code
+    code_duration: "15m"
+    token_duration: "24h"
     resend_cooldown: "60s"
     smtp:
       host: "smtp.gmail.com"
       port: 587
       username: "..."
-      password: "..."   # env: SERVEX_AUTH_EMAIL_SMTP_PASSWORD
+      password: "..."   # env: SERVEX_AUTH_EMAIL_VERIFICATION_SMTP_PASSWORD
       from: "noreply@myapp.com"
       verification_url: "https://myapp.com/verify-email"
+
+  password_reset:
+    enabled: true
+    token_duration: "1h"
+    resend_cooldown: "60s"
+    smtp:
+      host: "smtp.gmail.com"
+      port: 587
+      username: "..."
+      password: "..."   # env: SERVEX_AUTH_PASSWORD_RESET_SMTP_PASSWORD
+      from: "noreply@myapp.com"
       password_reset_url: "https://myapp.com/reset-password"
 
   oauth:
@@ -172,6 +188,12 @@ auth:
     backup_codes: 10
     encryption_key: "hex-64-chars"  # env: SERVEX_AUTH_2FA_ENCRYPTION_KEY
     max_verify_attempts: 5
+    email_smtp:
+      host: "smtp.gmail.com"
+      port: 587
+      username: "..."
+      password: "..."   # env: SERVEX_AUTH_2FA_EMAIL_SMTP_PASSWORD
+      from: "noreply@myapp.com"
 ```
 
 ### Auth Endpoints
@@ -188,14 +210,19 @@ When `NotRegisterRoutes` is false (default), these routes are auto-registered un
 | POST | `/logout` | `LogoutHandler` | No (cookie) | Invalidate refresh token |
 | GET | `/me` | `GetCurrentUserHandler` | Yes (Bearer) | Get current user info |
 
-**Email endpoints** (when `Email.Enabled`):
+**Email endpoints** (when `EmailVerification.Enabled` or `PasswordReset.Enabled`):
 
 | Method | Path | Handler | Auth | Description |
 |--------|------|---------|------|-------------|
-| POST | `/verify-email` | `VerifyEmailHandler` | No | Verify email with token |
+| POST | `/verify-email` | `VerifyEmailHandler` | No | Verify email — body varies by mode (see below) |
 | POST | `/resend-verification` | `ResendVerificationHandler` | Yes (Bearer) | Resend verification email |
 | POST | `/forgot-password` | `ForgotPasswordHandler` | No | Request password reset |
 | POST | `/reset-password` | `ResetPasswordHandler` | No | Reset password with token |
+
+Email verification request body depends on the configured mode:
+
+- **Code mode** (default — `EmailVerificationCodeMode`): `{"code": "123456", "email": "user@example.com"}`
+- **Token mode** (`EmailVerificationTokenMode`): `{"token": "userID:randomHex"}`
 
 **OAuth endpoints** (when `OAuth.Enabled`):
 
@@ -374,8 +401,44 @@ type UserDiff struct {
 | `MinPasswordLength` | `int` | `8` | Minimum password length (0 = no check) |
 | `ForceSecureCookies` | `bool` | `false` | Always set Secure flag on cookies |
 | `NotRegisterRoutes` | `bool` | `false` | Skip auto-registering auth routes |
+| `EmailVerification` | `EmailVerificationConfig` | — | Email verification settings (replaces old `Email`) |
+| `PasswordReset` | `PasswordResetConfig` | — | Password reset settings (replaces old `Email`) |
+
+**`EmailVerificationConfig` fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `Enabled` | `bool` | `false` | Enable email verification flow |
+| `RequireVerification` | `bool` | `false` | Block login until email is verified |
+| `Mode` | `EmailVerificationMode` | `EmailVerificationCodeMode` | `"code"` (short numeric) or `"token"` (long link token) |
+| `CodeDigits` | `int` | `6` | Number of digits when `Mode=code` |
+| `CodeDuration` | `time.Duration` | `15m` | Validity of code when `Mode=code` |
+| `TokenDuration` | `time.Duration` | `24h` | Validity of token when `Mode=token` |
+| `ResendCooldown` | `time.Duration` | `60s` | Minimum interval between resend requests |
+| `Sender` | `VerificationEmailSender` | — | Custom sender implementation |
+| `SMTP` | `*SMTPConfig` | — | Auto-creates `SMTPEmailSender` if no `Sender` set |
+| `CodeGenerator` | `CodeGenerator` | built-in | Custom code generator (code mode only) |
+
+**`PasswordResetConfig` fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `Enabled` | `bool` | `false` | Enable password reset flow |
+| `TokenDuration` | `time.Duration` | `1h` | Validity of reset token |
+| `ResendCooldown` | `time.Duration` | `60s` | Minimum interval between resend requests |
+| `Sender` | `PasswordResetEmailSender` | — | Custom sender implementation |
+| `SMTP` | `*SMTPConfig` | — | Auto-creates `SMTPEmailSender` if no `Sender` set |
+
+**`TwoFactorConfig` additional fields:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `EmailSender` | `TwoFactorEmailSender` | — | Custom sender for 2FA email codes |
+| `SMTP` | `*SMTPConfig` | — | Auto-creates 2FA email sender if `EmailFallback=true` and no `EmailSender` set |
 
 ### Option Functions
+
+**Core auth:**
 
 | Function | Sets |
 |----------|------|
@@ -391,6 +454,39 @@ type UserDiff struct {
 | `WithAuthNotRegisterRoutes(bool)` | `NotRegisterRoutes` |
 | `WithAuthInitialUsers(users...)` | `InitialUsers` |
 | `WithAuthToken(token)` | Simple bearer auth (not JWT, uses `RegisterSimpleAuthMiddleware`) |
+
+**Email verification:**
+
+| Function | Sets |
+|----------|------|
+| `WithVerificationEmailSender(s)` | `EmailVerification.Sender` |
+| `WithEmailVerificationMode(mode)` | `EmailVerification.Mode` (`EmailVerificationCodeMode` or `EmailVerificationTokenMode`) |
+| `WithEmailVerificationCodeDigits(n)` | `EmailVerification.CodeDigits` |
+| `WithEmailVerificationCodeDuration(d)` | `EmailVerification.CodeDuration` |
+| `WithEmailVerificationTokenDuration(d)` | `EmailVerification.TokenDuration` |
+| `WithEmailVerificationCodeGenerator(g)` | `EmailVerification.CodeGenerator` |
+| `WithEmailVerificationConfig(cfg)` | Entire `EmailVerificationConfig` |
+
+**Password reset:**
+
+| Function | Sets |
+|----------|------|
+| `WithPasswordResetEmailSender(s)` | `PasswordReset.Sender` |
+| `WithPasswordResetTokenDuration(d)` | `PasswordReset.TokenDuration` |
+| `WithPasswordResetConfig(cfg)` | Entire `PasswordResetConfig` |
+
+**Convenience (sets sender on all three flows):**
+
+| Function | Sets |
+|----------|------|
+| `WithEmailSMTP(cfg)` | Creates `SMTPEmailSender` and assigns it to `EmailVerification.Sender`, `PasswordReset.Sender`, and `TwoFactor.EmailSender` |
+
+**2FA email:**
+
+| Function | Sets |
+|----------|------|
+| `WithTwoFactorEmailSender(s)` | `TwoFactor.EmailSender` |
+| `WithTwoFactorEmailSMTP(cfg)` | `TwoFactor.SMTP` (auto-creates sender) |
 
 ### Security Properties
 

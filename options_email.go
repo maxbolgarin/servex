@@ -5,52 +5,115 @@ import (
 	"time"
 )
 
-// EmailSender sends emails for verification, password reset, and 2FA.
-// Implement this interface to provide custom email delivery.
-//
-// If nil and SMTP is configured in EmailConfig, a built-in SMTP sender is used.
-type EmailSender interface {
-	// SendVerificationEmail sends an email verification link to the user.
-	SendVerificationEmail(ctx context.Context, to string, token string) error
+// VerificationEmailSender sends email verification codes or tokens.
+// Implement this interface to provide custom email delivery for the verification flow.
+// In code mode the codeOrToken parameter contains a short numeric code (e.g. "123456").
+// In token mode it contains a long token string suitable for embedding in a link.
+type VerificationEmailSender interface {
+	SendVerificationEmail(ctx context.Context, to string, codeOrToken string) error
+}
 
-	// SendPasswordResetEmail sends a password reset link to the user.
+// PasswordResetEmailSender sends password reset tokens via email.
+// Implement this interface to provide custom email delivery for the password reset flow.
+// The token parameter contains a long token string for embedding in a reset link.
+type PasswordResetEmailSender interface {
 	SendPasswordResetEmail(ctx context.Context, to string, token string) error
+}
 
-	// SendTwoFactorCodeEmail sends a 2FA verification code to the user.
+// TwoFactorEmailSender sends 2FA verification codes via email.
+// Implement this interface to provide custom email delivery for the 2FA flow.
+// The code parameter contains a short verification code (e.g. "123456").
+type TwoFactorEmailSender interface {
 	SendTwoFactorCodeEmail(ctx context.Context, to string, code string) error
 }
 
-// EmailConfig configures email verification and password reset.
-type EmailConfig struct {
-	// Enabled activates email verification and password reset features.
+// EmailVerificationMode determines how email verification works.
+type EmailVerificationMode int
+
+const (
+	// EmailVerificationCodeMode sends a short numeric code (default 6 digits) that the user
+	// submits via the API. This is the default mode. The code is bcrypt-hashed and stored
+	// with an expiry. Users submit the code along with their email address to verify.
+	EmailVerificationCodeMode EmailVerificationMode = iota
+
+	// EmailVerificationTokenMode sends a long token suitable for building a verification link.
+	// The token format is "userID:randomHex" and contains the user identity, so the verify
+	// endpoint does not require authentication or an email address in the request body.
+	EmailVerificationTokenMode
+)
+
+// EmailVerificationConfig configures email verification.
+// This is independent of password reset and 2FA email delivery.
+type EmailVerificationConfig struct {
+	// Enabled activates email verification features.
+	// When enabled, users can verify their email address after registration.
 	Enabled bool
 
-	// Sender is a custom email sending implementation.
+	// Sender is a custom email sender for delivering verification codes or tokens.
 	// If nil and SMTP is configured, a built-in SMTP sender is used.
-	Sender EmailSender
+	Sender VerificationEmailSender
 
-	// SMTP configures the built-in SMTP email sender.
+	// SMTP configures the built-in SMTP sender for verification emails.
 	// Ignored if a custom Sender is provided.
 	SMTP *SMTPConfig
 
 	// RequireVerification blocks login until email is verified.
+	// When true, users must verify their email address before they can log in.
 	// Default: false (allow login with unverified email).
 	RequireVerification bool
 
-	// VerifyTokenDuration is how long email verification tokens are valid.
-	// Default: 24h.
-	VerifyTokenDuration time.Duration
+	// Mode determines how email verification works.
+	// EmailVerificationCodeMode (default): sends a short numeric code.
+	// EmailVerificationTokenMode: sends a long token for building a verification link.
+	Mode EmailVerificationMode
 
-	// ResetTokenDuration is how long password reset tokens are valid.
-	// Default: 1h.
-	ResetTokenDuration time.Duration
+	// CodeGenerator, if set, is used to generate verification codes in code mode.
+	// When nil, a built-in numeric generator with CodeDigits digits is used.
+	// Uses the shared CodeGenerator interface, which is also used by 2FA.
+	CodeGenerator CodeGenerator
+
+	// CodeDigits is the length of verification codes (decimal digits) in code mode.
+	// Ignored when CodeGenerator is non-nil. Default: 6. Range: 1–32.
+	CodeDigits int
+
+	// CodeDuration is how long verification codes remain valid in code mode.
+	// Default: 10m.
+	CodeDuration time.Duration
+
+	// TokenDuration is how long verification tokens remain valid in token mode.
+	// Default: 24h.
+	TokenDuration time.Duration
 
 	// ResendCooldown is the minimum interval between verification email resends.
+	// This prevents abuse by limiting how frequently a user can request new codes or tokens.
 	// Default: 60s.
 	ResendCooldown time.Duration
 }
 
+// PasswordResetConfig configures password reset via email.
+// This is independent of email verification and 2FA email delivery.
+type PasswordResetConfig struct {
+	// Enabled activates password reset features.
+	// When enabled, users can request a password reset token via email.
+	Enabled bool
+
+	// Sender is a custom email sender for delivering password reset tokens.
+	// If nil and SMTP is configured, a built-in SMTP sender is used.
+	Sender PasswordResetEmailSender
+
+	// SMTP configures the built-in SMTP sender for password reset emails.
+	// Ignored if a custom Sender is provided.
+	SMTP *SMTPConfig
+
+	// TokenDuration is how long password reset tokens are valid.
+	// Default: 1h.
+	TokenDuration time.Duration
+}
+
 // SMTPConfig configures the built-in SMTP email sender.
+// The same SMTPConfig can be passed to WithEmailSMTP (convenience function)
+// which sets up senders for all three flows (verification, password reset, 2FA),
+// or to individual flow options (WithTwoFactorEmailSMTP, etc.) for per-flow configuration.
 type SMTPConfig struct {
 	// Host is the SMTP server hostname.
 	Host string
@@ -79,7 +142,7 @@ type SMTPConfig struct {
 	// Default: "Your verification code".
 	TwoFactorCodeSubject string
 
-	// VerificationURL is the base URL for email verification links.
+	// VerificationURL is the base URL for email verification links (token mode only).
 	// The verification token is appended as a query parameter.
 	// Example: "https://myapp.com/verify-email".
 	VerificationURL string
@@ -90,39 +153,53 @@ type SMTPConfig struct {
 	PasswordResetURL string
 }
 
-// WithEmailSender enables email features with a custom EmailSender implementation.
+// WithVerificationEmailSender enables email verification with a custom VerificationEmailSender.
 //
 // Example:
 //
-//	server := servex.New(servex.WithEmailSender(myCustomSender))
-//
-// The sender must implement the EmailSender interface, handling verification,
-// password reset, and 2FA code delivery.
-func WithEmailSender(sender EmailSender) Option {
+//	server := servex.New(servex.WithVerificationEmailSender(myVerifSender))
+func WithVerificationEmailSender(sender VerificationEmailSender) Option {
 	return func(op *Options) {
-		op.Auth.Email.Enabled = true
-		op.Auth.Email.Sender = sender
+		op.Auth.EmailVerification.Enabled = true
+		op.Auth.EmailVerification.Sender = sender
 	}
 }
 
-// WithEmailSMTP enables email features with SMTP configuration.
-// A built-in SMTP sender will be created from the provided configuration.
+// WithPasswordResetEmailSender enables password reset with a custom PasswordResetEmailSender.
+//
+// Example:
+//
+//	server := servex.New(servex.WithPasswordResetEmailSender(myResetSender))
+func WithPasswordResetEmailSender(sender PasswordResetEmailSender) Option {
+	return func(op *Options) {
+		op.Auth.PasswordReset.Enabled = true
+		op.Auth.PasswordReset.Sender = sender
+	}
+}
+
+// WithEmailSMTP enables email verification, password reset, and 2FA email delivery
+// using the same SMTP configuration. A built-in SMTPEmailSender is created and used
+// for all three flows. This is a convenience function — use per-flow options
+// (WithTwoFactorEmailSMTP, etc.) when different SMTP configurations are needed.
 //
 // Example:
 //
 //	server := servex.New(servex.WithEmailSMTP(servex.SMTPConfig{
-//		Host:            "smtp.example.com",
-//		Port:            587,
-//		Username:        "noreply@example.com",
-//		Password:        os.Getenv("SMTP_PASSWORD"),
-//		From:            "noreply@example.com",
-//		VerificationURL: "https://myapp.com/verify-email",
+//		Host:             "smtp.example.com",
+//		Port:             587,
+//		Username:         "noreply@example.com",
+//		Password:         os.Getenv("SMTP_PASSWORD"),
+//		From:             "noreply@example.com",
+//		VerificationURL:  "https://myapp.com/verify-email",
 //		PasswordResetURL: "https://myapp.com/reset-password",
 //	}))
 func WithEmailSMTP(cfg SMTPConfig) Option {
 	return func(op *Options) {
-		op.Auth.Email.Enabled = true
-		op.Auth.Email.SMTP = &cfg
+		op.Auth.EmailVerification.Enabled = true
+		op.Auth.EmailVerification.SMTP = &cfg
+		op.Auth.PasswordReset.Enabled = true
+		op.Auth.PasswordReset.SMTP = &cfg
+		op.Auth.TwoFactor.SMTP = &cfg
 	}
 }
 
@@ -137,24 +214,69 @@ func WithEmailSMTP(cfg SMTPConfig) Option {
 //	)
 func WithEmailRequireVerification(require bool) Option {
 	return func(op *Options) {
-		op.Auth.Email.RequireVerification = require
+		op.Auth.EmailVerification.RequireVerification = require
 	}
 }
 
-// WithEmailTokenDurations sets the duration for email verification and password reset tokens.
+// WithEmailVerificationMode sets the verification mode: EmailVerificationCodeMode (default)
+// or EmailVerificationTokenMode. Code mode sends a short numeric code. Token mode sends
+// a long token for building a verification link.
 //
 // Example:
 //
-//	server := servex.New(servex.WithEmailTokenDurations(
-//		48*time.Hour,   // Verification token: 48 hours
-//		30*time.Minute, // Password reset token: 30 minutes
-//	))
-//
-// Defaults: verification 24h, password reset 1h.
-func WithEmailTokenDurations(verify, reset time.Duration) Option {
+//	// Use token mode for link-based verification
+//	server := servex.New(servex.WithEmailVerificationMode(servex.EmailVerificationTokenMode))
+func WithEmailVerificationMode(mode EmailVerificationMode) Option {
 	return func(op *Options) {
-		op.Auth.Email.VerifyTokenDuration = verify
-		op.Auth.Email.ResetTokenDuration = reset
+		op.Auth.EmailVerification.Mode = mode
+	}
+}
+
+// WithEmailVerificationCodeDigits sets the number of digits in verification codes (code mode).
+// Ignored if a custom CodeGenerator is set. Default: 6. Valid range: 1–32.
+func WithEmailVerificationCodeDigits(n int) Option {
+	return func(op *Options) {
+		op.Auth.EmailVerification.CodeDigits = n
+	}
+}
+
+// WithEmailVerificationCodeGenerator sets a custom code generator for email verification.
+// When non-nil, CodeDigits is ignored. Uses the shared CodeGenerator interface.
+//
+// Example:
+//
+//	server := servex.New(servex.WithEmailVerificationCodeGenerator(
+//		servex.NewNumericCodeGenerator(8), // 8-digit codes
+//	))
+func WithEmailVerificationCodeGenerator(g CodeGenerator) Option {
+	return func(op *Options) {
+		op.Auth.EmailVerification.CodeGenerator = g
+	}
+}
+
+// WithEmailVerificationCodeDuration sets how long verification codes remain valid (code mode).
+//
+// Example:
+//
+//	server := servex.New(servex.WithEmailVerificationCodeDuration(5 * time.Minute))
+//
+// Default: 10m.
+func WithEmailVerificationCodeDuration(d time.Duration) Option {
+	return func(op *Options) {
+		op.Auth.EmailVerification.CodeDuration = d
+	}
+}
+
+// WithEmailVerificationTokenDuration sets how long verification tokens remain valid (token mode).
+//
+// Example:
+//
+//	server := servex.New(servex.WithEmailVerificationTokenDuration(48 * time.Hour))
+//
+// Default: 24h.
+func WithEmailVerificationTokenDuration(d time.Duration) Option {
+	return func(op *Options) {
+		op.Auth.EmailVerification.TokenDuration = d
 	}
 }
 
@@ -168,30 +290,57 @@ func WithEmailTokenDurations(verify, reset time.Duration) Option {
 // Default: 60s.
 func WithEmailResendCooldown(d time.Duration) Option {
 	return func(op *Options) {
-		op.Auth.Email.ResendCooldown = d
+		op.Auth.EmailVerification.ResendCooldown = d
 	}
 }
 
-// WithEmailConfig sets the complete email configuration.
-// Use this when you need to configure multiple email settings at once
+// WithPasswordResetTokenDuration sets how long password reset tokens are valid.
+//
+// Example:
+//
+//	server := servex.New(servex.WithPasswordResetTokenDuration(30 * time.Minute))
+//
+// Default: 1h.
+func WithPasswordResetTokenDuration(d time.Duration) Option {
+	return func(op *Options) {
+		op.Auth.PasswordReset.TokenDuration = d
+	}
+}
+
+// WithEmailVerificationConfig sets the complete email verification configuration.
+// Use this when you need to configure multiple verification settings at once
 // or when loading configuration from files or environment variables.
 //
 // Example:
 //
-//	emailCfg := servex.EmailConfig{
+//	cfg := servex.EmailVerificationConfig{
 //		Enabled:             true,
 //		RequireVerification: true,
-//		VerifyTokenDuration: 48 * time.Hour,
-//		ResetTokenDuration:  30 * time.Minute,
-//		ResendCooldown:      2 * time.Minute,
-//		SMTP: &servex.SMTPConfig{
-//			Host: "smtp.example.com",
-//			Port: 587,
-//		},
+//		Mode:                servex.EmailVerificationCodeMode,
+//		CodeDigits:          6,
+//		CodeDuration:        10 * time.Minute,
+//		ResendCooldown:      time.Minute,
 //	}
-//	server := servex.New(servex.WithEmailConfig(emailCfg))
-func WithEmailConfig(cfg EmailConfig) Option {
+//	server := servex.New(servex.WithEmailVerificationConfig(cfg))
+func WithEmailVerificationConfig(cfg EmailVerificationConfig) Option {
 	return func(op *Options) {
-		op.Auth.Email = cfg
+		op.Auth.EmailVerification = cfg
+	}
+}
+
+// WithPasswordResetConfig sets the complete password reset configuration.
+// Use this when you need to configure multiple password reset settings at once
+// or when loading configuration from files or environment variables.
+//
+// Example:
+//
+//	cfg := servex.PasswordResetConfig{
+//		Enabled:       true,
+//		TokenDuration: 30 * time.Minute,
+//	}
+//	server := servex.New(servex.WithPasswordResetConfig(cfg))
+func WithPasswordResetConfig(cfg PasswordResetConfig) Option {
+	return func(op *Options) {
+		op.Auth.PasswordReset = cfg
 	}
 }

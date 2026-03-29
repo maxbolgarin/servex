@@ -218,15 +218,26 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 	cfg.IssuerNameInJWT = lang.Check(cfg.IssuerNameInJWT, "servex")
 	cfg.MinPasswordLength = lang.Check(cfg.MinPasswordLength, defaultMinPasswordLength)
 
-	if cfg.Email.Enabled {
+	if cfg.EmailVerification.Enabled || cfg.PasswordReset.Enabled {
 		if _, ok := cfg.Database.(EmailAuthDatabase); !ok {
-			return nil, errors.New("email auth requires AuthDatabase to implement EmailAuthDatabase")
+			return nil, errors.New("email features require AuthDatabase to implement EmailAuthDatabase")
 		}
-		cfg.Email.VerifyTokenDuration = lang.Check(cfg.Email.VerifyTokenDuration, 24*time.Hour)
-		cfg.Email.ResetTokenDuration = lang.Check(cfg.Email.ResetTokenDuration, time.Hour)
-		cfg.Email.ResendCooldown = lang.Check(cfg.Email.ResendCooldown, 60*time.Second)
-		if cfg.Email.Sender == nil && cfg.Email.SMTP != nil {
-			cfg.Email.Sender = NewSMTPEmailSender(*cfg.Email.SMTP)
+	}
+
+	if cfg.EmailVerification.Enabled {
+		cfg.EmailVerification.CodeDigits = lang.Check(cfg.EmailVerification.CodeDigits, 6)
+		cfg.EmailVerification.CodeDuration = lang.Check(cfg.EmailVerification.CodeDuration, 10*time.Minute)
+		cfg.EmailVerification.TokenDuration = lang.Check(cfg.EmailVerification.TokenDuration, 24*time.Hour)
+		cfg.EmailVerification.ResendCooldown = lang.Check(cfg.EmailVerification.ResendCooldown, 60*time.Second)
+		if cfg.EmailVerification.Sender == nil && cfg.EmailVerification.SMTP != nil {
+			cfg.EmailVerification.Sender = NewSMTPEmailSender(*cfg.EmailVerification.SMTP, cfg.EmailVerification.Mode)
+		}
+	}
+
+	if cfg.PasswordReset.Enabled {
+		cfg.PasswordReset.TokenDuration = lang.Check(cfg.PasswordReset.TokenDuration, time.Hour)
+		if cfg.PasswordReset.Sender == nil && cfg.PasswordReset.SMTP != nil {
+			cfg.PasswordReset.Sender = NewSMTPEmailSender(*cfg.PasswordReset.SMTP, EmailVerificationTokenMode)
 		}
 	}
 
@@ -293,6 +304,9 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 			return nil, errors.New("2FA email code digits must be between 1 and 32")
 		}
 		cfg.TwoFactor.EmailCodeDigits = digits
+		if cfg.TwoFactor.EmailSender == nil && cfg.TwoFactor.SMTP != nil {
+			cfg.TwoFactor.EmailSender = NewSMTPEmailSender(*cfg.TwoFactor.SMTP, EmailVerificationCodeMode)
+		}
 	}
 
 	// Get audit logger (optional parameter)
@@ -330,10 +344,14 @@ func (h *AuthManager) RegisterRoutes(r *mux.Router) {
 		rr.HandleFunc("/logout", h.LogoutHandler).Methods(http.MethodPost)
 		rr.HandleFunc("/me", h.WithAuth(h.GetCurrentUserHandler)).Methods(http.MethodGet)
 
-		// Email verification and password reset routes
-		if h.service.cfg.Email.Enabled {
+		// Email verification routes
+		if h.service.cfg.EmailVerification.Enabled {
 			rr.HandleFunc("/verify-email", h.VerifyEmailHandler).Methods(http.MethodPost)
 			rr.HandleFunc("/resend-verification", h.WithAuth(h.ResendVerificationHandler)).Methods(http.MethodPost)
+		}
+
+		// Password reset routes
+		if h.service.cfg.PasswordReset.Enabled {
 			rr.HandleFunc("/forgot-password", h.ForgotPasswordHandler).Methods(http.MethodPost)
 			rr.HandleFunc("/reset-password", h.ResetPasswordHandler).Methods(http.MethodPost)
 		}
@@ -353,7 +371,7 @@ func (h *AuthManager) RegisterRoutes(r *mux.Router) {
 			rr.HandleFunc("/2fa/enable", h.WithAuth(h.TwoFactorEnableHandler)).Methods(http.MethodPost)
 			rr.HandleFunc("/2fa/disable", h.WithAuth(h.TwoFactorDisableHandler)).Methods(http.MethodPost)
 			rr.HandleFunc("/2fa/verify", h.TwoFactorVerifyHandler).Methods(http.MethodPost)
-			if h.service.cfg.TwoFactor.EmailFallback && h.service.cfg.Email.Enabled {
+			if h.service.cfg.TwoFactor.EmailFallback && h.service.cfg.TwoFactor.EmailSender != nil {
 				rr.HandleFunc("/2fa/send-email-code", h.TwoFactorSendEmailCodeHandler).Methods(http.MethodPost)
 			}
 		}
@@ -450,20 +468,42 @@ func (h *AuthManager) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Handle email verification if email config is enabled and email was provided
-	if h.service.cfg.Email.Enabled && req.Email != "" {
-		rawToken, tokenHash, err := generateEmailToken(result.ID)
-		if err != nil {
-			ctx.InternalServerError(err, "failed to generate verification token")
-			return
+	// Handle email verification if enabled and email was provided
+	if h.service.cfg.EmailVerification.Enabled && req.Email != "" {
+		verifCfg := h.service.cfg.EmailVerification
+		now := time.Now()
+
+		var sendValue string // code or token to send via email
+		var hashValue string // bcrypt hash to store
+
+		if verifCfg.Mode == EmailVerificationTokenMode {
+			rawToken, tokenHash, err := generateEmailToken(result.ID)
+			if err != nil {
+				ctx.InternalServerError(err, "failed to generate verification token")
+				return
+			}
+			sendValue = rawToken
+			hashValue = tokenHash
+		} else {
+			code, codeHash, err := generateVerificationCode(verifCfg)
+			if err != nil {
+				ctx.InternalServerError(err, "failed to generate verification code")
+				return
+			}
+			sendValue = code
+			hashValue = codeHash
 		}
 
-		now := time.Now()
-		expiresAt := now.Add(h.service.cfg.Email.VerifyTokenDuration)
+		var expiresAt time.Time
+		if verifCfg.Mode == EmailVerificationTokenMode {
+			expiresAt = now.Add(verifCfg.TokenDuration)
+		} else {
+			expiresAt = now.Add(verifCfg.CodeDuration)
+		}
 
 		if err := h.service.db.UpdateUser(r.Context(), result.ID, &UserDiff{
 			Email:                     &req.Email,
-			EmailVerifyTokenHash:      lang.Ptr(tokenHash),
+			EmailVerifyTokenHash:      lang.Ptr(hashValue),
 			EmailVerifyTokenExpiresAt: lang.Ptr(expiresAt),
 			EmailVerifyLastSentAt:     lang.Ptr(now),
 		}); err != nil {
@@ -471,15 +511,15 @@ func (h *AuthManager) RegisterHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if h.service.cfg.Email.Sender != nil {
-			if err := h.service.cfg.Email.Sender.SendVerificationEmail(r.Context(), req.Email, rawToken); err != nil {
+		if verifCfg.Sender != nil {
+			if err := verifCfg.Sender.SendVerificationEmail(r.Context(), req.Email, sendValue); err != nil {
 				ctx.InternalServerError(err, "failed to send verification email")
 				return
 			}
 		}
 
 		// If verification is required, return message without tokens
-		if h.service.cfg.Email.RequireVerification {
+		if verifCfg.RequireVerification {
 			ctx.Response(http.StatusCreated, map[string]string{"message": "check your email to verify your account"})
 			return
 		}
@@ -839,7 +879,7 @@ func (s *service) login(ctx context.Context, req UserLoginRequest) (loginResult,
 	}
 
 	// Block login if email verification is required but not completed
-	if s.cfg.Email.Enabled && s.cfg.Email.RequireVerification && !user.EmailVerified {
+	if s.cfg.EmailVerification.Enabled && s.cfg.EmailVerification.RequireVerification && !user.EmailVerified {
 		return loginResult{}, errEmailNotVerified
 	}
 

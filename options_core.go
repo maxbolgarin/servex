@@ -757,8 +757,16 @@ type AuthConfig struct {
 	// You can still use the AuthManager methods for token generation and validation.
 	NotRegisterRoutes bool
 
-	// Email configures email verification and password reset.
-	Email EmailConfig
+	// EmailVerification configures email address verification after registration.
+	// Supports two modes: code mode (short numeric code, default) and token mode
+	// (long token for building verification links). Independent of password reset
+	// and 2FA email delivery.
+	EmailVerification EmailVerificationConfig
+
+	// PasswordReset configures password reset via email.
+	// Always uses token mode (long token for building reset links).
+	// Independent of email verification and 2FA email delivery.
+	PasswordReset PasswordResetConfig
 
 	// OAuth configures social login providers.
 	OAuth OAuthConfig

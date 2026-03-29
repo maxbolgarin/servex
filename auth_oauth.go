@@ -285,7 +285,7 @@ func (h *AuthManager) OAuthCallbackHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Check RequireVerification for new unverified users
-	if h.service.cfg.Email.Enabled && h.service.cfg.Email.RequireVerification && !userInfo.Verified {
+	if h.service.cfg.EmailVerification.Enabled && h.service.cfg.EmailVerification.RequireVerification && !userInfo.Verified {
 		ctx.Response(http.StatusOK, map[string]string{"message": "account created, please verify your email"})
 		return
 	}

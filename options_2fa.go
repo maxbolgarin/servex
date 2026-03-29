@@ -2,30 +2,34 @@ package servex
 
 import "time"
 
-// TwoFactorEmailCodeGenerator produces one-time codes for 2FA email delivery.
+// CodeGenerator produces one-time verification codes.
+// It is used by both email verification (code mode) and 2FA email fallback.
+// Each flow configures its own CodeGenerator instance independently.
 // Return values should be suitable for the user to type (typically decimal digits).
-type TwoFactorEmailCodeGenerator interface {
+type CodeGenerator interface {
 	Generate() (string, error)
 }
 
-type numericTwoFactorEmailCodeGenerator struct {
+type numericCodeGenerator struct {
 	digits int
 }
 
-// NewNumericTwoFactorEmailCodeGenerator returns a generator that emits a uniform random
+// NewNumericCodeGenerator returns a CodeGenerator that emits a uniform random
 // decimal string of exactly n digits (leading zeros preserved). If n <= 0, 6 is used.
 // Values above 32 are clamped to 32.
-func NewNumericTwoFactorEmailCodeGenerator(n int) TwoFactorEmailCodeGenerator {
+//
+// This generator is used by default for both email verification codes and 2FA email codes.
+func NewNumericCodeGenerator(n int) CodeGenerator {
 	if n <= 0 {
 		n = 6
 	}
 	if n > 32 {
 		n = 32
 	}
-	return &numericTwoFactorEmailCodeGenerator{digits: n}
+	return &numericCodeGenerator{digits: n}
 }
 
-func (g *numericTwoFactorEmailCodeGenerator) Generate() (string, error) {
+func (g *numericCodeGenerator) Generate() (string, error) {
 	return generateNumericEmailCode(g.digits)
 }
 
@@ -39,8 +43,19 @@ type TwoFactorConfig struct {
 	Issuer string
 
 	// EmailFallback enables email-based 2FA codes as an alternative to TOTP.
-	// Requires email features to be configured. Default: true.
+	// When true, users can receive a verification code via email instead of using their
+	// authenticator app. Requires EmailSender to be configured. Default: true.
 	EmailFallback bool
+
+	// EmailSender delivers 2FA verification codes via email.
+	// This is independent of the email verification and password reset senders,
+	// allowing each flow to use a different email delivery implementation.
+	// If nil and SMTP is configured, a built-in SMTP sender is used.
+	EmailSender TwoFactorEmailSender
+
+	// SMTP configures the built-in SMTP sender for 2FA emails.
+	// Ignored if a custom EmailSender is provided.
+	SMTP *SMTPConfig
 
 	// CodeDuration is how long email-based 2FA codes remain valid.
 	// Default: 10m.
@@ -52,7 +67,8 @@ type TwoFactorConfig struct {
 
 	// EmailCodeGenerator, if set, is used to generate email 2FA codes instead of
 	// the built-in numeric generator (EmailCodeDigits).
-	EmailCodeGenerator TwoFactorEmailCodeGenerator
+	// Uses the shared CodeGenerator interface.
+	EmailCodeGenerator CodeGenerator
 
 	// BackupCodes is the number of one-time backup codes generated when 2FA is enabled.
 	// Backup codes allow account recovery if the user loses their authenticator device.
@@ -99,7 +115,7 @@ func WithTwoFactorIssuer(name string) Option {
 }
 
 // WithTwoFactorEmailFallback sets whether email-based 2FA codes are available as a fallback.
-// Requires email features to be configured via WithEmailSender or WithEmailSMTP.
+// Requires a TwoFactorEmailSender to be configured via WithTwoFactorEmailSender or WithTwoFactorEmailSMTP.
 //
 // Example:
 //
@@ -110,6 +126,41 @@ func WithTwoFactorIssuer(name string) Option {
 func WithTwoFactorEmailFallback(enabled bool) Option {
 	return func(op *Options) {
 		op.Auth.TwoFactor.EmailFallback = enabled
+	}
+}
+
+// WithTwoFactorEmailSender sets a custom email sender for delivering 2FA verification codes.
+// This sender is independent of the email verification and password reset senders.
+//
+// Example:
+//
+//	server := servex.New(
+//		servex.WithTwoFactor(encKey),
+//		servex.WithTwoFactorEmailSender(myCustom2FASender),
+//	)
+func WithTwoFactorEmailSender(sender TwoFactorEmailSender) Option {
+	return func(op *Options) {
+		op.Auth.TwoFactor.EmailSender = sender
+	}
+}
+
+// WithTwoFactorEmailSMTP configures a built-in SMTP sender for delivering 2FA verification codes.
+// The TwoFactorCodeSubject field of SMTPConfig is used as the email subject line.
+//
+// Example:
+//
+//	server := servex.New(
+//		servex.WithTwoFactor(encKey),
+//		servex.WithTwoFactorEmailSMTP(servex.SMTPConfig{
+//			Host: "smtp.example.com", Port: 587,
+//			Username: "noreply@example.com",
+//			Password: os.Getenv("SMTP_PASSWORD"),
+//			From:     "noreply@example.com",
+//		}),
+//	)
+func WithTwoFactorEmailSMTP(cfg SMTPConfig) Option {
+	return func(op *Options) {
+		op.Auth.TwoFactor.SMTP = &cfg
 	}
 }
 
@@ -150,7 +201,8 @@ func WithTwoFactorEmailCodeDigits(n int) Option {
 
 // WithTwoFactorEmailCodeGenerator sets a custom generator for email-based 2FA codes.
 // When non-nil, EmailCodeDigits is ignored for code generation.
-func WithTwoFactorEmailCodeGenerator(g TwoFactorEmailCodeGenerator) Option {
+// Uses the shared CodeGenerator interface, which is also used by email verification.
+func WithTwoFactorEmailCodeGenerator(g CodeGenerator) Option {
 	return func(op *Options) {
 		op.Auth.TwoFactor.EmailCodeGenerator = g
 	}

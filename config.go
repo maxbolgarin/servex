@@ -145,19 +145,31 @@ type AuthConfiguration struct {
 	UseMemoryDatabase      bool          `yaml:"use_memory_database" json:"use_memory_database" env:"SERVEX_AUTH_USE_MEMORY_DATABASE"`
 	MinPasswordLength      int           `yaml:"min_password_length" json:"min_password_length" env:"SERVEX_AUTH_MIN_PASSWORD_LENGTH"`
 
-	Email     EmailConfiguration     `yaml:"email" json:"email"`
-	OAuth     OAuthConfiguration     `yaml:"oauth" json:"oauth"`
-	TwoFactor TwoFactorConfiguration `yaml:"two_factor" json:"two_factor"`
+	EmailVerification EmailVerificationConfiguration `yaml:"email_verification" json:"email_verification"`
+	PasswordReset     PasswordResetConfiguration     `yaml:"password_reset" json:"password_reset"`
+	OAuth             OAuthConfiguration             `yaml:"oauth" json:"oauth"`
+	TwoFactor         TwoFactorConfiguration         `yaml:"two_factor" json:"two_factor"`
 }
 
-// EmailConfiguration represents email feature configuration within auth.
-type EmailConfiguration struct {
-	Enabled             bool          `yaml:"enabled" json:"enabled" env:"SERVEX_AUTH_EMAIL_ENABLED"`
-	RequireVerification bool          `yaml:"require_verification" json:"require_verification" env:"SERVEX_AUTH_EMAIL_REQUIRE_VERIFICATION"`
-	VerifyTokenDuration time.Duration `yaml:"verify_token_duration" json:"verify_token_duration" env:"SERVEX_AUTH_EMAIL_VERIFY_TOKEN_DURATION"`
-	ResetTokenDuration  time.Duration `yaml:"reset_token_duration" json:"reset_token_duration" env:"SERVEX_AUTH_EMAIL_RESET_TOKEN_DURATION"`
-	ResendCooldown      time.Duration `yaml:"resend_cooldown" json:"resend_cooldown" env:"SERVEX_AUTH_EMAIL_RESEND_COOLDOWN"`
+// EmailVerificationConfiguration represents email verification configuration within auth.
+// Supports two modes: "code" (default, sends a short numeric code) and "token" (sends a link).
+type EmailVerificationConfiguration struct {
+	Enabled             bool          `yaml:"enabled" json:"enabled" env:"SERVEX_AUTH_EMAIL_VERIFICATION_ENABLED"`
+	RequireVerification bool          `yaml:"require_verification" json:"require_verification" env:"SERVEX_AUTH_EMAIL_VERIFICATION_REQUIRE"`
+	Mode                string        `yaml:"mode" json:"mode" env:"SERVEX_AUTH_EMAIL_VERIFICATION_MODE"` // "code" (default) or "token"
+	CodeDigits          int           `yaml:"code_digits" json:"code_digits" env:"SERVEX_AUTH_EMAIL_VERIFICATION_CODE_DIGITS"`
+	CodeDuration        time.Duration `yaml:"code_duration" json:"code_duration" env:"SERVEX_AUTH_EMAIL_VERIFICATION_CODE_DURATION"`
+	TokenDuration       time.Duration `yaml:"token_duration" json:"token_duration" env:"SERVEX_AUTH_EMAIL_VERIFICATION_TOKEN_DURATION"`
+	ResendCooldown      time.Duration `yaml:"resend_cooldown" json:"resend_cooldown" env:"SERVEX_AUTH_EMAIL_VERIFICATION_RESEND_COOLDOWN"`
 	SMTP                SMTPConfiguration `yaml:"smtp" json:"smtp"`
+}
+
+// PasswordResetConfiguration represents password reset configuration within auth.
+// Always uses token mode (long token for building reset links).
+type PasswordResetConfiguration struct {
+	Enabled       bool          `yaml:"enabled" json:"enabled" env:"SERVEX_AUTH_PASSWORD_RESET_ENABLED"`
+	TokenDuration time.Duration `yaml:"token_duration" json:"token_duration" env:"SERVEX_AUTH_PASSWORD_RESET_TOKEN_DURATION"`
+	SMTP          SMTPConfiguration `yaml:"smtp" json:"smtp"`
 }
 
 // SMTPConfiguration represents SMTP server configuration for sending emails.
@@ -225,14 +237,15 @@ type YandexOAuthConfiguration struct {
 
 // TwoFactorConfiguration represents 2FA YAML configuration within auth.
 type TwoFactorConfiguration struct {
-	Enabled           bool          `yaml:"enabled" json:"enabled" env:"SERVEX_AUTH_2FA_ENABLED"`
-	Issuer            string        `yaml:"issuer" json:"issuer" env:"SERVEX_AUTH_2FA_ISSUER"`
-	EmailFallback     bool          `yaml:"email_fallback" json:"email_fallback" env:"SERVEX_AUTH_2FA_EMAIL_FALLBACK"`
-	CodeDuration      time.Duration `yaml:"code_duration" json:"code_duration" env:"SERVEX_AUTH_2FA_CODE_DURATION"`
-	EmailCodeDigits   int           `yaml:"email_code_digits" json:"email_code_digits" env:"SERVEX_AUTH_2FA_EMAIL_CODE_DIGITS"`
-	BackupCodes       int           `yaml:"backup_codes" json:"backup_codes" env:"SERVEX_AUTH_2FA_BACKUP_CODES"`
-	EncryptionKey     string        `yaml:"encryption_key" json:"encryption_key" env:"SERVEX_AUTH_2FA_ENCRYPTION_KEY"`
-	MaxVerifyAttempts int           `yaml:"max_verify_attempts" json:"max_verify_attempts" env:"SERVEX_AUTH_2FA_MAX_VERIFY_ATTEMPTS"`
+	Enabled           bool              `yaml:"enabled" json:"enabled" env:"SERVEX_AUTH_2FA_ENABLED"`
+	Issuer            string            `yaml:"issuer" json:"issuer" env:"SERVEX_AUTH_2FA_ISSUER"`
+	EmailFallback     bool              `yaml:"email_fallback" json:"email_fallback" env:"SERVEX_AUTH_2FA_EMAIL_FALLBACK"`
+	EmailSMTP         SMTPConfiguration `yaml:"email_smtp" json:"email_smtp"`
+	CodeDuration      time.Duration     `yaml:"code_duration" json:"code_duration" env:"SERVEX_AUTH_2FA_CODE_DURATION"`
+	EmailCodeDigits   int               `yaml:"email_code_digits" json:"email_code_digits" env:"SERVEX_AUTH_2FA_EMAIL_CODE_DIGITS"`
+	BackupCodes       int               `yaml:"backup_codes" json:"backup_codes" env:"SERVEX_AUTH_2FA_BACKUP_CODES"`
+	EncryptionKey     string            `yaml:"encryption_key" json:"encryption_key" env:"SERVEX_AUTH_2FA_ENCRYPTION_KEY"`
+	MaxVerifyAttempts int               `yaml:"max_verify_attempts" json:"max_verify_attempts" env:"SERVEX_AUTH_2FA_MAX_VERIFY_ATTEMPTS"`
 }
 
 // RateLimitConfiguration represents rate limiting configuration
@@ -399,6 +412,15 @@ func LoadConfig(filename string) (*Config, error) {
 	return config, nil
 }
 
+// parseVerificationMode converts a YAML string to EmailVerificationMode.
+// Returns EmailVerificationCodeMode for "code" or empty string, EmailVerificationTokenMode for "token".
+func parseVerificationMode(mode string) EmailVerificationMode {
+	if strings.EqualFold(mode, "token") {
+		return EmailVerificationTokenMode
+	}
+	return EmailVerificationCodeMode
+}
+
 // ToOptions converts the Config to servex Options
 func (c *Config) ToOptions() ([]Option, error) {
 	var opts []Option
@@ -491,30 +513,61 @@ func (c *Config) ToOptions() ([]Option, error) {
 		}
 	}
 
-	// Email configuration
-	if c.Auth.Email.Enabled {
-		if c.Auth.Email.SMTP.Host != "" {
-			opts = append(opts, WithEmailSMTP(SMTPConfig{
-				Host:                 c.Auth.Email.SMTP.Host,
-				Port:                 c.Auth.Email.SMTP.Port,
-				Username:             c.Auth.Email.SMTP.Username,
-				Password:             c.Auth.Email.SMTP.Password,
-				From:                 c.Auth.Email.SMTP.From,
-				VerificationSubject:  c.Auth.Email.SMTP.VerificationSubject,
-				PasswordResetSubject: c.Auth.Email.SMTP.PasswordResetSubject,
-				TwoFactorCodeSubject: c.Auth.Email.SMTP.TwoFactorCodeSubject,
-				VerificationURL:      c.Auth.Email.SMTP.VerificationURL,
-				PasswordResetURL:     c.Auth.Email.SMTP.PasswordResetURL,
-			}))
+	// Email verification configuration
+	if c.Auth.EmailVerification.Enabled {
+		verifCfg := c.Auth.EmailVerification
+		if verifCfg.SMTP.Host != "" {
+			smtpCfg := SMTPConfig{
+				Host:                 verifCfg.SMTP.Host,
+				Port:                 verifCfg.SMTP.Port,
+				Username:             verifCfg.SMTP.Username,
+				Password:             verifCfg.SMTP.Password,
+				From:                 verifCfg.SMTP.From,
+				VerificationSubject:  verifCfg.SMTP.VerificationSubject,
+				VerificationURL:      verifCfg.SMTP.VerificationURL,
+				PasswordResetSubject: verifCfg.SMTP.PasswordResetSubject,
+				PasswordResetURL:     verifCfg.SMTP.PasswordResetURL,
+				TwoFactorCodeSubject: verifCfg.SMTP.TwoFactorCodeSubject,
+			}
+			opts = append(opts, WithVerificationEmailSender(NewSMTPEmailSender(smtpCfg, parseVerificationMode(verifCfg.Mode))))
 		}
-		if c.Auth.Email.RequireVerification {
+		if verifCfg.RequireVerification {
 			opts = append(opts, WithEmailRequireVerification(true))
 		}
-		if c.Auth.Email.VerifyTokenDuration > 0 && c.Auth.Email.ResetTokenDuration > 0 {
-			opts = append(opts, WithEmailTokenDurations(c.Auth.Email.VerifyTokenDuration, c.Auth.Email.ResetTokenDuration))
+		if verifCfg.Mode != "" {
+			opts = append(opts, WithEmailVerificationMode(parseVerificationMode(verifCfg.Mode)))
 		}
-		if c.Auth.Email.ResendCooldown > 0 {
-			opts = append(opts, WithEmailResendCooldown(c.Auth.Email.ResendCooldown))
+		if verifCfg.CodeDigits > 0 {
+			opts = append(opts, WithEmailVerificationCodeDigits(verifCfg.CodeDigits))
+		}
+		if verifCfg.CodeDuration > 0 {
+			opts = append(opts, WithEmailVerificationCodeDuration(verifCfg.CodeDuration))
+		}
+		if verifCfg.TokenDuration > 0 {
+			opts = append(opts, WithEmailVerificationTokenDuration(verifCfg.TokenDuration))
+		}
+		if verifCfg.ResendCooldown > 0 {
+			opts = append(opts, WithEmailResendCooldown(verifCfg.ResendCooldown))
+		}
+	}
+
+	// Password reset configuration
+	if c.Auth.PasswordReset.Enabled {
+		resetCfg := c.Auth.PasswordReset
+		if resetCfg.SMTP.Host != "" {
+			smtpCfg := SMTPConfig{
+				Host:                 resetCfg.SMTP.Host,
+				Port:                 resetCfg.SMTP.Port,
+				Username:             resetCfg.SMTP.Username,
+				Password:             resetCfg.SMTP.Password,
+				From:                 resetCfg.SMTP.From,
+				PasswordResetSubject: resetCfg.SMTP.PasswordResetSubject,
+				PasswordResetURL:     resetCfg.SMTP.PasswordResetURL,
+			}
+			opts = append(opts, WithPasswordResetEmailSender(NewSMTPEmailSender(smtpCfg, EmailVerificationTokenMode)))
+		}
+		if resetCfg.TokenDuration > 0 {
+			opts = append(opts, WithPasswordResetTokenDuration(resetCfg.TokenDuration))
 		}
 	}
 
@@ -584,6 +637,16 @@ func (c *Config) ToOptions() ([]Option, error) {
 		}
 		if c.Auth.TwoFactor.MaxVerifyAttempts > 0 {
 			opts = append(opts, WithTwoFactorMaxAttempts(c.Auth.TwoFactor.MaxVerifyAttempts))
+		}
+		if c.Auth.TwoFactor.EmailSMTP.Host != "" {
+			opts = append(opts, WithTwoFactorEmailSMTP(SMTPConfig{
+				Host:                 c.Auth.TwoFactor.EmailSMTP.Host,
+				Port:                 c.Auth.TwoFactor.EmailSMTP.Port,
+				Username:             c.Auth.TwoFactor.EmailSMTP.Username,
+				Password:             c.Auth.TwoFactor.EmailSMTP.Password,
+				From:                 c.Auth.TwoFactor.EmailSMTP.From,
+				TwoFactorCodeSubject: c.Auth.TwoFactor.EmailSMTP.TwoFactorCodeSubject,
+			}))
 		}
 	}
 

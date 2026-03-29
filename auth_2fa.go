@@ -711,11 +711,11 @@ func (h *AuthManager) TwoFactorSendEmailCodeHandler(w http.ResponseWriter, r *ht
 	h.attemptTracker.markEmailSent(claims.ID, string(codeHash), h.service.cfg.TwoFactor.CodeDuration)
 
 	// Send email
-	if h.service.cfg.Email.Sender == nil {
-		ctx.InternalServerError(errors.New("email sender not configured"), "email sender not configured")
+	if h.service.cfg.TwoFactor.EmailSender == nil {
+		ctx.InternalServerError(errors.New("2FA email sender not configured"), "2FA email sender not configured")
 		return
 	}
-	if err := h.service.cfg.Email.Sender.SendTwoFactorCodeEmail(r.Context(), user.Email, code); err != nil {
+	if err := h.service.cfg.TwoFactor.EmailSender.SendTwoFactorCodeEmail(r.Context(), user.Email, code); err != nil {
 		ctx.InternalServerError(err, "failed to send 2FA email")
 		return
 	}

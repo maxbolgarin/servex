@@ -76,12 +76,17 @@ func newTestAuthManagerWithEmail(t *testing.T, sender *MockEmailSender) (*servex
 		RefreshTokenDuration: 10 * time.Minute,
 		IssuerNameInJWT:     "test-issuer",
 		RolesOnRegister:     []servex.UserRole{"user"},
-		Email: servex.EmailConfig{
-			Enabled:             true,
-			Sender:              sender,
-			VerifyTokenDuration: 24 * time.Hour,
-			ResetTokenDuration:  time.Hour,
-			ResendCooldown:      60 * time.Second,
+		EmailVerification: servex.EmailVerificationConfig{
+			Enabled:       true,
+			Sender:        sender,
+			Mode:          servex.EmailVerificationTokenMode,
+			TokenDuration: 24 * time.Hour,
+			ResendCooldown: 60 * time.Second,
+		},
+		PasswordReset: servex.PasswordResetConfig{
+			Enabled:       true,
+			Sender:        sender,
+			TokenDuration: time.Hour,
 		},
 	}
 	am, err := servex.NewAuthManager(cfg)
@@ -521,7 +526,7 @@ func TestNewAuthManager_EmailValidation(t *testing.T) {
 			name:      "MockAuthDatabase does not implement EmailAuthDatabase",
 			db:        NewMockAuthDatabase(),
 			expectErr: true,
-			errMsg:    "email auth requires AuthDatabase to implement EmailAuthDatabase",
+			errMsg:    "email features require AuthDatabase to implement EmailAuthDatabase",
 		},
 	}
 
@@ -532,7 +537,12 @@ func TestNewAuthManager_EmailValidation(t *testing.T) {
 				Database:         tc.db,
 				JWTAccessSecret:  hex.EncodeToString(getRandomBytes(32)),
 				JWTRefreshSecret: hex.EncodeToString(getRandomBytes(32)),
-				Email: servex.EmailConfig{
+				EmailVerification: servex.EmailVerificationConfig{
+					Enabled: true,
+					Sender:  &MockEmailSender{},
+					Mode:    servex.EmailVerificationTokenMode,
+				},
+				PasswordReset: servex.PasswordResetConfig{
 					Enabled: true,
 					Sender:  &MockEmailSender{},
 				},
@@ -566,13 +576,18 @@ func newTestAuthManagerWithEmailRequireVerification(t *testing.T, sender *MockEm
 		RefreshTokenDuration: 10 * time.Minute,
 		IssuerNameInJWT:      "test-issuer",
 		RolesOnRegister:      []servex.UserRole{"user"},
-		Email: servex.EmailConfig{
+		EmailVerification: servex.EmailVerificationConfig{
 			Enabled:             true,
 			Sender:              sender,
 			RequireVerification: true,
-			VerifyTokenDuration: 24 * time.Hour,
-			ResetTokenDuration:  time.Hour,
+			Mode:                servex.EmailVerificationTokenMode,
+			TokenDuration:       24 * time.Hour,
 			ResendCooldown:      60 * time.Second,
+		},
+		PasswordReset: servex.PasswordResetConfig{
+			Enabled:       true,
+			Sender:        sender,
+			TokenDuration: time.Hour,
 		},
 	}
 	am, err := servex.NewAuthManager(cfg)
@@ -1042,13 +1057,18 @@ func TestOAuthWithRequireVerification(t *testing.T) {
 		RefreshTokenDuration: 10 * time.Minute,
 		IssuerNameInJWT:      "test-issuer",
 		RolesOnRegister:      []servex.UserRole{"user"},
-		Email: servex.EmailConfig{
+		EmailVerification: servex.EmailVerificationConfig{
 			Enabled:             true,
 			Sender:              sender,
 			RequireVerification: true,
-			VerifyTokenDuration: 24 * time.Hour,
-			ResetTokenDuration:  time.Hour,
+			Mode:                servex.EmailVerificationTokenMode,
+			TokenDuration:       24 * time.Hour,
 			ResendCooldown:      60 * time.Second,
+		},
+		PasswordReset: servex.PasswordResetConfig{
+			Enabled:       true,
+			Sender:        sender,
+			TokenDuration: time.Hour,
 		},
 		OAuth: servex.OAuthConfig{
 			Enabled:         true,
@@ -1113,5 +1133,207 @@ func TestOAuthWithRequireVerification(t *testing.T) {
 	}
 	if unverifiedResp["message"] == "" {
 		t.Error("Unverified OAuth: expected a message indicating verification needed")
+	}
+}
+
+// newTestAuthManagerWithCodeMode creates an AuthManager configured with code-mode email verification.
+func newTestAuthManagerWithCodeMode(t *testing.T, sender *MockEmailSender) (*servex.AuthManager, *servex.MemoryAuthDatabase) {
+	t.Helper()
+	db := servex.NewMemoryAuthDatabase()
+	cfg := servex.AuthConfig{
+		Enabled:              true,
+		Database:             db,
+		JWTAccessSecret:      hex.EncodeToString(getRandomBytes(32)),
+		JWTRefreshSecret:     hex.EncodeToString(getRandomBytes(32)),
+		AccessTokenDuration:  5 * time.Minute,
+		RefreshTokenDuration: 10 * time.Minute,
+		IssuerNameInJWT:      "test-issuer",
+		RolesOnRegister:      []servex.UserRole{"user"},
+		EmailVerification: servex.EmailVerificationConfig{
+			Enabled:       true,
+			Sender:        sender,
+			Mode:          servex.EmailVerificationCodeMode,
+			CodeDigits:    6,
+			CodeDuration:  10 * time.Minute,
+			ResendCooldown: 60 * time.Second,
+		},
+	}
+	am, err := servex.NewAuthManager(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create auth manager with code mode: %v", err)
+	}
+	return am, db
+}
+
+// setVerificationCode sets a verification code hash for a user (code mode).
+func setVerificationCode(t *testing.T, db *servex.MemoryAuthDatabase, userID, code string, expiresAt time.Time) {
+	t.Helper()
+	hashBytes, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
+	if err != nil {
+		t.Fatalf("Failed to hash code: %v", err)
+	}
+	if err := db.UpdateUser(context.Background(), userID, &servex.UserDiff{
+		EmailVerifyTokenHash:      lang.Ptr(string(hashBytes)),
+		EmailVerifyTokenExpiresAt: lang.Ptr(expiresAt),
+	}); err != nil {
+		t.Fatalf("Failed to set verify code: %v", err)
+	}
+}
+
+func TestVerifyEmailHandler_CodeMode(t *testing.T) {
+	tests := []struct {
+		name           string
+		code           string
+		email          string
+		setupUser      func(t *testing.T, db *servex.MemoryAuthDatabase) // sets up user with code
+		expectedStatus int
+	}{
+		{
+			name:  "valid code verifies email",
+			code:  "123456",
+			email: "codeuser@example.com",
+			setupUser: func(t *testing.T, db *servex.MemoryAuthDatabase) {
+				createTestUserWithEmail(t, db, "codeuser", "password123", "codeuser@example.com")
+				user, _, _ := db.FindByUsername(context.Background(), "codeuser")
+				setVerificationCode(t, db, user.ID, "123456", time.Now().Add(time.Hour))
+			},
+			expectedStatus: http.StatusOK,
+		},
+		{
+			name:  "wrong code fails",
+			code:  "999999",
+			email: "codeuser2@example.com",
+			setupUser: func(t *testing.T, db *servex.MemoryAuthDatabase) {
+				createTestUserWithEmail(t, db, "codeuser2", "password123", "codeuser2@example.com")
+				user, _, _ := db.FindByUsername(context.Background(), "codeuser2")
+				setVerificationCode(t, db, user.ID, "123456", time.Now().Add(time.Hour))
+			},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:  "expired code fails",
+			code:  "123456",
+			email: "codeuser3@example.com",
+			setupUser: func(t *testing.T, db *servex.MemoryAuthDatabase) {
+				createTestUserWithEmail(t, db, "codeuser3", "password123", "codeuser3@example.com")
+				user, _, _ := db.FindByUsername(context.Background(), "codeuser3")
+				setVerificationCode(t, db, user.ID, "123456", time.Now().Add(-time.Hour))
+			},
+			expectedStatus: http.StatusBadRequest,
+		},
+		{
+			name:  "unknown email fails",
+			code:  "123456",
+			email: "unknown@example.com",
+			setupUser: func(t *testing.T, db *servex.MemoryAuthDatabase) {
+				// No user created
+			},
+			expectedStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sender := &MockEmailSender{}
+			am, db := newTestAuthManagerWithCodeMode(t, sender)
+			tc.setupUser(t, db)
+
+			body := `{"code":"` + tc.code + `","email":"` + tc.email + `"}`
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/verify-email", strings.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+
+			router := mux.NewRouter()
+			am.RegisterRoutes(router)
+			router.ServeHTTP(rr, req)
+
+			if rr.Code != tc.expectedStatus {
+				t.Errorf("expected status %d, got %d; body: %s", tc.expectedStatus, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+func TestRegisterWithCodeMode_SendsCode(t *testing.T) {
+	sender := &MockEmailSender{}
+	am, _ := newTestAuthManagerWithCodeMode(t, sender)
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	body := `{"username":"codereg","password":"password123","email":"codereg@example.com"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("expected 201, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	if len(sender.VerificationEmails) != 1 {
+		t.Fatalf("expected 1 verification email, got %d", len(sender.VerificationEmails))
+	}
+
+	sentCode := sender.VerificationEmails[0].Token
+	if len(sentCode) != 6 {
+		t.Errorf("expected 6-digit code, got %q (len %d)", sentCode, len(sentCode))
+	}
+	// Code should not contain ":" (that's token mode format)
+	if strings.Contains(sentCode, ":") {
+		t.Errorf("code mode should send short code, not token format: %q", sentCode)
+	}
+}
+
+func TestResendVerificationHandler_CodeMode(t *testing.T) {
+	sender := &MockEmailSender{}
+	am, db := newTestAuthManagerWithCodeMode(t, sender)
+
+	// Create and register user
+	user := createTestUserWithEmail(t, db, "resendcode", "password123", "resendcode@example.com")
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	// Login to get access token
+	loginBody := `{"username":"resendcode","password":"password123"}`
+	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(loginBody))
+	loginReq.Header.Set("Content-Type", "application/json")
+	loginRR := httptest.NewRecorder()
+	router.ServeHTTP(loginRR, loginReq)
+
+	var loginResp servex.UserLoginResponse
+	if err := json.Unmarshal(loginRR.Body.Bytes(), &loginResp); err != nil {
+		t.Fatalf("Failed to decode login response: %v", err)
+	}
+
+	// Mark user as unverified to allow resend
+	if err := db.UpdateUser(context.Background(), user.ID, &servex.UserDiff{
+		EmailVerified: lang.Ptr(false),
+	}); err != nil {
+		t.Fatalf("Failed to update user: %v", err)
+	}
+
+	// Resend verification
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/resend-verification", nil)
+	req.Header.Set("Authorization", "Bearer "+loginResp.AccessToken)
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Errorf("expected 200, got %d; body: %s", rr.Code, rr.Body.String())
+	}
+
+	sender.mu.Lock()
+	defer sender.mu.Unlock()
+	if len(sender.VerificationEmails) == 0 {
+		t.Fatal("expected verification email to be sent")
+	}
+
+	lastEmail := sender.VerificationEmails[len(sender.VerificationEmails)-1]
+	if len(lastEmail.Token) != 6 {
+		t.Errorf("expected 6-digit code in resend, got %q", lastEmail.Token)
 	}
 }
