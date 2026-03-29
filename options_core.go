@@ -491,6 +491,15 @@ type Options struct {
 	//   - Large text responses
 	//   - Bandwidth optimization
 	Compression CompressionConfig
+
+	// Swagger is the Swagger UI configuration for serving OpenAPI documentation.
+	// Set via WithSwaggerUI(), WithSwaggerUIFile(), or WithSwaggerUIConfig().
+	//
+	// When enabled, registers routes that serve an interactive Swagger UI page
+	// and the OpenAPI specification file. The UI is loaded from a CDN.
+	//
+	// Default path: "/swagger"
+	Swagger SwaggerAutoConfig
 }
 
 // CompressionConfig holds the HTTP response compression configuration.

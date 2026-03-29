@@ -242,7 +242,17 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 		}
 	}
 
-	// Register health
+	// Load swagger spec from file if configured
+	if s.opts.Swagger.Enabled {
+		if err := s.opts.Swagger.loadSwaggerSpec(); err != nil {
+			return nil, fmt.Errorf("load swagger spec file: %w", err)
+		}
+		if len(s.opts.Swagger.SpecData) == 0 {
+			return nil, errors.New("swagger is enabled but no spec data or spec file provided")
+		}
+	}
+
+	// Register health, metrics, swagger
 	s.registerBuiltinEndpoints()
 
 	if opts.StaticFiles.Enabled && opts.Security.Enabled {
@@ -845,6 +855,11 @@ func (s *Server) registerBuiltinEndpoints() {
 		} else {
 			s.opts.Logger.Error("cannot register metrics endpoint, metrics is not a builtinMetrics or compositeMetrics")
 		}
+	}
+
+	// Register swagger endpoint if enabled
+	if s.opts.Swagger.Enabled {
+		registerSwaggerEndpoints(s)
 	}
 }
 

@@ -48,6 +48,7 @@ Servex is a production-ready HTTP(S) server library built on `net/http` and `gor
 | Security headers, CSRF | `middleware_security.go` |
 | Static files & SPA | `static.go` |
 | Metrics & audit logging | `metrics.go`, `audit.go`, `logging.go` |
+| Swagger UI & OpenAPI spec serving | `swagger.go`, `options_swagger.go` |
 | Presets (Development, Production, etc.) | `presets.go` |
 | CLI entry point | `cmd/servex/main.go` |
 
@@ -194,7 +195,38 @@ auth:
       username: "..."
       password: "..."   # env: SERVEX_AUTH_2FA_EMAIL_SMTP_PASSWORD
       from: "noreply@myapp.com"
+
+swagger:
+  enabled: true
+  path: "/swagger"
+  spec_file: "./openapi.yaml"
+  title: "API Documentation"
 ```
+
+### Swagger UI
+
+Servex can serve an interactive Swagger UI for OpenAPI documentation. The feature exposes a standard `http.Handler`:
+
+```go
+// Option 1: Auto-register via server option
+server, _ := servex.NewServer(
+    servex.WithSwaggerUI(specBytes),              // serves at /swagger
+    servex.WithSwaggerUIPath("/api-docs"),         // custom path
+)
+
+// Option 2: Load spec from file
+server, _ := servex.NewServer(
+    servex.WithSwaggerUIFile("./openapi.yaml"),
+)
+
+// Option 3: Mount handler manually on any router
+handler := servex.SwaggerHandler(specBytes, servex.WithSwaggerTitle("My API"))
+http.Handle("/docs/", http.StripPrefix("/docs", handler))
+```
+
+The handler serves:
+- `GET /` — HTML page with Swagger UI (loaded from CDN)
+- `GET /spec` — the OpenAPI spec file (auto-detects JSON/YAML content type)
 
 ### Auth Endpoints
 

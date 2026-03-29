@@ -95,6 +95,9 @@ type Config struct {
 
 	// Proxy contains reverse proxy configuration
 	Proxy ProxyConfiguration `yaml:"proxy" json:"proxy"`
+
+	// Swagger contains Swagger UI configuration
+	Swagger SwaggerConfiguration `yaml:"swagger" json:"swagger"`
 }
 
 // ServerConfig represents basic server configuration
@@ -370,6 +373,14 @@ type StaticFilesConfiguration struct {
 	ExcludePaths []string       `yaml:"exclude_paths" json:"exclude_paths" env:"SERVEX_STATIC_FILES_EXCLUDE_PATHS"`
 	CacheMaxAge  int            `yaml:"cache_max_age" json:"cache_max_age" env:"SERVEX_STATIC_FILES_CACHE_MAX_AGE"`
 	CacheRules   map[string]int `yaml:"cache_rules" json:"cache_rules"`
+}
+
+// SwaggerConfiguration represents Swagger UI configuration
+type SwaggerConfiguration struct {
+	Enabled  bool   `yaml:"enabled" json:"enabled" env:"SERVEX_SWAGGER_ENABLED"`
+	Path     string `yaml:"path" json:"path" env:"SERVEX_SWAGGER_PATH"`
+	SpecFile string `yaml:"spec_file" json:"spec_file" env:"SERVEX_SWAGGER_SPEC_FILE"`
+	Title    string `yaml:"title" json:"title" env:"SERVEX_SWAGGER_TITLE"`
 }
 
 // LoadConfigFromFile loads configuration from a YAML file
@@ -805,6 +816,25 @@ func (c *Config) ToOptions() ([]Option, error) {
 	// Proxy configuration
 	if c.Proxy.Enabled {
 		opts = append(opts, WithProxyConfig(c.Proxy))
+	}
+
+	// Swagger configuration
+	if c.Swagger.Enabled {
+		var swaggerOpts []SwaggerOption
+		if c.Swagger.Title != "" {
+			swaggerOpts = append(swaggerOpts, WithSwaggerTitle(c.Swagger.Title))
+		}
+		if c.Swagger.SpecFile != "" {
+			opts = append(opts, WithSwaggerUIFile(c.Swagger.SpecFile, swaggerOpts...))
+		} else {
+			opts = append(opts, func(o *Options) {
+				o.Swagger.Enabled = true
+				o.Swagger.Options = append(o.Swagger.Options, swaggerOpts...)
+			})
+		}
+		if c.Swagger.Path != "" {
+			opts = append(opts, WithSwaggerUIPath(c.Swagger.Path))
+		}
 	}
 
 	return opts, nil
