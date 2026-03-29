@@ -288,6 +288,11 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 		cfg.TwoFactor.MaxVerifyAttempts = lang.Check(cfg.TwoFactor.MaxVerifyAttempts, 5)
 		cfg.TwoFactor.CodeDuration = lang.Check(cfg.TwoFactor.CodeDuration, 10*time.Minute)
 		cfg.TwoFactor.Issuer = lang.Check(cfg.TwoFactor.Issuer, "servex")
+		digits := lang.Check(cfg.TwoFactor.EmailCodeDigits, 6)
+		if digits < 1 || digits > 32 {
+			return nil, errors.New("2FA email code digits must be between 1 and 32")
+		}
+		cfg.TwoFactor.EmailCodeDigits = digits
 	}
 
 	// Get audit logger (optional parameter)

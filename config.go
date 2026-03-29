@@ -229,6 +229,7 @@ type TwoFactorConfiguration struct {
 	Issuer            string        `yaml:"issuer" json:"issuer" env:"SERVEX_AUTH_2FA_ISSUER"`
 	EmailFallback     bool          `yaml:"email_fallback" json:"email_fallback" env:"SERVEX_AUTH_2FA_EMAIL_FALLBACK"`
 	CodeDuration      time.Duration `yaml:"code_duration" json:"code_duration" env:"SERVEX_AUTH_2FA_CODE_DURATION"`
+	EmailCodeDigits   int           `yaml:"email_code_digits" json:"email_code_digits" env:"SERVEX_AUTH_2FA_EMAIL_CODE_DIGITS"`
 	BackupCodes       int           `yaml:"backup_codes" json:"backup_codes" env:"SERVEX_AUTH_2FA_BACKUP_CODES"`
 	EncryptionKey     string        `yaml:"encryption_key" json:"encryption_key" env:"SERVEX_AUTH_2FA_ENCRYPTION_KEY"`
 	MaxVerifyAttempts int           `yaml:"max_verify_attempts" json:"max_verify_attempts" env:"SERVEX_AUTH_2FA_MAX_VERIFY_ATTEMPTS"`
@@ -574,6 +575,9 @@ func (c *Config) ToOptions() ([]Option, error) {
 		}
 		if c.Auth.TwoFactor.CodeDuration > 0 {
 			opts = append(opts, WithTwoFactorCodeDuration(c.Auth.TwoFactor.CodeDuration))
+		}
+		if c.Auth.TwoFactor.EmailCodeDigits > 0 {
+			opts = append(opts, WithTwoFactorEmailCodeDigits(c.Auth.TwoFactor.EmailCodeDigits))
 		}
 		if c.Auth.TwoFactor.BackupCodes > 0 {
 			opts = append(opts, WithTwoFactorBackupCodes(c.Auth.TwoFactor.BackupCodes))

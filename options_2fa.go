@@ -2,6 +2,33 @@ package servex
 
 import "time"
 
+// TwoFactorEmailCodeGenerator produces one-time codes for 2FA email delivery.
+// Return values should be suitable for the user to type (typically decimal digits).
+type TwoFactorEmailCodeGenerator interface {
+	Generate() (string, error)
+}
+
+type numericTwoFactorEmailCodeGenerator struct {
+	digits int
+}
+
+// NewNumericTwoFactorEmailCodeGenerator returns a generator that emits a uniform random
+// decimal string of exactly n digits (leading zeros preserved). If n <= 0, 6 is used.
+// Values above 32 are clamped to 32.
+func NewNumericTwoFactorEmailCodeGenerator(n int) TwoFactorEmailCodeGenerator {
+	if n <= 0 {
+		n = 6
+	}
+	if n > 32 {
+		n = 32
+	}
+	return &numericTwoFactorEmailCodeGenerator{digits: n}
+}
+
+func (g *numericTwoFactorEmailCodeGenerator) Generate() (string, error) {
+	return generateNumericEmailCode(g.digits)
+}
+
 // TwoFactorConfig configures TOTP and email code 2FA.
 type TwoFactorConfig struct {
 	// Enabled activates two-factor authentication features.
@@ -18,6 +45,14 @@ type TwoFactorConfig struct {
 	// CodeDuration is how long email-based 2FA codes remain valid.
 	// Default: 10m.
 	CodeDuration time.Duration
+
+	// EmailCodeDigits is the length of email-based 2FA codes (decimal digits).
+	// Ignored when EmailCodeGenerator is non-nil. Default: 6. Range: 1–32.
+	EmailCodeDigits int
+
+	// EmailCodeGenerator, if set, is used to generate email 2FA codes instead of
+	// the built-in numeric generator (EmailCodeDigits).
+	EmailCodeGenerator TwoFactorEmailCodeGenerator
 
 	// BackupCodes is the number of one-time backup codes generated when 2FA is enabled.
 	// Backup codes allow account recovery if the user loses their authenticator device.
@@ -102,6 +137,22 @@ func WithTwoFactorBackupCodes(count int) Option {
 func WithTwoFactorCodeDuration(d time.Duration) Option {
 	return func(op *Options) {
 		op.Auth.TwoFactor.CodeDuration = d
+	}
+}
+
+// WithTwoFactorEmailCodeDigits sets the number of decimal digits in email-based 2FA codes.
+// Ignored if WithTwoFactorEmailCodeGenerator is used. Default: 6. Valid range: 1–32.
+func WithTwoFactorEmailCodeDigits(n int) Option {
+	return func(op *Options) {
+		op.Auth.TwoFactor.EmailCodeDigits = n
+	}
+}
+
+// WithTwoFactorEmailCodeGenerator sets a custom generator for email-based 2FA codes.
+// When non-nil, EmailCodeDigits is ignored for code generation.
+func WithTwoFactorEmailCodeGenerator(g TwoFactorEmailCodeGenerator) Option {
+	return func(op *Options) {
+		op.Auth.TwoFactor.EmailCodeGenerator = g
 	}
 }
 

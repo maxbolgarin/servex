@@ -7,8 +7,10 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"math/big"
 	"math/rand/v2"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,6 +18,25 @@ import (
 	"github.com/pquerna/otp/totp"
 	"golang.org/x/crypto/bcrypt"
 )
+
+func generateNumericEmailCode(digits int) (string, error) {
+	if digits <= 0 {
+		digits = 6
+	}
+	if digits > 32 {
+		digits = 32
+	}
+	max := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(digits)), nil)
+	n, err := crand.Int(crand.Reader, max)
+	if err != nil {
+		return "", err
+	}
+	s := n.Text(10)
+	if len(s) < digits {
+		return strings.Repeat("0", digits-len(s)) + s, nil
+	}
+	return s, nil
+}
 
 // ---- AES-256-GCM encryption for TOTP secrets ----
 
@@ -662,8 +683,22 @@ func (h *AuthManager) TwoFactorSendEmailCodeHandler(w http.ResponseWriter, r *ht
 		return
 	}
 
-	// Generate 6-digit code
-	code := fmt.Sprintf("%06d", rand.IntN(1000000))
+	var code string
+	if gen := h.service.cfg.TwoFactor.EmailCodeGenerator; gen != nil {
+		var err error
+		code, err = gen.Generate()
+		if err != nil {
+			ctx.InternalServerError(err, "failed to generate email code")
+			return
+		}
+	} else {
+		var err error
+		code, err = generateNumericEmailCode(h.service.cfg.TwoFactor.EmailCodeDigits)
+		if err != nil {
+			ctx.InternalServerError(err, "failed to generate email code")
+			return
+		}
+	}
 
 	// Hash the code
 	codeHash, err := bcrypt.GenerateFromPassword([]byte(code), bcrypt.DefaultCost)
