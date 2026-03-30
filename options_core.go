@@ -188,9 +188,16 @@ type Options struct {
 	//   - Optimize log storage costs
 	LogFields []string
 
+	// IsDebug enables debug mode for development.
+	// When true: sends error details to clients, logs all requests including client errors at error level.
+	// When false (default): client errors (4xx) are logged at debug level instead of error level,
+	// and error details are not sent to clients.
+	// Set to true via WithDebug().
+	IsDebug bool
+
 	// SendErrorToClient configures the server to include detailed error information
 	// in HTTP responses when errors occur. This includes Go error messages and stack traces.
-	// Set to true via WithSendErrorToClient().
+	// Set to true via WithSendErrorToClient() or WithDebug().
 	//
 	// Security considerations:
 	//   - NEVER enable this in production

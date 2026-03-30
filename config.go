@@ -114,6 +114,7 @@ type ServerConfig struct {
 	MetricsPath             string        `yaml:"metrics_path" json:"metrics_path" env:"SERVEX_SERVER_METRICS_PATH"`
 	EnableHealthEndpoint    bool          `yaml:"enable_health_endpoint" json:"enable_health_endpoint" env:"SERVEX_SERVER_ENABLE_HEALTH_ENDPOINT"`
 	EnableDefaultMetrics    bool          `yaml:"enable_default_metrics" json:"enable_default_metrics" env:"SERVEX_SERVER_ENABLE_DEFAULT_METRICS"`
+	Debug                   bool          `yaml:"debug" json:"debug" env:"SERVEX_SERVER_DEBUG"`
 	SendErrorToClient       bool          `yaml:"send_error_to_client" json:"send_error_to_client" env:"SERVEX_SERVER_SEND_ERROR_TO_CLIENT"`
 	EnableRequestSizeLimits bool          `yaml:"enable_request_size_limits" json:"enable_request_size_limits" env:"SERVEX_SERVER_ENABLE_REQUEST_SIZE_LIMITS"`
 	MaxRequestBodySize      int64         `yaml:"max_request_body_size" json:"max_request_body_size" env:"SERVEX_SERVER_MAX_REQUEST_BODY_SIZE"`
@@ -485,7 +486,9 @@ func (c *Config) ToOptions() ([]Option, error) {
 	if c.Server.EnableRequestSizeLimits {
 		opts = append(opts, WithEnableRequestSizeLimits(true))
 	}
-	if c.Server.SendErrorToClient {
+	if c.Server.Debug {
+		opts = append(opts, WithDebug())
+	} else if c.Server.SendErrorToClient {
 		opts = append(opts, WithSendErrorToClient())
 	}
 

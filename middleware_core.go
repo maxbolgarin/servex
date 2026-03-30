@@ -56,12 +56,15 @@ func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
 }
 
 func registerOptsMiddleware(router MiddlewareRouter, opts Options) {
-	if !opts.NoLogClientErrors && !opts.SendErrorToClient {
+	// When not in debug mode, automatically suppress client error logging at error level.
+	noLogClientErrors := opts.NoLogClientErrors || !opts.IsDebug
+
+	if !noLogClientErrors && !opts.SendErrorToClient {
 		return
 	}
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if opts.NoLogClientErrors {
+			if noLogClientErrors {
 				r = r.WithContext(context.WithValue(r.Context(), noLogClientErrorsKey{}, true))
 			}
 			if opts.SendErrorToClient {

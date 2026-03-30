@@ -28,7 +28,7 @@ func DevelopmentPreset() []Option {
 	return []Option{
 		WithHealthEndpoint(),
 		WithDefaultMetrics(),    // Enable metrics for development monitoring
-		WithSendErrorToClient(), // Send error to client to see them in browser and better debug
+		WithDebug(), // Enable debug mode: send errors to client, verbose logging
 	}
 }
 

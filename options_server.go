@@ -250,6 +250,31 @@ func WithSendErrorToClient() Option {
 	}
 }
 
+// WithDebug enables debug mode for development.
+// When enabled, it sends detailed error information to clients and keeps all logging verbose,
+// including client errors (4xx) at error level.
+//
+// When debug mode is off (default, production), client errors (4xx) such as 401 Unauthorized
+// are logged at debug level instead of error level to reduce log noise.
+//
+// This is a convenience option that combines:
+//   - WithSendErrorToClient() — include error details in HTTP responses
+//   - Verbose client error logging at error level
+//
+// Example:
+//
+//	// Development server with full debug output
+//	server := servex.New(servex.WithDebug())
+//
+//	// Production server (default) — quiet client error logging
+//	server := servex.New()
+func WithDebug() Option {
+	return func(op *Options) {
+		op.IsDebug = true
+		op.SendErrorToClient = true
+	}
+}
+
 // WithLogFields specifies which fields to include in request logs.
 // If not set, all available fields will be logged (default behavior).
 //
