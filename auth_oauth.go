@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -108,6 +109,38 @@ func (h *AuthManager) findOAuthProvider(name string) OAuthProvider {
 	return nil
 }
 
+// shouldRedirectOAuth returns true when the callback should redirect to the frontend.
+func (h *AuthManager) shouldRedirectOAuth() bool {
+	return h.service.cfg.OAuth.FrontendCallbackURL != ""
+}
+
+// oauthRedirectSuccess redirects to FrontendCallbackURL with the access token.
+func (h *AuthManager) oauthRedirectSuccess(w http.ResponseWriter, r *http.Request, accessToken string) {
+	u, _ := url.Parse(h.service.cfg.OAuth.FrontendCallbackURL)
+	q := u.Query()
+	q.Set("access_token", accessToken)
+	u.RawQuery = q.Encode()
+	http.Redirect(w, r, u.String(), http.StatusFound)
+}
+
+// oauthRedirectError redirects to FrontendCallbackURL with the error.
+func (h *AuthManager) oauthRedirectError(w http.ResponseWriter, r *http.Request, errMsg string) {
+	u, _ := url.Parse(h.service.cfg.OAuth.FrontendCallbackURL)
+	q := u.Query()
+	q.Set("error", errMsg)
+	u.RawQuery = q.Encode()
+	http.Redirect(w, r, u.String(), http.StatusFound)
+}
+
+// oauthRedirect2FA redirects to FrontendCallbackURL signaling 2FA is required.
+func (h *AuthManager) oauthRedirect2FA(w http.ResponseWriter, r *http.Request) {
+	u, _ := url.Parse(h.service.cfg.OAuth.FrontendCallbackURL)
+	q := u.Query()
+	q.Set("requires_2fa", "true")
+	u.RawQuery = q.Encode()
+	http.Redirect(w, r, u.String(), http.StatusFound)
+}
+
 // OAuthRedirectHandler handles the initial OAuth redirect.
 // It generates a state parameter with HMAC protection, stores it in a cookie,
 // and redirects the user to the OAuth provider's authorization URL.
@@ -161,6 +194,10 @@ func (h *AuthManager) OAuthCallbackHandler(w http.ResponseWriter, r *http.Reques
 				"reason":   "state_mismatch",
 			})
 		}
+		if h.shouldRedirectOAuth() {
+			h.oauthRedirectError(ctx.w, r, "state_mismatch")
+			return
+		}
 		ctx.BadRequest(errOAuthStateMismatch, errOAuthStateMismatch.Error())
 		return
 	}
@@ -175,6 +212,10 @@ func (h *AuthManager) OAuthCallbackHandler(w http.ResponseWriter, r *http.Reques
 				"error":    err.Error(),
 			})
 		}
+		if h.shouldRedirectOAuth() {
+			h.oauthRedirectError(ctx.w, r, "auth_failed")
+			return
+		}
 		ctx.Unauthorized(err, "OAuth authentication failed")
 		return
 	}
@@ -184,6 +225,10 @@ func (h *AuthManager) OAuthCallbackHandler(w http.ResponseWriter, r *http.Reques
 	// Step a: Look up by (provider, providerID)
 	existingUser, found, err := oauthDB.FindByOAuthProvider(r.Context(), providerName, userInfo.ProviderID)
 	if err != nil {
+		if h.shouldRedirectOAuth() {
+			h.oauthRedirectError(ctx.w, r, "internal_error")
+			return
+		}
 		ctx.InternalServerError(err, "failed to look up OAuth user")
 		return
 	}
@@ -200,6 +245,10 @@ func (h *AuthManager) OAuthCallbackHandler(w http.ResponseWriter, r *http.Reques
 		if emailOK {
 			emailUser, emailFound, emailErr := emailDB.FindByEmail(r.Context(), userInfo.Email)
 			if emailErr != nil {
+				if h.shouldRedirectOAuth() {
+					h.oauthRedirectError(ctx.w, r, "internal_error")
+					return
+				}
 				ctx.InternalServerError(emailErr, "failed to look up user by email")
 				return
 			}
@@ -211,6 +260,10 @@ func (h *AuthManager) OAuthCallbackHandler(w http.ResponseWriter, r *http.Reques
 							"provider": providerName,
 							"reason":   "local_email_not_verified",
 						})
+					}
+					if h.shouldRedirectOAuth() {
+						h.oauthRedirectError(ctx.w, r, "email_not_verified")
+						return
 					}
 					ctx.Conflict(errOAuthEmailNotVerified, errOAuthEmailNotVerified.Error())
 					return
@@ -225,6 +278,10 @@ func (h *AuthManager) OAuthCallbackHandler(w http.ResponseWriter, r *http.Reques
 				if err := h.service.db.UpdateUser(r.Context(), emailUser.ID, &UserDiff{
 					OAuthProviders: &newLinks,
 				}); err != nil {
+					if h.shouldRedirectOAuth() {
+						h.oauthRedirectError(ctx.w, r, "internal_error")
+						return
+					}
 					ctx.InternalServerError(err, "failed to link OAuth provider")
 					return
 				}
@@ -260,6 +317,10 @@ func (h *AuthManager) OAuthCallbackHandler(w http.ResponseWriter, r *http.Reques
 
 	userID, err := h.service.db.NewUser(r.Context(), username, "", h.service.cfg.RolesOnRegister...)
 	if err != nil {
+		if h.shouldRedirectOAuth() {
+			h.oauthRedirectError(ctx.w, r, "internal_error")
+			return
+		}
 		ctx.InternalServerError(err, "failed to create OAuth user")
 		return
 	}
@@ -280,12 +341,20 @@ func (h *AuthManager) OAuthCallbackHandler(w http.ResponseWriter, r *http.Reques
 		}
 	}
 	if err := h.service.db.UpdateUser(r.Context(), userID, diff); err != nil {
+		if h.shouldRedirectOAuth() {
+			h.oauthRedirectError(ctx.w, r, "internal_error")
+			return
+		}
 		ctx.InternalServerError(err, "failed to update new OAuth user")
 		return
 	}
 
 	// Check RequireVerification for new unverified users
 	if h.service.cfg.EmailVerification.Enabled && h.service.cfg.EmailVerification.RequireVerification && !userInfo.Verified {
+		if h.shouldRedirectOAuth() {
+			h.oauthRedirectError(ctx.w, r, "verification_required")
+			return
+		}
 		ctx.Response(http.StatusOK, map[string]string{"message": "account created, please verify your email"})
 		return
 	}
@@ -314,6 +383,10 @@ func (h *AuthManager) oauthIssueTokensOrRedirect2FA(ctx *Context, r *http.Reques
 	if h.service.cfg.TwoFactor.Enabled && user.TwoFactorEnabled {
 		pendingToken, expiresAt, err := h.service.generate2FAPendingToken(user.ID)
 		if err != nil {
+			if h.shouldRedirectOAuth() {
+				h.oauthRedirectError(ctx.w, r, "internal_error")
+				return
+			}
 			ctx.InternalServerError(err, "failed to generate 2FA token")
 			return
 		}
@@ -327,6 +400,10 @@ func (h *AuthManager) oauthIssueTokensOrRedirect2FA(ctx *Context, r *http.Reques
 			SameSite: http.SameSiteStrictMode,
 			MaxAge:   int(time.Until(expiresAt).Seconds()),
 		})
+		if h.shouldRedirectOAuth() {
+			h.oauthRedirect2FA(w, r)
+			return
+		}
 		redirectURL := h.service.cfg.AuthBasePath + "/2fa"
 		http.Redirect(w, r, redirectURL, http.StatusFound)
 		return
@@ -346,11 +423,20 @@ func (h *AuthManager) oauthIssueTokensOrRedirect2FA(ctx *Context, r *http.Reques
 func (h *AuthManager) oauthIssueTokens(ctx *Context, r *http.Request, user User, providerName string) {
 	accessToken, refreshToken, refreshTokenExpiresAt, err := h.service.generateTokens(r.Context(), user)
 	if err != nil {
+		if h.shouldRedirectOAuth() {
+			h.oauthRedirectError(ctx.w, r, "internal_error")
+			return
+		}
 		ctx.InternalServerError(err, "failed to generate tokens")
 		return
 	}
 
 	h.setAuthCookie(ctx, refreshToken, refreshTokenExpiresAt)
+
+	if h.shouldRedirectOAuth() {
+		h.oauthRedirectSuccess(ctx.w, r, accessToken)
+		return
+	}
 
 	ctx.Response(http.StatusOK, UserLoginResponse{
 		ID:          user.ID,

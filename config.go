@@ -191,9 +191,10 @@ type SMTPConfiguration struct {
 
 // OAuthConfiguration represents OAuth social login configuration within auth.
 type OAuthConfiguration struct {
-	Enabled         bool   `yaml:"enabled" json:"enabled" env:"SERVEX_AUTH_OAUTH_ENABLED"`
-	AutoLinkByEmail bool   `yaml:"auto_link_by_email" json:"auto_link_by_email" env:"SERVEX_AUTH_OAUTH_AUTO_LINK_BY_EMAIL"`
-	StateSigningKey string `yaml:"state_signing_key" json:"state_signing_key" env:"SERVEX_AUTH_OAUTH_STATE_SIGNING_KEY"`
+	Enabled             bool   `yaml:"enabled" json:"enabled" env:"SERVEX_AUTH_OAUTH_ENABLED"`
+	AutoLinkByEmail     bool   `yaml:"auto_link_by_email" json:"auto_link_by_email" env:"SERVEX_AUTH_OAUTH_AUTO_LINK_BY_EMAIL"`
+	StateSigningKey     string `yaml:"state_signing_key" json:"state_signing_key" env:"SERVEX_AUTH_OAUTH_STATE_SIGNING_KEY"`
+	FrontendCallbackURL string `yaml:"frontend_callback_url" json:"frontend_callback_url" env:"SERVEX_AUTH_OAUTH_FRONTEND_CALLBACK_URL"`
 
 	Google   *GoogleOAuthConfiguration   `yaml:"google" json:"google"`
 	GitHub   *GitHubOAuthConfiguration   `yaml:"github" json:"github"`
@@ -589,6 +590,9 @@ func (c *Config) ToOptions() ([]Option, error) {
 		}
 		if c.Auth.OAuth.AutoLinkByEmail {
 			opts = append(opts, WithOAuthAutoLink(true))
+		}
+		if c.Auth.OAuth.FrontendCallbackURL != "" {
+			opts = append(opts, WithOAuthFrontendCallbackURL(c.Auth.OAuth.FrontendCallbackURL))
 		}
 		if c.Auth.OAuth.Google != nil {
 			opts = append(opts, WithOAuthGoogle(GoogleOAuthConfig{

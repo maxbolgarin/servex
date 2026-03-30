@@ -906,3 +906,276 @@ func TestOAuthAutoLinkCollision(t *testing.T) {
 		t.Error("Expected 'github' provider to be linked")
 	}
 }
+
+func newTestAuthManagerWithOAuthRedirect(t *testing.T, frontendURL string, providers ...servex.OAuthProvider) (*servex.AuthManager, *servex.MemoryAuthDatabase) {
+	t.Helper()
+	db := servex.NewMemoryAuthDatabase()
+	stateKey := hex.EncodeToString(getRandomBytes(32))
+	cfg := servex.AuthConfig{
+		Enabled:              true,
+		Database:             db,
+		JWTAccessSecret:      hex.EncodeToString(getRandomBytes(32)),
+		JWTRefreshSecret:     hex.EncodeToString(getRandomBytes(32)),
+		AccessTokenDuration:  5 * time.Minute,
+		RefreshTokenDuration: 10 * time.Minute,
+		IssuerNameInJWT:      "test-issuer",
+		RolesOnRegister:      []servex.UserRole{"user"},
+		OAuth: servex.OAuthConfig{
+			Enabled:             true,
+			Providers:           providers,
+			AutoLinkByEmail:     true,
+			StateSigningKey:     stateKey,
+			FrontendCallbackURL: frontendURL,
+		},
+	}
+	am, err := servex.NewAuthManager(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create auth manager with OAuth redirect: %v", err)
+	}
+	return am, db
+}
+
+func TestOAuthCallbackRedirectSuccess(t *testing.T) {
+	provider := &MockOAuthProvider{
+		name:    "testprovider",
+		authURL: "https://provider.example.com/auth",
+		userInfo: &servex.OAuthUserInfo{
+			ProviderID: "provider-user-redirect",
+			Email:      "redirect@example.com",
+			Username:   "redirectuser",
+			Verified:   true,
+		},
+	}
+
+	am, _ := newTestAuthManagerWithOAuthRedirect(t, "https://myapp.com/auth/callback", provider)
+
+	_, stateCookie := performOAuthRedirect(t, am, "testprovider")
+	parts := strings.SplitN(stateCookie.Value, ":", 2)
+	state := parts[0]
+
+	callbackURL := "/api/v1/auth/oauth/testprovider/callback?code=auth-code-123&state=" + state
+	req := httptest.NewRequest(http.MethodGet, callbackURL, nil)
+	req.AddCookie(stateCookie)
+	rr := httptest.NewRecorder()
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("Expected 302 redirect, got %d. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	location := rr.Header().Get("Location")
+	if !strings.HasPrefix(location, "https://myapp.com/auth/callback?") {
+		t.Fatalf("Expected redirect to frontend callback URL, got: %s", location)
+	}
+	if !strings.Contains(location, "access_token=") {
+		t.Fatalf("Expected access_token in redirect URL, got: %s", location)
+	}
+
+	// Verify refresh token cookie is still set
+	var refreshCookie *http.Cookie
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "_servexrt" {
+			refreshCookie = c
+			break
+		}
+	}
+	if refreshCookie == nil {
+		t.Fatal("Expected refresh token cookie to be set on redirect")
+	}
+}
+
+func TestOAuthCallbackRedirectStateMismatch(t *testing.T) {
+	provider := &MockOAuthProvider{
+		name:    "testprovider",
+		authURL: "https://provider.example.com/auth",
+	}
+
+	am, _ := newTestAuthManagerWithOAuthRedirect(t, "https://myapp.com/auth/callback", provider)
+
+	_, stateCookie := performOAuthRedirect(t, am, "testprovider")
+
+	// Use wrong state
+	callbackURL := "/api/v1/auth/oauth/testprovider/callback?code=auth-code&state=wrong-state"
+	req := httptest.NewRequest(http.MethodGet, callbackURL, nil)
+	req.AddCookie(stateCookie)
+	rr := httptest.NewRecorder()
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("Expected 302 redirect, got %d. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	location := rr.Header().Get("Location")
+	if !strings.Contains(location, "error=state_mismatch") {
+		t.Fatalf("Expected error=state_mismatch in redirect URL, got: %s", location)
+	}
+}
+
+func TestOAuthCallbackRedirectExchangeError(t *testing.T) {
+	provider := &MockOAuthProvider{
+		name:    "testprovider",
+		authURL: "https://provider.example.com/auth",
+		err:     errMockEmail,
+	}
+
+	am, _ := newTestAuthManagerWithOAuthRedirect(t, "https://myapp.com/auth/callback", provider)
+
+	_, stateCookie := performOAuthRedirect(t, am, "testprovider")
+	parts := strings.SplitN(stateCookie.Value, ":", 2)
+	state := parts[0]
+
+	callbackURL := "/api/v1/auth/oauth/testprovider/callback?code=bad-code&state=" + state
+	req := httptest.NewRequest(http.MethodGet, callbackURL, nil)
+	req.AddCookie(stateCookie)
+	rr := httptest.NewRecorder()
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("Expected 302 redirect, got %d. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	location := rr.Header().Get("Location")
+	if !strings.Contains(location, "error=auth_failed") {
+		t.Fatalf("Expected error=auth_failed in redirect URL, got: %s", location)
+	}
+}
+
+func TestOAuthCallbackRedirect2FA(t *testing.T) {
+	provider := &MockOAuthProvider{
+		name:    "testprovider",
+		authURL: "https://provider.example.com/auth",
+		userInfo: &servex.OAuthUserInfo{
+			ProviderID: "provider-user-2fa",
+			Email:      "2fa@example.com",
+			Username:   "2fauser",
+			Verified:   true,
+		},
+	}
+
+	db := servex.NewMemoryAuthDatabase()
+	stateKey := hex.EncodeToString(getRandomBytes(32))
+	encKey := hex.EncodeToString(getRandomBytes(32))
+	cfg := servex.AuthConfig{
+		Enabled:              true,
+		Database:             db,
+		JWTAccessSecret:      hex.EncodeToString(getRandomBytes(32)),
+		JWTRefreshSecret:     hex.EncodeToString(getRandomBytes(32)),
+		AccessTokenDuration:  5 * time.Minute,
+		RefreshTokenDuration: 10 * time.Minute,
+		IssuerNameInJWT:      "test-issuer",
+		RolesOnRegister:      []servex.UserRole{"user"},
+		OAuth: servex.OAuthConfig{
+			Enabled:             true,
+			Providers:           []servex.OAuthProvider{provider},
+			AutoLinkByEmail:     true,
+			StateSigningKey:     stateKey,
+			FrontendCallbackURL: "https://myapp.com/auth/callback",
+		},
+		TwoFactor: servex.TwoFactorConfig{
+			Enabled:       true,
+			EncryptionKey: encKey,
+			Issuer:        "test",
+		},
+	}
+	am, err := servex.NewAuthManager(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create auth manager: %v", err)
+	}
+
+	// Create user with OAuth link and 2FA enabled
+	ctx := context.Background()
+	userID, err := db.NewUser(ctx, "2fauser", "", "user")
+	if err != nil {
+		t.Fatalf("Failed to create user: %v", err)
+	}
+	err = db.UpdateUser(ctx, userID, &servex.UserDiff{
+		OAuthProviders:   &[]servex.OAuthLink{{Provider: "testprovider", ProviderID: "provider-user-2fa"}},
+		TwoFactorEnabled: lang.Ptr(true),
+		TwoFactorSecret:  lang.Ptr("test-secret"),
+	})
+	if err != nil {
+		t.Fatalf("Failed to update user: %v", err)
+	}
+
+	_, stateCookie := performOAuthRedirect(t, am, "testprovider")
+	parts := strings.SplitN(stateCookie.Value, ":", 2)
+	state := parts[0]
+
+	callbackURL := "/api/v1/auth/oauth/testprovider/callback?code=auth-code&state=" + state
+	req := httptest.NewRequest(http.MethodGet, callbackURL, nil)
+	req.AddCookie(stateCookie)
+	rr := httptest.NewRecorder()
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusFound {
+		t.Fatalf("Expected 302 redirect, got %d. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	location := rr.Header().Get("Location")
+	if !strings.Contains(location, "requires_2fa=true") {
+		t.Fatalf("Expected requires_2fa=true in redirect URL, got: %s", location)
+	}
+
+	// Verify 2FA pending cookie is set
+	var pendingCookie *http.Cookie
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "_servex_2fa_pending" {
+			pendingCookie = c
+			break
+		}
+	}
+	if pendingCookie == nil {
+		t.Fatal("Expected 2FA pending cookie to be set")
+	}
+}
+
+func TestOAuthCallbackNoRedirectWithoutFrontendURL(t *testing.T) {
+	provider := &MockOAuthProvider{
+		name:    "testprovider",
+		authURL: "https://provider.example.com/auth",
+		userInfo: &servex.OAuthUserInfo{
+			ProviderID: "provider-user-nofrontend",
+			Email:      "nofrontend@example.com",
+			Username:   "nofrontenduser",
+			Verified:   true,
+		},
+	}
+
+	// No FrontendCallbackURL — should return JSON
+	am, _ := newTestAuthManagerWithOAuth(t, provider)
+
+	_, stateCookie := performOAuthRedirect(t, am, "testprovider")
+	parts := strings.SplitN(stateCookie.Value, ":", 2)
+	state := parts[0]
+
+	callbackURL := "/api/v1/auth/oauth/testprovider/callback?code=auth-code-123&state=" + state
+	req := httptest.NewRequest(http.MethodGet, callbackURL, nil)
+	req.AddCookie(stateCookie)
+	rr := httptest.NewRecorder()
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200 (JSON response), got %d. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp servex.UserLoginResponse
+	decodeJsonResponse(t, rr, &resp)
+	if resp.AccessToken == "" {
+		t.Fatal("Expected access token in JSON response")
+	}
+}

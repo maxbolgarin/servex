@@ -52,6 +52,14 @@ type OAuthConfig struct {
 	// Default: "/oauth".
 	BasePath string
 
+	// FrontendCallbackURL is the URL to redirect the browser to after OAuth callback processing.
+	// When set, instead of returning JSON, the callback redirects to this URL with query parameters:
+	//   - On success: ?access_token={token}
+	//   - On error: ?error={message}
+	//   - On 2FA required: ?requires_2fa=true
+	// When empty (default), the callback returns JSON responses (for API/mobile clients).
+	FrontendCallbackURL string
+
 	// Google configures Google OAuth login.
 	Google *GoogleOAuthConfig
 
@@ -298,6 +306,21 @@ func WithOAuthBasePath(path string) Option {
 func WithOAuthStateSigningKey(key string) Option {
 	return func(op *Options) {
 		op.Auth.OAuth.StateSigningKey = key
+	}
+}
+
+// WithOAuthFrontendCallbackURL sets the URL to redirect the browser to after OAuth callback processing.
+// When set, instead of returning JSON, the callback redirects to this URL with query parameters:
+//   - On success: ?access_token={token}
+//   - On error: ?error={message}
+//   - On 2FA required: ?requires_2fa=true
+//
+// Example:
+//
+//	server := servex.New(servex.WithOAuthFrontendCallbackURL("https://myapp.com/auth/callback"))
+func WithOAuthFrontendCallbackURL(callbackURL string) Option {
+	return func(op *Options) {
+		op.Auth.OAuth.FrontendCallbackURL = callbackURL
 	}
 }
 

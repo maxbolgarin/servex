@@ -301,7 +301,8 @@ func (h *AuthManager) verifyEmailByCode(ctx *Context, r *http.Request, code, ema
 	h.markEmailVerified(ctx, r, user.ID, user.Email)
 }
 
-// markEmailVerified marks the user's email as verified and clears the verification token/code fields.
+// markEmailVerified marks the user's email as verified, clears the verification token/code fields,
+// generates access and refresh tokens, and returns a login response so the user is auto-logged-in.
 func (h *AuthManager) markEmailVerified(ctx *Context, r *http.Request, userID, email string) {
 	if err := h.service.db.UpdateUser(r.Context(), userID, &UserDiff{
 		EmailVerified:             lang.Ptr(true),
@@ -318,7 +319,27 @@ func (h *AuthManager) markEmailVerified(ctx *Context, r *http.Request, userID, e
 		})
 	}
 
-	ctx.Response(http.StatusOK, map[string]string{"message": "email verified successfully"})
+	// Auto-login: generate tokens so the user doesn't have to log in manually after verification.
+	user, exists, err := h.service.db.FindByID(r.Context(), userID)
+	if err != nil || !exists {
+		ctx.InternalServerError(err, "failed to find user after verification")
+		return
+	}
+
+	accessToken, refreshToken, refreshTokenExpiresAt, err := h.service.generateTokens(r.Context(), user)
+	if err != nil {
+		ctx.InternalServerError(err, "failed to generate tokens after verification")
+		return
+	}
+
+	h.setAuthCookie(ctx, refreshToken, refreshTokenExpiresAt)
+
+	ctx.Response(http.StatusOK, UserLoginResponse{
+		AccessToken: accessToken,
+		ID:          user.ID,
+		Username:    user.Username,
+		Roles:       user.Roles,
+	})
 }
 
 // ResendVerificationHandler handles the HTTP request for resending a verification email.
