@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
@@ -53,6 +54,11 @@ func TestProviderNames(t *testing.T) {
 			name:     "Yandex",
 			provider: servex.NewYandexOAuthProvider(servex.YandexOAuthConfig{}),
 			expected: "yandex",
+		},
+		{
+			name:     "VKID",
+			provider: servex.NewVKIDOAuthProvider(servex.VKIDOAuthConfig{}),
+			expected: "vkid",
 		},
 	}
 
@@ -535,6 +541,142 @@ func TestYandexAuthURL(t *testing.T) {
 	}
 }
 
+func TestVKIDAuthURL(t *testing.T) {
+	provider := servex.NewVKIDOAuthProvider(servex.VKIDOAuthConfig{
+		ClientID:    "vkid-client-id",
+		RedirectURL: "https://example.com/callback",
+	})
+
+	authURL := provider.AuthURL("test-state")
+
+	parsed, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatalf("Failed to parse auth URL: %v", err)
+	}
+
+	if parsed.Scheme != "https" || parsed.Host != "id.vk.com" || parsed.Path != "/authorize" {
+		t.Errorf("Unexpected base URL: %s", authURL)
+	}
+
+	params := parsed.Query()
+
+	if params.Get("client_id") != "vkid-client-id" {
+		t.Errorf("client_id = %q, want %q", params.Get("client_id"), "vkid-client-id")
+	}
+	if params.Get("redirect_uri") != "https://example.com/callback" {
+		t.Errorf("redirect_uri = %q, want %q", params.Get("redirect_uri"), "https://example.com/callback")
+	}
+	if params.Get("response_type") != "code" {
+		t.Errorf("response_type = %q, want %q", params.Get("response_type"), "code")
+	}
+	if params.Get("state") != "test-state" {
+		t.Errorf("state = %q, want %q", params.Get("state"), "test-state")
+	}
+	if params.Get("code_challenge_method") != "S256" {
+		t.Errorf("code_challenge_method = %q, want %q", params.Get("code_challenge_method"), "S256")
+	}
+	if params.Get("code_challenge") == "" {
+		t.Error("code_challenge should not be empty")
+	}
+
+	// Default scopes should include vkid.personal_info and email.
+	scope := params.Get("scope")
+	if !strings.Contains(scope, "vkid.personal_info") || !strings.Contains(scope, "email") {
+		t.Errorf("scope = %q, want to contain vkid.personal_info and email", scope)
+	}
+}
+
+func TestVKIDAuthURLWithPKCE(t *testing.T) {
+	provider := servex.NewVKIDOAuthProvider(servex.VKIDOAuthConfig{
+		ClientID:    "vkid-client-id",
+		RedirectURL: "https://example.com/callback",
+	})
+
+	authURL, codeVerifier := provider.AuthURLWithPKCE("test-state")
+
+	if codeVerifier == "" {
+		t.Fatal("code_verifier should not be empty")
+	}
+
+	// Verify code_challenge matches SHA256(code_verifier) base64url-encoded.
+	parsed, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatalf("Failed to parse auth URL: %v", err)
+	}
+
+	codeChallenge := parsed.Query().Get("code_challenge")
+	if codeChallenge == "" {
+		t.Fatal("code_challenge should not be empty in URL")
+	}
+
+	// Recompute expected challenge from verifier.
+	h := sha256.Sum256([]byte(codeVerifier))
+	expectedChallenge := base64.RawURLEncoding.EncodeToString(h[:])
+
+	if codeChallenge != expectedChallenge {
+		t.Errorf("code_challenge = %q, want %q (SHA256 of verifier)", codeChallenge, expectedChallenge)
+	}
+}
+
+func TestVKIDAuthURL_CustomScopes(t *testing.T) {
+	provider := servex.NewVKIDOAuthProvider(servex.VKIDOAuthConfig{
+		ClientID:    "vkid-client-id",
+		RedirectURL: "https://example.com/callback",
+		Scopes:      []string{"email", "phone"},
+	})
+
+	authURL := provider.AuthURL("state123")
+	parsed, err := url.Parse(authURL)
+	if err != nil {
+		t.Fatalf("Failed to parse auth URL: %v", err)
+	}
+
+	scope := parsed.Query().Get("scope")
+	if scope != "email phone" {
+		t.Errorf("scope = %q, want %q", scope, "email phone")
+	}
+}
+
+func TestVKIDExchange_RequiresPKCE(t *testing.T) {
+	provider := servex.NewVKIDOAuthProvider(servex.VKIDOAuthConfig{
+		ClientID:     "vkid-client-id",
+		ClientSecret: "vkid-secret",
+		RedirectURL:  "https://example.com/callback",
+	})
+
+	_, err := provider.Exchange(nil, "some-code")
+	if err == nil {
+		t.Fatal("Expected error when calling Exchange without PKCE")
+	}
+	if !strings.Contains(err.Error(), "PKCE is required") {
+		t.Errorf("Error = %q, want to contain %q", err.Error(), "PKCE is required")
+	}
+}
+
+func TestVKIDExchangeWithPKCE(t *testing.T) {
+	t.Run("url construction", func(t *testing.T) {
+		provider := servex.NewVKIDOAuthProvider(servex.VKIDOAuthConfig{
+			ClientID:     "vk-id",
+			ClientSecret: "vk-secret",
+			RedirectURL:  "https://example.com/callback",
+		})
+
+		authURL, codeVerifier := provider.AuthURLWithPKCE("vkstate")
+		if !strings.Contains(authURL, "client_id=vk-id") {
+			t.Errorf("Expected client_id in URL, got: %s", authURL)
+		}
+		if !strings.Contains(authURL, "state=vkstate") {
+			t.Errorf("Expected state in URL, got: %s", authURL)
+		}
+		if !strings.Contains(authURL, "code_challenge_method=S256") {
+			t.Errorf("Expected code_challenge_method in URL, got: %s", authURL)
+		}
+		if codeVerifier == "" {
+			t.Error("Expected non-empty code_verifier")
+		}
+	})
+}
+
 func TestTelegramAuthURL(t *testing.T) {
 	provider := servex.NewTelegramOAuthProvider(servex.TelegramOAuthConfig{
 		BotToken:    "123456789:ABCdefGHIjklMNOpqrsTUVwxyz",
@@ -716,6 +858,17 @@ func TestNewAuthManagerBuildsProviders(t *testing.T) {
 				},
 			},
 			expectedNames: []string{"telegram"},
+		},
+		{
+			name: "VKID provider",
+			oauth: servex.OAuthConfig{
+				Enabled: true,
+				VKID: &servex.VKIDOAuthConfig{
+					ClientID:     "vk-id",
+					ClientSecret: "vk-secret",
+				},
+			},
+			expectedNames: []string{"vkid"},
 		},
 		{
 			name: "Existing providers preserved",

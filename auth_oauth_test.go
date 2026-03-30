@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1177,5 +1178,120 @@ func TestOAuthCallbackNoRedirectWithoutFrontendURL(t *testing.T) {
 	decodeJsonResponse(t, rr, &resp)
 	if resp.AccessToken == "" {
 		t.Fatal("Expected access token in JSON response")
+	}
+}
+
+// MockPKCEOAuthProvider implements PKCEOAuthProvider for testing.
+type MockPKCEOAuthProvider struct {
+	name         string
+	authURL      string
+	codeVerifier string
+	userInfo     *servex.OAuthUserInfo
+	err          error
+}
+
+func (m *MockPKCEOAuthProvider) Name() string { return m.name }
+func (m *MockPKCEOAuthProvider) AuthURL(state string) string {
+	url, _ := m.AuthURLWithPKCE(state)
+	return url
+}
+func (m *MockPKCEOAuthProvider) Exchange(_ context.Context, _ string) (*servex.OAuthUserInfo, error) {
+	return nil, fmt.Errorf("PKCE is required")
+}
+func (m *MockPKCEOAuthProvider) AuthURLWithPKCE(state string) (string, string) {
+	m.codeVerifier = "test-code-verifier-" + state
+	return m.authURL + "?state=" + state, m.codeVerifier
+}
+func (m *MockPKCEOAuthProvider) ExchangeWithPKCE(_ context.Context, code string, codeVerifier string) (*servex.OAuthUserInfo, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if codeVerifier == "" {
+		return nil, fmt.Errorf("code_verifier is required")
+	}
+	return m.userInfo, nil
+}
+
+func TestOAuthPKCERedirectHandler(t *testing.T) {
+	provider := &MockPKCEOAuthProvider{
+		name:    "pkceprovider",
+		authURL: "https://provider.example.com/auth",
+	}
+
+	am, _ := newTestAuthManagerWithOAuth(t, provider)
+
+	rr, stateCookie := performOAuthRedirect(t, am, "pkceprovider")
+
+	// Verify redirect location contains provider auth URL
+	location := rr.Header().Get("Location")
+	if !strings.HasPrefix(location, "https://provider.example.com/auth?state=") {
+		t.Fatalf("Expected redirect to provider auth URL, got: %s", location)
+	}
+
+	// PKCE provider should store state:mac:codeVerifier in cookie (3 parts)
+	parts := strings.SplitN(stateCookie.Value, ":", 3)
+	if len(parts) != 3 {
+		t.Fatalf("Expected state cookie in state:mac:codeVerifier format (3 parts), got %d parts: %s", len(parts), stateCookie.Value)
+	}
+
+	state := parts[0]
+	codeVerifier := parts[2]
+
+	if codeVerifier == "" {
+		t.Fatal("Expected code_verifier in cookie")
+	}
+
+	// Verify the state in the cookie matches the state in the redirect URL
+	if !strings.Contains(location, "state="+state) {
+		t.Fatalf("State in cookie does not match state in redirect URL. Cookie state: %s, URL: %s", state, location)
+	}
+}
+
+func TestOAuthPKCECallbackHandler(t *testing.T) {
+	provider := &MockPKCEOAuthProvider{
+		name:    "pkceprovider",
+		authURL: "https://provider.example.com/auth",
+		userInfo: &servex.OAuthUserInfo{
+			ProviderID: "pkce-user-123",
+			Email:      "pkce@example.com",
+			Username:   "pkceuser",
+			Verified:   true,
+		},
+	}
+
+	am, _ := newTestAuthManagerWithOAuth(t, provider)
+
+	// Redirect to get the state cookie with code_verifier
+	_, stateCookie := performOAuthRedirect(t, am, "pkceprovider")
+
+	// Extract state from cookie
+	parts := strings.SplitN(stateCookie.Value, ":", 3)
+	if len(parts) != 3 {
+		t.Fatalf("Expected 3 parts in PKCE cookie, got %d", len(parts))
+	}
+	state := parts[0]
+
+	// Perform callback
+	callbackURL := "/api/v1/auth/oauth/pkceprovider/callback?code=auth-code-123&state=" + state
+	req := httptest.NewRequest(http.MethodGet, callbackURL, nil)
+	req.AddCookie(stateCookie)
+	rr := httptest.NewRecorder()
+
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+	router.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("Expected 200, got %d. Body: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp servex.UserLoginResponse
+	decodeJsonResponse(t, rr, &resp)
+
+	if resp.AccessToken == "" {
+		t.Fatal("Expected access token in response")
+	}
+	if resp.Username != "pkceuser" {
+		t.Fatalf("Expected username 'pkceuser', got %q", resp.Username)
 	}
 }

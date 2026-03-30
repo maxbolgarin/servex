@@ -21,6 +21,17 @@ type OAuthAuthDatabase interface {
 	FindByOAuthProvider(ctx context.Context, provider string, providerID string) (User, bool, error)
 }
 
+// PKCEOAuthProvider is an optional interface for OAuth providers that require PKCE.
+// Providers implementing this interface will have their code_verifier stored in the
+// state cookie and passed to ExchangeWithPKCE during the callback.
+type PKCEOAuthProvider interface {
+	OAuthProvider
+	// AuthURLWithPKCE returns the authorization URL and a PKCE code_verifier.
+	AuthURLWithPKCE(state string) (authURL string, codeVerifier string)
+	// ExchangeWithPKCE exchanges the authorization code using the PKCE code_verifier.
+	ExchangeWithPKCE(ctx context.Context, code string, codeVerifier string) (*OAuthUserInfo, error)
+}
+
 // oauthStateCookieName is the cookie name for storing OAuth state during the redirect flow.
 const oauthStateCookieName = "_servex_oauth_state"
 
@@ -74,10 +85,10 @@ func (h *AuthManager) setOAuthStateCookie(ctx *Context, value string) {
 
 // getAndDeleteOAuthStateCookie retrieves the OAuth state cookie, splits it into state and mac,
 // and deletes the cookie by setting MaxAge=-1.
-func (h *AuthManager) getAndDeleteOAuthStateCookie(r *http.Request, w http.ResponseWriter) (state, mac string, ok bool) {
+func (h *AuthManager) getAndDeleteOAuthStateCookie(r *http.Request, w http.ResponseWriter) (state, mac, codeVerifier string, ok bool) {
 	cookie, err := r.Cookie(oauthStateCookieName)
 	if err != nil || cookie.Value == "" {
-		return "", "", false
+		return "", "", "", false
 	}
 
 	// Delete the cookie
@@ -91,12 +102,17 @@ func (h *AuthManager) getAndDeleteOAuthStateCookie(r *http.Request, w http.Respo
 		MaxAge:   -1,
 	})
 
-	parts := strings.SplitN(cookie.Value, ":", 2)
-	if len(parts) != 2 {
-		return "", "", false
+	parts := strings.SplitN(cookie.Value, ":", 3)
+	if len(parts) < 2 {
+		return "", "", "", false
 	}
 
-	return parts[0], parts[1], true
+	var cv string
+	if len(parts) == 3 {
+		cv = parts[2]
+	}
+
+	return parts[0], parts[1], cv, true
 }
 
 // findOAuthProvider searches the configured OAuth providers by name.
@@ -162,9 +178,16 @@ func (h *AuthManager) OAuthRedirectHandler(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	h.setOAuthStateCookie(ctx, state+":"+mac)
-
-	http.Redirect(w, r, provider.AuthURL(state), http.StatusFound)
+	var authURL string
+	if pkce, ok := provider.(PKCEOAuthProvider); ok {
+		var codeVerifier string
+		authURL, codeVerifier = pkce.AuthURLWithPKCE(state)
+		h.setOAuthStateCookie(ctx, state+":"+mac+":"+codeVerifier)
+	} else {
+		authURL = provider.AuthURL(state)
+		h.setOAuthStateCookie(ctx, state+":"+mac)
+	}
+	http.Redirect(w, r, authURL, http.StatusFound)
 }
 
 // OAuthCallbackHandler handles the OAuth provider callback.
@@ -186,7 +209,7 @@ func (h *AuthManager) OAuthCallbackHandler(w http.ResponseWriter, r *http.Reques
 	stateParam := r.URL.Query().Get("state")
 
 	// Validate state cookie and HMAC
-	cookieState, cookieMAC, ok := h.getAndDeleteOAuthStateCookie(r, w)
+	cookieState, cookieMAC, codeVerifier, ok := h.getAndDeleteOAuthStateCookie(r, w)
 	if !ok || cookieState != stateParam || !validateOAuthState(cookieState, cookieMAC, h.service.cfg.OAuth.stateSigningKey) {
 		if h.auditLogger != nil {
 			h.auditLogger.LogAuthenticationEvent(AuditEventOAuthLoginFailed, r, "", false, map[string]any{
@@ -203,7 +226,15 @@ func (h *AuthManager) OAuthCallbackHandler(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Exchange the authorization code for user info
-	userInfo, err := provider.Exchange(r.Context(), code)
+	var (
+		userInfo *OAuthUserInfo
+		err      error
+	)
+	if pkce, isPKCE := provider.(PKCEOAuthProvider); isPKCE && codeVerifier != "" {
+		userInfo, err = pkce.ExchangeWithPKCE(r.Context(), code, codeVerifier)
+	} else {
+		userInfo, err = provider.Exchange(r.Context(), code)
+	}
 	if err != nil {
 		if h.auditLogger != nil {
 			h.auditLogger.LogAuthenticationEvent(AuditEventOAuthLoginFailed, r, "", false, map[string]any{

@@ -201,6 +201,7 @@ type OAuthConfiguration struct {
 	Apple    *AppleOAuthConfiguration    `yaml:"apple" json:"apple"`
 	Telegram *TelegramOAuthConfiguration `yaml:"telegram" json:"telegram"`
 	Yandex   *YandexOAuthConfiguration   `yaml:"yandex" json:"yandex"`
+	VKID     *VKIDOAuthConfiguration     `yaml:"vkid" json:"vkid"`
 }
 
 // GoogleOAuthConfiguration represents Google OAuth 2.0 YAML configuration.
@@ -237,6 +238,13 @@ type YandexOAuthConfiguration struct {
 	ClientID     string `yaml:"client_id" json:"client_id" env:"SERVEX_AUTH_OAUTH_YANDEX_CLIENT_ID"`
 	ClientSecret string `yaml:"client_secret" json:"client_secret" env:"SERVEX_AUTH_OAUTH_YANDEX_CLIENT_SECRET"`
 	RedirectURL  string `yaml:"redirect_url" json:"redirect_url" env:"SERVEX_AUTH_OAUTH_YANDEX_REDIRECT_URL"`
+}
+
+// VKIDOAuthConfiguration represents VK ID OAuth YAML configuration.
+type VKIDOAuthConfiguration struct {
+	ClientID     string `yaml:"client_id" json:"client_id" env:"SERVEX_AUTH_OAUTH_VKID_CLIENT_ID"`
+	ClientSecret string `yaml:"client_secret" json:"client_secret" env:"SERVEX_AUTH_OAUTH_VKID_CLIENT_SECRET"`
+	RedirectURL  string `yaml:"redirect_url" json:"redirect_url" env:"SERVEX_AUTH_OAUTH_VKID_REDIRECT_URL"`
 }
 
 // TwoFactorConfiguration represents 2FA YAML configuration within auth.
@@ -628,6 +636,13 @@ func (c *Config) ToOptions() ([]Option, error) {
 				ClientID:     c.Auth.OAuth.Yandex.ClientID,
 				ClientSecret: c.Auth.OAuth.Yandex.ClientSecret,
 				RedirectURL:  c.Auth.OAuth.Yandex.RedirectURL,
+			}))
+		}
+		if c.Auth.OAuth.VKID != nil {
+			opts = append(opts, WithOAuthVKID(VKIDOAuthConfig{
+				ClientID:     c.Auth.OAuth.VKID.ClientID,
+				ClientSecret: c.Auth.OAuth.VKID.ClientSecret,
+				RedirectURL:  c.Auth.OAuth.VKID.RedirectURL,
 			}))
 		}
 	}

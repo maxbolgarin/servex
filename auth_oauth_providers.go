@@ -2,6 +2,7 @@ package servex
 
 import (
 	"context"
+	crand "crypto/rand"
 	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -655,5 +656,127 @@ func (p *YandexOAuthProvider) Exchange(ctx context.Context, code string) (*OAuth
 		Email:      email,
 		Username:   login,
 		Verified:   true, // Yandex verifies emails.
+	}, nil
+}
+
+// --- PKCE helpers ---
+
+// generateCodeVerifier generates a random PKCE code_verifier (43 characters, base64url-encoded).
+func generateCodeVerifier() string {
+	b := make([]byte, 32)
+	if _, err := crand.Read(b); err != nil {
+		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// computeS256Challenge computes the S256 code_challenge from a code_verifier.
+func computeS256Challenge(verifier string) string {
+	h := sha256.Sum256([]byte(verifier))
+	return base64.RawURLEncoding.EncodeToString(h[:])
+}
+
+// --- VK ID OAuth Provider ---
+
+// VKIDOAuthProvider implements OAuthProvider and PKCEOAuthProvider for VK ID.
+type VKIDOAuthProvider struct {
+	cfg VKIDOAuthConfig
+}
+
+// NewVKIDOAuthProvider creates a new VK ID OAuth provider from the given config.
+func NewVKIDOAuthProvider(cfg VKIDOAuthConfig) *VKIDOAuthProvider {
+	return &VKIDOAuthProvider{cfg: cfg}
+}
+
+// Name returns "vkid".
+func (p *VKIDOAuthProvider) Name() string { return "vkid" }
+
+// AuthURL returns the VK ID authorization URL. For PKCE providers, prefer AuthURLWithPKCE.
+func (p *VKIDOAuthProvider) AuthURL(state string) string {
+	authURL, _ := p.AuthURLWithPKCE(state)
+	return authURL
+}
+
+// AuthURLWithPKCE returns the VK ID authorization URL and a PKCE code_verifier.
+func (p *VKIDOAuthProvider) AuthURLWithPKCE(state string) (string, string) {
+	scopes := p.cfg.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{"vkid.personal_info", "email"}
+	}
+
+	codeVerifier := generateCodeVerifier()
+	codeChallenge := computeS256Challenge(codeVerifier)
+
+	params := url.Values{
+		"client_id":             {p.cfg.ClientID},
+		"redirect_uri":          {p.cfg.RedirectURL},
+		"response_type":         {"code"},
+		"scope":                 {strings.Join(scopes, " ")},
+		"state":                 {state},
+		"code_challenge":        {codeChallenge},
+		"code_challenge_method": {"S256"},
+	}
+
+	return "https://id.vk.com/authorize?" + params.Encode(), codeVerifier
+}
+
+// Exchange returns an error because VK ID requires PKCE.
+func (p *VKIDOAuthProvider) Exchange(_ context.Context, _ string) (*OAuthUserInfo, error) {
+	return nil, fmt.Errorf("vkid: PKCE is required, use ExchangeWithPKCE")
+}
+
+// ExchangeWithPKCE exchanges the authorization code for user information from VK ID using PKCE.
+func (p *VKIDOAuthProvider) ExchangeWithPKCE(ctx context.Context, code string, codeVerifier string) (*OAuthUserInfo, error) {
+	// Exchange code for access token.
+	tokenData, err := oauthPostForm(ctx, "https://id.vk.com/oauth2/auth", url.Values{
+		"grant_type":    {"authorization_code"},
+		"code":          {code},
+		"client_id":     {p.cfg.ClientID},
+		"device_id":     {generateRandomHex(16)},
+		"code_verifier": {codeVerifier},
+		"redirect_uri":  {p.cfg.RedirectURL},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("vkid token exchange: %w", err)
+	}
+
+	accessToken, _ := tokenData["access_token"].(string)
+	if accessToken == "" {
+		return nil, fmt.Errorf("vkid token exchange: missing access_token")
+	}
+
+	// Get user info via POST.
+	userInfo, err := oauthPostForm(ctx, "https://id.vk.com/oauth2/user_info", url.Values{
+		"access_token": {accessToken},
+		"client_id":    {p.cfg.ClientID},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("vkid userinfo: %w", err)
+	}
+
+	// VK ID may return user data inside a "user" key or at top level.
+	userData := userInfo
+	if u, ok := userInfo["user"].(map[string]any); ok {
+		userData = u
+	}
+
+	var userID string
+	switch v := userData["user_id"].(type) {
+	case float64:
+		userID = strconv.FormatInt(int64(v), 10)
+	case string:
+		userID = v
+	}
+
+	email, _ := userData["email"].(string)
+	firstName, _ := userData["first_name"].(string)
+	lastName, _ := userData["last_name"].(string)
+	username := strings.TrimSpace(firstName + " " + lastName)
+
+	return &OAuthUserInfo{
+		ProviderID: userID,
+		Email:      email,
+		Username:   username,
+		Verified:   true, // VK ID verifies emails.
 	}, nil
 }

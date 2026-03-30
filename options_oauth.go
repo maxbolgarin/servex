@@ -75,6 +75,9 @@ type OAuthConfig struct {
 	// Yandex configures Yandex OAuth login.
 	Yandex *YandexOAuthConfig
 
+	// VKID configures VK ID OAuth login.
+	VKID *VKIDOAuthConfig
+
 	// stateSigningKey is the decoded state signing key (internal use).
 	stateSigningKey []byte
 }
@@ -151,6 +154,21 @@ type YandexOAuthConfig struct {
 	RedirectURL string
 
 	// Scopes are the OAuth scopes to request.
+	Scopes []string
+}
+
+// VKIDOAuthConfig configures VK ID OAuth login.
+type VKIDOAuthConfig struct {
+	// ClientID is the VK ID app client ID.
+	ClientID string
+
+	// ClientSecret is the VK ID app client secret.
+	ClientSecret string
+
+	// RedirectURL is the callback URL registered with VK ID.
+	RedirectURL string
+
+	// Scopes are the OAuth scopes to request. Default: ["vkid.personal_info", "email"].
 	Scopes []string
 }
 
@@ -264,6 +282,25 @@ func WithOAuthYandex(cfg YandexOAuthConfig) Option {
 		}
 		op.Auth.OAuth.Enabled = true
 		op.Auth.OAuth.Yandex = &cfg
+	}
+}
+
+// WithOAuthVKID enables VK ID OAuth login.
+//
+// Example:
+//
+//	server := servex.New(servex.WithOAuthVKID(servex.VKIDOAuthConfig{
+//		ClientID:     os.Getenv("VKID_CLIENT_ID"),
+//		ClientSecret: os.Getenv("VKID_CLIENT_SECRET"),
+//		RedirectURL:  "https://myapp.com/oauth/vkid/callback",
+//	}))
+func WithOAuthVKID(cfg VKIDOAuthConfig) Option {
+	return func(op *Options) {
+		if !op.Auth.OAuth.Enabled {
+			op.Auth.OAuth.AutoLinkByEmail = true
+		}
+		op.Auth.OAuth.Enabled = true
+		op.Auth.OAuth.VKID = &cfg
 	}
 }
 

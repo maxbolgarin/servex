@@ -281,6 +281,9 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 		if cfg.OAuth.Yandex != nil {
 			cfg.OAuth.Providers = append(cfg.OAuth.Providers, NewYandexOAuthProvider(*cfg.OAuth.Yandex))
 		}
+		if cfg.OAuth.VKID != nil {
+			cfg.OAuth.Providers = append(cfg.OAuth.Providers, NewVKIDOAuthProvider(*cfg.OAuth.VKID))
+		}
 	}
 
 	if cfg.TwoFactor.Enabled {
