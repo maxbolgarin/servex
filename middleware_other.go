@@ -1,11 +1,13 @@
 package servex
 
 import (
+	"bufio"
 	"compress/flate"
 	"compress/gzip"
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
 	"runtime/debug"
@@ -854,4 +856,12 @@ func (crw *compressionResponseWriter) Close() error {
 	}
 
 	return nil
+}
+
+// Hijack implements http.Hijacker so WebSocket upgrades work through this wrapper.
+func (crw *compressionResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := crw.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
 }

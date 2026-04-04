@@ -1,7 +1,10 @@
 package servex
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"net"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -55,6 +58,14 @@ func (lrw *loggingResponseWriter) Write(b []byte) (int, error) {
 	return lrw.ResponseWriter.Write(b)
 }
 
+// Hijack implements http.Hijacker so WebSocket upgrades work through this wrapper.
+func (lrw *loggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := lrw.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
+}
+
 func registerOptsMiddleware(router MiddlewareRouter, opts Options) {
 	// When not in debug mode, automatically suppress client error logging at error level.
 	noLogClientErrors := opts.NoLogClientErrors || !opts.IsDebug
@@ -98,6 +109,14 @@ func (w *enhancedUniversalResponseWriter) Write(b []byte) (int, error) {
 	n, err := w.ResponseWriter.Write(b)
 	w.bytesWritten += n
 	return n, err
+}
+
+// Hijack implements http.Hijacker so WebSocket upgrades work through this wrapper.
+func (w *enhancedUniversalResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
 }
 
 // registerUniversalMiddleware provides more sophisticated universal middleware
