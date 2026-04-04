@@ -4,3 +4,4 @@ traffic_logs
 coverage.out
 coverage.html
 *.coverprofile
+.serena
