@@ -108,6 +108,11 @@ type PasswordResetConfig struct {
 	// TokenDuration is how long password reset tokens are valid.
 	// Default: 1h.
 	TokenDuration time.Duration
+
+	// ResendCooldown is the minimum interval between password reset email resends per user.
+	// This prevents email flooding abuse.
+	// Default: 60s.
+	ResendCooldown time.Duration
 }
 
 // SMTPConfig configures the built-in SMTP email sender.
@@ -304,6 +309,15 @@ func WithEmailResendCooldown(d time.Duration) Option {
 func WithPasswordResetTokenDuration(d time.Duration) Option {
 	return func(op *Options) {
 		op.Auth.PasswordReset.TokenDuration = d
+	}
+}
+
+// WithPasswordResetResendCooldown sets the minimum interval between password reset email resends.
+// This prevents email flooding abuse by limiting how frequently a user can request reset tokens.
+// Default: 60s.
+func WithPasswordResetResendCooldown(d time.Duration) Option {
+	return func(op *Options) {
+		op.Auth.PasswordReset.ResendCooldown = d
 	}
 }
 

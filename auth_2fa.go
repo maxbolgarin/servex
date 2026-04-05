@@ -480,18 +480,20 @@ func (h *AuthManager) TwoFactorDisableHandler(w http.ResponseWriter, r *http.Req
 	// Try TOTP code first
 	valid := totp.Validate(req.Code, secret)
 
-	// If TOTP didn't match, try backup codes
+	// If TOTP didn't match, try backup codes — iterate all hashes to prevent timing oracle
 	if !valid {
+		matchIdx := -1
 		for i, hash := range user.TwoFactorBackupCodes {
 			if bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Code)) == nil {
-				valid = true
-				// Remove the used backup code
-				remaining := make([]string, 0, len(user.TwoFactorBackupCodes)-1)
-				remaining = append(remaining, user.TwoFactorBackupCodes[:i]...)
-				remaining = append(remaining, user.TwoFactorBackupCodes[i+1:]...)
-				user.TwoFactorBackupCodes = remaining
-				break
+				matchIdx = i
 			}
+		}
+		if matchIdx >= 0 {
+			valid = true
+			remaining := make([]string, 0, len(user.TwoFactorBackupCodes)-1)
+			remaining = append(remaining, user.TwoFactorBackupCodes[:matchIdx]...)
+			remaining = append(remaining, user.TwoFactorBackupCodes[matchIdx+1:]...)
+			user.TwoFactorBackupCodes = remaining
 		}
 	}
 
@@ -574,23 +576,26 @@ func (h *AuthManager) TwoFactorVerifyHandler(w http.ResponseWriter, r *http.Requ
 		valid = true
 	}
 
-	// Try backup codes
+	// Try backup codes — iterate all hashes to prevent timing oracle
 	if !valid {
+		matchIdx := -1
 		for i, hash := range user.TwoFactorBackupCodes {
 			if bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Code)) == nil {
-				valid = true
-				usedBackup = true
-				// Remove the used backup code
-				remaining := make([]string, 0, len(user.TwoFactorBackupCodes)-1)
-				remaining = append(remaining, user.TwoFactorBackupCodes[:i]...)
-				remaining = append(remaining, user.TwoFactorBackupCodes[i+1:]...)
-				if err := h.service.db.UpdateUser(r.Context(), user.ID, &UserDiff{
-					TwoFactorBackupCodes: &remaining,
-				}); err != nil {
-					ctx.InternalServerError(err, "failed to update backup codes")
-					return
-				}
-				break
+				matchIdx = i
+			}
+		}
+		if matchIdx >= 0 {
+			valid = true
+			usedBackup = true
+			// Remove the used backup code
+			remaining := make([]string, 0, len(user.TwoFactorBackupCodes)-1)
+			remaining = append(remaining, user.TwoFactorBackupCodes[:matchIdx]...)
+			remaining = append(remaining, user.TwoFactorBackupCodes[matchIdx+1:]...)
+			if err := h.service.db.UpdateUser(r.Context(), user.ID, &UserDiff{
+				TwoFactorBackupCodes: &remaining,
+			}); err != nil {
+				ctx.InternalServerError(err, "failed to update backup codes")
+				return
 			}
 		}
 	}

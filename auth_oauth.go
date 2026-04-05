@@ -142,7 +142,7 @@ func (h *AuthManager) oauthRedirectSuccess(w http.ResponseWriter, r *http.Reques
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   r.TLS != nil || h.service.cfg.ForceSecureCookies,
-		SameSite: http.SameSiteLaxMode,
+		SameSite: http.SameSiteStrictMode,
 		MaxAge:   300,
 	})
 	u, _ := url.Parse(h.service.cfg.OAuth.FrontendCallbackURL)

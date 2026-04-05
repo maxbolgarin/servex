@@ -491,6 +491,16 @@ func (h *AuthManager) ForgotPasswordHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Enforce resend cooldown using existing token expiry to derive last sent time
+	if h.service.cfg.PasswordReset.ResendCooldown > 0 && !user.PasswordResetTokenExpiresAt.IsZero() {
+		lastSentAt := user.PasswordResetTokenExpiresAt.Add(-h.service.cfg.PasswordReset.TokenDuration)
+		if time.Since(lastSentAt) < h.service.cfg.PasswordReset.ResendCooldown {
+			// Still within cooldown — return success to prevent enumeration
+			ctx.Response(http.StatusOK, map[string]string{"message": successMessage})
+			return
+		}
+	}
+
 	// Generate reset token
 	rawToken, tokenHash, err := generateEmailToken(user.ID)
 	if err != nil {

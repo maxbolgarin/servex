@@ -251,6 +251,7 @@ func NewAuthManager(cfg AuthConfig, auditLogger ...AuditLogger) (*AuthManager, e
 
 	if cfg.PasswordReset.Enabled {
 		cfg.PasswordReset.TokenDuration = lang.Check(cfg.PasswordReset.TokenDuration, time.Hour)
+		cfg.PasswordReset.ResendCooldown = lang.Check(cfg.PasswordReset.ResendCooldown, 60*time.Second)
 		if cfg.PasswordReset.Sender == nil && cfg.PasswordReset.SMTP != nil {
 			cfg.PasswordReset.Sender = NewSMTPEmailSender(*cfg.PasswordReset.SMTP, EmailVerificationTokenMode)
 		}
