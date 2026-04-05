@@ -384,6 +384,14 @@ func WithAuthInitialUsers(users ...InitialUser) Option {
 	}
 }
 
+// WithAuthMinPasswordLength sets the minimum required password length for registration.
+// Default is 8 characters. Set to 0 to disable the password length check.
+func WithAuthMinPasswordLength(n int) Option {
+	return func(op *Options) {
+		op.Auth.MinPasswordLength = n
+	}
+}
+
 // WithAuthSQL enables JWT-based authentication with a SQL database.
 // The driver parameter selects the SQL dialect: "postgres", "mysql", or "sqlite".
 // The caller must import the appropriate database driver (e.g. _ "github.com/jackc/pgx/v5/stdlib").

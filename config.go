@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"reflect"
 	"strconv"
@@ -192,9 +191,10 @@ type EmailVerificationConfiguration struct {
 // PasswordResetConfiguration represents password reset configuration within auth.
 // Always uses token mode (long token for building reset links).
 type PasswordResetConfiguration struct {
-	Enabled       bool          `yaml:"enabled" json:"enabled" env:"SERVEX_AUTH_PASSWORD_RESET_ENABLED"`
-	TokenDuration time.Duration `yaml:"token_duration" json:"token_duration" env:"SERVEX_AUTH_PASSWORD_RESET_TOKEN_DURATION"`
-	SMTP          SMTPConfiguration `yaml:"smtp" json:"smtp"`
+	Enabled        bool          `yaml:"enabled" json:"enabled" env:"SERVEX_AUTH_PASSWORD_RESET_ENABLED"`
+	TokenDuration  time.Duration `yaml:"token_duration" json:"token_duration" env:"SERVEX_AUTH_PASSWORD_RESET_TOKEN_DURATION"`
+	ResendCooldown time.Duration `yaml:"resend_cooldown" json:"resend_cooldown" env:"SERVEX_AUTH_PASSWORD_RESET_RESEND_COOLDOWN"`
+	SMTP           SMTPConfiguration `yaml:"smtp" json:"smtp"`
 }
 
 // SMTPConfiguration represents SMTP server configuration for sending emails.
@@ -625,6 +625,9 @@ func (c *Config) ToOptions() ([]Option, error) {
 		if c.Auth.NotRegisterRoutes {
 			opts = append(opts, WithAuthNotRegisterRoutes(true))
 		}
+		if c.Auth.MinPasswordLength > 0 {
+			opts = append(opts, WithAuthMinPasswordLength(c.Auth.MinPasswordLength))
+		}
 	}
 
 	// Email verification configuration
@@ -682,6 +685,9 @@ func (c *Config) ToOptions() ([]Option, error) {
 		}
 		if resetCfg.TokenDuration > 0 {
 			opts = append(opts, WithPasswordResetTokenDuration(resetCfg.TokenDuration))
+		}
+		if resetCfg.ResendCooldown > 0 {
+			opts = append(opts, WithPasswordResetResendCooldown(resetCfg.ResendCooldown))
 		}
 	}
 
@@ -1013,9 +1019,7 @@ func StartServerFromConfig(configFile string, handlerSetter func(*mux.Router)) (
 		return nil, fmt.Errorf("create server: %w", err)
 	}
 
-	server.router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		handlerSetter(server.router)
-	}).Methods(GET, POST, PUT, DELETE, PATCH, OPTIONS, "HEAD")
+	handlerSetter(server.router)
 
 	baseConfig := config.ToBaseConfig()
 	if err := server.Start(baseConfig.HTTP, baseConfig.HTTPS); err != nil {
@@ -1138,6 +1142,14 @@ func setFieldValue(field reflect.Value, value string) error {
 		} else {
 			return fmt.Errorf("unsupported slice type: %s", field.Type())
 		}
+
+	case reflect.Ptr:
+		// Handle pointer types (e.g. *bool, *int, *string)
+		elem := reflect.New(field.Type().Elem())
+		if err := setFieldValue(elem.Elem(), value); err != nil {
+			return err
+		}
+		field.Set(elem)
 
 	default:
 		return fmt.Errorf("unsupported field type: %s", field.Kind())
