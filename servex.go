@@ -209,10 +209,22 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 	if len(opts.HeadersToRemove) > 0 {
 		RegisterHeaderRemovalMiddleware(s.router, opts.HeadersToRemove)
 	}
+	if opts.EnableTracePropagation {
+		RegisterTracePropagationMiddleware(s.router)
+	}
 	RegisterLoggingMiddleware(s.router, opts.RequestLogger, opts.Metrics)
 	RegisterRecoverMiddleware(s.router, opts.Logger)
 	RegisterSimpleAuthMiddleware(s.router, opts.AuthToken, opts)
 	registerOptsMiddleware(s.router, opts)
+
+	// Apply ShouldBufferResponse callbacks to proxy rules before registering
+	if len(opts.proxyShouldBufferFuncs) > 0 {
+		for i := range opts.Proxy.Rules {
+			if fn, ok := opts.proxyShouldBufferFuncs[opts.Proxy.Rules[i].Name]; ok {
+				opts.Proxy.Rules[i].ShouldBufferResponse = fn
+			}
+		}
+	}
 
 	// Register proxy middleware before auth but after security/filtering
 	proxyCleanup, err := RegisterProxyMiddleware(s.router, opts.Proxy, opts.Logger)
@@ -239,6 +251,18 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 				return nil, fmt.Errorf("cannot create initial user with name=%s: %w", user.Username, err)
 			}
 		}
+	}
+
+	// Register API key routes if database is configured
+	if s.opts.APIKey.Database != nil {
+		if s.auth == nil {
+			return nil, errors.New("API key authentication requires auth to be enabled (WithAuth)")
+		}
+		s.opts.APIKey.Prefix = lang.Check(s.opts.APIKey.Prefix, "svx_")
+		s.opts.APIKey.MaxPerUser = lang.Check(s.opts.APIKey.MaxPerUser, 10)
+		s.opts.APIKey.KeyLength = lang.Check(s.opts.APIKey.KeyLength, 16)
+		s.auth.service.cfg.APIKey = s.opts.APIKey
+		s.auth.registerAPIKeyRoutes(s.router)
 	}
 
 	// Load swagger spec from file if configured
@@ -718,6 +742,27 @@ func (s *Server) StartWithWaitSignalsHTTPS(ctx context.Context, address string, 
 //	}
 func (s *Server) Shutdown(ctx context.Context) error {
 	var errs []error
+
+	// Phase 1: Shutdown delay for load balancer drain
+	if s.opts.ShutdownDelay > 0 {
+		s.opts.Logger.Info("shutdown: waiting for load balancer drain", "delay", s.opts.ShutdownDelay)
+		select {
+		case <-time.After(s.opts.ShutdownDelay):
+		case <-ctx.Done():
+			errs = append(errs, fmt.Errorf("shutdown delay interrupted: %w", ctx.Err()))
+		}
+	}
+
+	// Phase 2: Signal WebSocket connections and wait for them to drain
+	if s.wsHub != nil && s.opts.DrainTimeout > 0 {
+		s.opts.Logger.Info("shutdown: draining WebSocket connections", "timeout", s.opts.DrainTimeout)
+		s.wsHub.CloseAll(StatusGoingAway, "server shutting down")
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), s.opts.DrainTimeout)
+		defer drainCancel()
+		s.waitForWSConnsDrained(drainCtx)
+	}
+
+	// Phase 3: Stop accepting new HTTP connections and drain in-flight requests
 	if s.http != nil {
 		if err := s.http.Shutdown(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("shutdown HTTP: %w", err))
@@ -728,13 +773,32 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			errs = append(errs, fmt.Errorf("shutdown HTTPS: %w", err))
 		}
 	}
-	// Run all cleanup functions
+
+	// Phase 4: Run all cleanup functions
 	for _, cleanup := range s.cleanups {
 		if cleanup != nil {
 			cleanup()
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// waitForWSConnsDrained polls until all WebSocket connections have closed or the context is done.
+func (s *Server) waitForWSConnsDrained(ctx context.Context) {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if s.wsHub.ConnCount() == 0 {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			s.opts.Logger.Error("shutdown: WebSocket drain timeout reached",
+				"remaining", s.wsHub.ConnCount())
+			return
+		case <-ticker.C:
+		}
+	}
 }
 
 // HTTPAddress returns the address the HTTP server is listening on.
@@ -849,12 +913,18 @@ func (s *Server) registerBuiltinEndpoints() {
 		}
 		// Register metrics endpoint using the built-in metrics
 		// Check if metrics is directly a builtinMetrics
-		if builtinMetrics, ok := s.opts.Metrics.(*builtinMetrics); ok {
-			builtinMetrics.registerMetricsEndpoint(s, metricsPath)
+		if bm, ok := s.opts.Metrics.(*builtinMetrics); ok {
+			if s.opts.maxPathMetrics > 0 {
+				bm.maxPathMetrics = s.opts.maxPathMetrics
+			}
+			bm.registerMetricsEndpoint(s, metricsPath)
 		} else if composite, ok := s.opts.Metrics.(*compositeMetrics); ok {
 			// If it's a composite, try to get the built-in metrics from it
-			if builtinMetrics := composite.getBuiltinMetrics(); builtinMetrics != nil {
-				builtinMetrics.registerMetricsEndpoint(s, metricsPath)
+			if bm := composite.getBuiltinMetrics(); bm != nil {
+				if s.opts.maxPathMetrics > 0 {
+					bm.maxPathMetrics = s.opts.maxPathMetrics
+				}
+				bm.registerMetricsEndpoint(s, metricsPath)
 			} else {
 				s.opts.Logger.Error("cannot register metrics endpoint, no builtin metrics found in composite")
 			}
@@ -863,19 +933,112 @@ func (s *Server) registerBuiltinEndpoints() {
 		}
 	}
 
+	// Register liveness endpoint
+	livenessPath := s.opts.LivenessPath
+	if livenessPath == "" && len(s.opts.HealthChecks) > 0 {
+		livenessPath = "/live"
+	}
+	if livenessPath != "" {
+		s.router.HandleFunc(livenessPath, s.healthHandler).Methods(GET)
+	}
+
+	// Register readiness endpoint (requires health checks to be meaningful)
+	readinessPath := s.opts.ReadinessPath
+	if readinessPath == "" && len(s.opts.HealthChecks) > 0 {
+		readinessPath = "/ready"
+	}
+	if readinessPath != "" && len(s.opts.HealthChecks) > 0 {
+		s.router.HandleFunc(readinessPath, s.readinessHandler).Methods(GET)
+	} else if readinessPath != "" {
+		// No checks registered — fall back to liveness behavior
+		s.router.HandleFunc(readinessPath, s.healthHandler).Methods(GET)
+	}
+
 	// Register swagger endpoint if enabled
 	if s.opts.Swagger.isActive() {
 		registerSwaggerEndpoints(s)
 	}
 }
 
-// healthHandler provides a simple health check endpoint.
+// healthHandler provides a simple health/liveness check endpoint.
 func (s *Server) healthHandler(w http.ResponseWriter, r *http.Request) {
 	response := map[string]any{
 		"status":    "ok",
 		"timestamp": time.Now().Format(time.RFC3339),
 	}
 	C(w, r).Response(http.StatusOK, response)
+}
+
+// readinessHandler runs all registered health checks concurrently and returns the aggregate result.
+func (s *Server) readinessHandler(w http.ResponseWriter, r *http.Request) {
+	timeout := s.opts.ReadinessTimeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+
+	type result struct {
+		name string
+		err  error
+	}
+	results := make(chan result, len(s.opts.HealthChecks))
+	for _, hc := range s.opts.HealthChecks {
+		go func(nhc NamedHealthCheck) {
+			defer func() {
+				if r := recover(); r != nil {
+					results <- result{nhc.Name, fmt.Errorf("health check panicked: %v", r)}
+				}
+			}()
+			results <- result{nhc.Name, nhc.Check(ctx)}
+		}(hc)
+	}
+
+	checks := make(map[string]string, len(s.opts.HealthChecks))
+	allOK := true
+	for range s.opts.HealthChecks {
+		res := <-results
+		if res.err != nil {
+			checks[res.name] = "error: " + res.err.Error()
+			allOK = false
+		} else {
+			checks[res.name] = "ok"
+		}
+	}
+
+	status := "ok"
+	code := http.StatusOK
+	if !allOK {
+		status = "degraded"
+		code = http.StatusServiceUnavailable
+	}
+	C(w, r).Response(code, map[string]any{
+		"status":    status,
+		"timestamp": time.Now().Format(time.RFC3339),
+		"checks":    checks,
+	})
+}
+
+// keepAliveListener wraps a net.Listener to configure TCP keepalive on accepted connections.
+type keepAliveListener struct {
+	net.Listener
+	cfg TCPKeepAliveConfig
+}
+
+func (ln keepAliveListener) Accept() (net.Conn, error) {
+	conn, err := ln.Listener.Accept()
+	if err != nil {
+		return conn, err
+	}
+	if tc, ok := conn.(*net.TCPConn); ok {
+		kaCfg := net.KeepAliveConfig{
+			Enable:   true,
+			Interval: ln.cfg.Interval,
+			Count:    ln.cfg.Count,
+		}
+		_ = tc.SetKeepAliveConfig(kaCfg)
+	}
+	return conn, nil
 }
 
 func (s *Server) start(address string, serve func(net.Listener) error, getListener func(string, string) (net.Listener, error), readyChan chan error) error {
@@ -891,6 +1054,9 @@ func (s *Server) start(address string, serve func(net.Listener) error, getListen
 		default:
 		}
 		return err
+	}
+	if !s.opts.tcpKeepAliveDisabled && s.opts.TCPKeepAlive != (TCPKeepAliveConfig{}) {
+		l = keepAliveListener{Listener: l, cfg: s.opts.TCPKeepAlive}
 	}
 
 	go func() {

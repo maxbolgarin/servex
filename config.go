@@ -101,6 +101,9 @@ type Config struct {
 
 	// WebSocket contains WebSocket configuration
 	WebSocket WebSocketConfiguration `yaml:"websocket" json:"websocket"`
+
+	// APIKey contains API key authentication configuration
+	APIKey APIKeyConfiguration `yaml:"api_key" json:"api_key"`
 }
 
 // ServerConfig represents basic server configuration
@@ -112,6 +115,9 @@ type ServerConfig struct {
 	ReadTimeout             time.Duration `yaml:"read_timeout" json:"read_timeout" env:"SERVEX_SERVER_READ_TIMEOUT"`
 	ReadHeaderTimeout       time.Duration `yaml:"read_header_timeout" json:"read_header_timeout" env:"SERVEX_SERVER_READ_HEADER_TIMEOUT"`
 	IdleTimeout             time.Duration `yaml:"idle_timeout" json:"idle_timeout" env:"SERVEX_SERVER_IDLE_TIMEOUT"`
+	TCPKeepAliveInterval   time.Duration `yaml:"tcp_keepalive_interval" json:"tcp_keepalive_interval" env:"SERVEX_SERVER_TCP_KEEPALIVE_INTERVAL"`
+	TCPKeepAliveCount      int           `yaml:"tcp_keepalive_count" json:"tcp_keepalive_count" env:"SERVEX_SERVER_TCP_KEEPALIVE_COUNT"`
+	TCPKeepAliveDisabled   bool          `yaml:"tcp_keepalive_disabled" json:"tcp_keepalive_disabled" env:"SERVEX_SERVER_TCP_KEEPALIVE_DISABLED"`
 	AuthToken               string        `yaml:"auth_token" json:"auth_token" env:"SERVEX_SERVER_AUTH_TOKEN"`
 	HealthPath              string        `yaml:"health_path" json:"health_path" env:"SERVEX_SERVER_HEALTH_PATH"`
 	MetricsPath             string        `yaml:"metrics_path" json:"metrics_path" env:"SERVEX_SERVER_METRICS_PATH"`
@@ -396,6 +402,15 @@ type SwaggerConfiguration struct {
 	Title    string `yaml:"title" json:"title" env:"SERVEX_SWAGGER_TITLE"`
 }
 
+// APIKeyConfiguration represents API key configuration for YAML/env loading.
+type APIKeyConfiguration struct {
+	Prefix            string   `yaml:"prefix" json:"prefix" env:"SERVEX_API_KEY_PREFIX"`
+	ValidScopes       []string `yaml:"valid_scopes" json:"valid_scopes" env:"SERVEX_API_KEY_VALID_SCOPES"`
+	MaxPerUser        int      `yaml:"max_per_user" json:"max_per_user" env:"SERVEX_API_KEY_MAX_PER_USER"`
+	KeyLength         int      `yaml:"key_length" json:"key_length" env:"SERVEX_API_KEY_KEY_LENGTH"`
+	UseMemoryDatabase bool     `yaml:"use_memory_database" json:"use_memory_database" env:"SERVEX_API_KEY_USE_MEMORY_DATABASE"`
+}
+
 // WebSocketConfiguration represents WebSocket configuration for YAML/env loading
 type WebSocketConfiguration struct {
 	MaxMessageSize    int64         `yaml:"max_message_size" json:"max_message_size" env:"SERVEX_WEBSOCKET_MAX_MESSAGE_SIZE"`
@@ -405,19 +420,52 @@ type WebSocketConfiguration struct {
 	EnableCompression bool          `yaml:"enable_compression" json:"enable_compression" env:"SERVEX_WEBSOCKET_ENABLE_COMPRESSION"`
 }
 
-// LoadConfigFromFile loads configuration from a YAML file
+// LoadConfigFromFile loads configuration from a YAML file.
+// Environment variables referenced as ${VAR} in the YAML content are expanded
+// before parsing. Only the ${VAR} syntax is supported — bare $VAR references
+// are left as-is to avoid corrupting values that contain literal dollar signs
+// (e.g., bcrypt hashes like $2a$10$..., PostgreSQL DSNs with positional params).
+// Unset variables expand to empty strings.
 func LoadConfigFromFile(filename string) (*Config, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
 		return nil, fmt.Errorf("read config file %s: %w", filename, err)
 	}
 
+	// Expand only ${VAR} references (not bare $VAR) to avoid corrupting
+	// values that legitimately contain dollar signs.
+	expanded := expandBracedEnvVars(string(data))
+
 	var config Config
-	if err := yaml.Unmarshal(data, &config); err != nil {
+	if err := yaml.Unmarshal([]byte(expanded), &config); err != nil {
 		return nil, fmt.Errorf("parse config file %s: %w", filename, err)
 	}
 
 	return &config, nil
+}
+
+// expandBracedEnvVars expands only ${VAR} references in s, leaving bare $VAR
+// and other dollar signs untouched. This is safer than os.ExpandEnv for config
+// files that may contain bcrypt hashes, DSNs, or other values with literal $.
+func expandBracedEnvVars(s string) string {
+	var buf strings.Builder
+	buf.Grow(len(s))
+	i := 0
+	for i < len(s) {
+		if s[i] == '$' && i+1 < len(s) && s[i+1] == '{' {
+			// Find closing brace
+			end := strings.Index(s[i+2:], "}")
+			if end >= 0 {
+				key := s[i+2 : i+2+end]
+				buf.WriteString(os.Getenv(key))
+				i = i + 2 + end + 1
+				continue
+			}
+		}
+		buf.WriteByte(s[i])
+		i++
+	}
+	return buf.String()
 }
 
 // LoadConfigFromEnv loads configuration from environment variables
@@ -467,6 +515,11 @@ func (c *Config) ToOptions() ([]Option, error) {
 	}
 	if c.Server.IdleTimeout > 0 {
 		opts = append(opts, WithIdleTimeout(c.Server.IdleTimeout))
+	}
+	if c.Server.TCPKeepAliveDisabled {
+		opts = append(opts, WithTCPKeepAliveDisabled())
+	} else if c.Server.TCPKeepAliveInterval > 0 || c.Server.TCPKeepAliveCount > 0 {
+		opts = append(opts, WithTCPKeepAlive(c.Server.TCPKeepAliveInterval, c.Server.TCPKeepAliveCount))
 	}
 	if c.Server.AuthToken != "" {
 		opts = append(opts, WithAuthToken(c.Server.AuthToken))
@@ -693,6 +746,23 @@ func (c *Config) ToOptions() ([]Option, error) {
 				TwoFactorCodeSubject: c.Auth.TwoFactor.EmailSMTP.TwoFactorCodeSubject,
 			}))
 		}
+	}
+
+	// API key configuration
+	if c.APIKey.UseMemoryDatabase {
+		opts = append(opts, WithAPIKeysMemoryDatabase())
+	}
+	if c.APIKey.Prefix != "" {
+		opts = append(opts, WithAPIKeyPrefix(c.APIKey.Prefix))
+	}
+	if len(c.APIKey.ValidScopes) > 0 {
+		opts = append(opts, WithAPIKeyScopes(c.APIKey.ValidScopes...))
+	}
+	if c.APIKey.MaxPerUser > 0 {
+		opts = append(opts, WithAPIKeyMaxPerUser(c.APIKey.MaxPerUser))
+	}
+	if c.APIKey.KeyLength > 0 {
+		opts = append(opts, WithAPIKeyLength(c.APIKey.KeyLength))
 	}
 
 	// Rate limiting configuration

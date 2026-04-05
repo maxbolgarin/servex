@@ -90,6 +90,16 @@ type Options struct {
 	// Default: 180 seconds if not set or zero.
 	IdleTimeout time.Duration
 
+	// DrainTimeout is the maximum time to wait for active WebSocket connections
+	// to close gracefully during shutdown. Default: 10s.
+	// Set to 0 to skip draining (immediate close). Set via WithDrainTimeout().
+	DrainTimeout time.Duration
+
+	// ShutdownDelay is the time to wait before starting shutdown, allowing
+	// load balancers to detect the server going away. Default: 0.
+	// Set via WithShutdownDelay().
+	ShutdownDelay time.Duration
+
 	// MaxHeaderBytes is the maximum size of request headers in bytes.
 	// This controls the maximum number of bytes the server will read parsing the request header's keys and values,
 	// including the request line. It does not limit the size of the request body.
@@ -106,6 +116,14 @@ type Options struct {
 	// Setting this helps prevent attacks where clients send extremely large headers
 	// to consume server resources. A reasonable limit protects against slowloris-style attacks.
 	MaxHeaderBytes int
+
+	// TCPKeepAlive configures TCP keepalive probes for accepted connections.
+	// See TCPKeepAliveConfig for details. Set via WithTCPKeepAlive().
+	// Default: 15s interval, 9 probes. Set via WithTCPKeepAliveDisabled() to disable.
+	TCPKeepAlive TCPKeepAliveConfig
+
+	// tcpKeepAliveDisabled disables TCP keepalive. Unexported — set via WithTCPKeepAliveDisabled.
+	tcpKeepAliveDisabled bool
 
 	// AuthToken enables simple token-based authentication using the Authorization header.
 	// When set, the server will check for "Authorization: Bearer <token>" headers on
@@ -447,6 +465,30 @@ type Options struct {
 	// Default: "/health" if EnableHealthEndpoint is true and this is empty.
 	HealthPath string
 
+	// HealthChecks are named dependency check functions run by the readiness probe.
+	// Each check receives a context with a timeout. Return a non-nil error to signal degraded state.
+	// Set via WithHealthChecks().
+	HealthChecks []NamedHealthCheck
+
+	// ReadinessPath is the path for the readiness probe endpoint.
+	// Runs all HealthChecks; returns 503 if any fail. Default: "/ready" when checks are registered.
+	// Set via WithReadinessPath().
+	ReadinessPath string
+
+	// LivenessPath is the path for the liveness probe endpoint.
+	// Always returns 200 (process is alive). Default: "/live" when checks are registered.
+	// Set via WithLivenessPath().
+	LivenessPath string
+
+	// ReadinessTimeout is the max duration allotted to all health checks per readiness request.
+	// Default: 5 seconds. Set via WithReadinessTimeout().
+	ReadinessTimeout time.Duration
+
+	// EnableTracePropagation enables W3C Trace Context (traceparent/tracestate) propagation.
+	// Parses incoming trace headers, generates span IDs, sets response headers, and adds
+	// trace_id/span_id to request logs. Set via WithTracePropagation().
+	EnableTracePropagation bool
+
 	// Metrics is a custom metrics collector that will be called on each HTTP request.
 	// The metrics handler receives the http.Request for each incoming request.
 	// Set via WithMetrics().
@@ -493,6 +535,14 @@ type Options struct {
 	// Proxy is the reverse proxy configuration
 	Proxy ProxyConfiguration
 
+	// proxyShouldBufferFuncs maps ProxyRule names to ShouldBufferResponse callbacks.
+	// Set via WithProxyShouldBuffer(). Not exposed in YAML/JSON config.
+	proxyShouldBufferFuncs map[string]func(int, http.Header) bool
+
+	// maxPathMetrics is the cardinality cap for path metrics (default 1000).
+	// Set via WithMaxPathMetrics(). 0 disables the cap.
+	maxPathMetrics int
+
 	// Compression is the HTTP response compression configuration.
 	// Set via WithCompression(), WithCompressionConfig(), or other compression options.
 	//
@@ -521,6 +571,10 @@ type Options struct {
 	// WebSocket support is activated lazily when server.WS() or server.WSHub() is called.
 	// These options just set parameters — there is no Enabled flag.
 	WebSocket WebSocketConfig
+
+	// APIKey is the API key authentication configuration.
+	// Set via WithAPIKeys(), WithAPIKeysMemoryDatabase(), or WithAPIKeyConfig().
+	APIKey APIKeyConfig
 }
 
 // CompressionConfig holds the HTTP response compression configuration.
@@ -612,6 +666,17 @@ type CompressionConfig struct {
 	// Path matching supports wildcards (*) for pattern matching.
 	// Leave empty to apply compression to all paths (default behavior).
 	IncludePaths []string
+
+	// EnabledEncodings restricts which compression encodings are available.
+	// When empty (default), all supported encodings are enabled: zstd, br, gzip, deflate.
+	// When set, only the listed encodings are used (matched case-insensitively).
+	// The server will still pick the best encoding the client accepts from this list.
+	//
+	// Supported values: "zstd", "br", "gzip", "deflate".
+	//
+	// Example: limit to gzip and brotli only:
+	//   EnabledEncodings: []string{"gzip", "br"}
+	EnabledEncodings []string
 }
 
 // AuthConfig holds the JWT-based authentication configuration with user management, roles, and JWT tokens.
@@ -803,6 +868,9 @@ type AuthConfig struct {
 
 	// TwoFactor configures TOTP and email code 2FA.
 	TwoFactor TwoFactorConfig
+
+	// APIKey holds API key auth configuration copied from Options during server init.
+	APIKey APIKeyConfig
 
 	// accessSecret is the decoded access secret key (internal use).
 	// This field is populated automatically from JWTAccessSecret during initialization.
@@ -1034,6 +1102,12 @@ type RateLimitConfig struct {
 	// Security note: Only list IPs you actually trust. Malicious clients
 	// can spoof X-Forwarded-For headers if the proxy IP is trusted.
 	TrustedProxies []string
+
+	// EnableRateLimitHeaders adds X-RateLimit-Limit, X-RateLimit-Remaining,
+	// and X-RateLimit-Reset response headers to all rate-limited requests.
+	// Also makes the Retry-After header dynamic on rejected requests.
+	// Set via WithRateLimitHeaders().
+	EnableRateLimitHeaders bool
 }
 
 // FilterConfig holds configuration for request filtering middleware.
@@ -2616,6 +2690,12 @@ func parseOptions(opts []Option) Options {
 	for _, opt := range opts {
 		opt(&out)
 	}
+	if out.TCPKeepAlive == (TCPKeepAliveConfig{}) && !out.tcpKeepAliveDisabled {
+		out.TCPKeepAlive = TCPKeepAliveConfig{Interval: 15 * time.Second, Count: 9}
+	}
+	if out.DrainTimeout == 0 {
+		out.DrainTimeout = 10 * time.Second
+	}
 	return out
 }
 
@@ -2657,6 +2737,57 @@ func parseOptions(opts []Option) Options {
 func WithProxyConfig(proxy ProxyConfiguration) Option {
 	return func(opts *Options) {
 		opts.Proxy = proxy
+	}
+}
+
+// WithProxyShouldBuffer sets a response buffering callback for the named proxy rule.
+// When set, the proxy buffers the entire backend response before forwarding it to the
+// client, enabling inspection and potential replacement of error responses.
+//
+// The callback receives the backend status code and response headers and returns true
+// if the response should be buffered.
+//
+// Example:
+//
+//	server, _ := servex.New(
+//	    servex.WithProxyConfig(proxyConfig),
+//	    servex.WithProxyShouldBuffer("api-backend", func(statusCode int, header http.Header) bool {
+//	        return statusCode >= 500 // buffer only error responses
+//	    }),
+//	)
+func WithProxyShouldBuffer(ruleName string, fn func(statusCode int, header http.Header) bool) Option {
+	return func(opts *Options) {
+		if opts.proxyShouldBufferFuncs == nil {
+			opts.proxyShouldBufferFuncs = make(map[string]func(int, http.Header) bool)
+		}
+		opts.proxyShouldBufferFuncs[ruleName] = fn
+	}
+}
+
+// WithProxyPassiveHealth enables passive health checking for a named proxy rule.
+// Passive health checking monitors actual proxy responses and immediately marks a backend
+// unhealthy when too many failures (configurable status codes) occur within a time window.
+// After the recovery interval, the backend is automatically re-enabled.
+//
+// Example:
+//
+//	server, _ := servex.New(
+//	    servex.WithProxyConfig(proxyConfig),
+//	    servex.WithProxyPassiveHealth("api-backend", servex.PassiveHealthConfig{
+//	        FailThreshold:        3,
+//	        FailWindow:           30 * time.Second,
+//	        RecoveryInterval:     30 * time.Second,
+//	        UnhealthyStatusCodes: []int{502, 503, 504},
+//	    }),
+//	)
+func WithProxyPassiveHealth(ruleName string, cfg PassiveHealthConfig) Option {
+	return func(opts *Options) {
+		for i := range opts.Proxy.Rules {
+			if opts.Proxy.Rules[i].Name == ruleName {
+				opts.Proxy.Rules[i].PassiveHealth = cfg
+				return
+			}
+		}
 	}
 }
 

@@ -16,6 +16,18 @@ func (ctx *Context) RequestID() string {
 	return getOrSetRequestID(ctx.r)
 }
 
+// TraceID returns the W3C trace ID for this request, or an empty string if
+// trace propagation is not enabled.
+func (ctx *Context) TraceID() string {
+	return getValueFromContext[string](ctx.r, traceIDKey{})
+}
+
+// SpanID returns the W3C span ID generated for this request, or an empty string if
+// trace propagation is not enabled.
+func (ctx *Context) SpanID() string {
+	return getValueFromContext[string](ctx.r, spanIDKey{})
+}
+
 // APIVersion returns the API version of the handler from the path.
 // It returns an empty string if not found.
 // Example:
@@ -41,6 +53,12 @@ func (ctx *Context) APIVersion() string {
 // NoLog marks to not log the request after returning from the handler.
 func (ctx *Context) NoLog() {
 	ctx.setNoLog()
+}
+
+// APIKeyScopes returns the API key scopes stored in the request context.
+// Returns nil if the request was not authenticated via an API key.
+func (ctx *Context) APIKeyScopes() []string {
+	return getValueFromContext[[]string](ctx.r, APIKeyScopesContextKey{})
 }
 
 func getOrSetRequestID(r *http.Request) string {
