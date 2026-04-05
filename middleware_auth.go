@@ -84,14 +84,7 @@ func RegisterRequestSizeLimitMiddleware(router MiddlewareRouter, opts Options) {
 
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Skip if Content-Length header is missing (chunked encoding, etc.)
-			if r.ContentLength == -1 {
-				// For chunked encoding, we'll let the individual read functions handle limits
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			// Check general request body size limit
+			// Check general request body size limit when Content-Length is known
 			if r.ContentLength > maxRequestBodySize {
 				err := fmt.Errorf("request body too large: %d bytes (max: %d bytes)", r.ContentLength, maxRequestBodySize)
 				C(w, r, opts).Error(err, http.StatusRequestEntityTooLarge, "Request body too large")
@@ -108,15 +101,9 @@ func RegisterRequestSizeLimitMiddleware(router MiddlewareRouter, opts Options) {
 				}
 			}
 
-			// For multipart forms, set the maximum memory before processing
-			if strings.Contains(strings.ToLower(contentType), "multipart/form-data") {
-				// This affects how much memory is used before writing to disk
-				// The actual size check happens in the ReadFile functions
-				r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
-			} else {
-				// For other content types, wrap the body with a size limit
-				r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
-			}
+			// Wrap the body with a size limit for all content types,
+			// including chunked-encoding requests where ContentLength is -1
+			r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodySize)
 
 			next.ServeHTTP(w, r)
 		})

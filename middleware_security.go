@@ -62,6 +62,11 @@ func RegisterCSRFMiddleware(router MiddlewareRouter, cfg SecurityConfig) {
 		cookiePath = "/"
 	}
 
+	// Default SameSite to Lax if not configured
+	if cfg.CSRFCookieSameSite == "" {
+		cfg.CSRFCookieSameSite = "lax"
+	}
+
 	errorMessage := cfg.CSRFErrorMessage
 	if errorMessage == "" {
 		errorMessage = "CSRF token validation failed"
