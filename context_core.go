@@ -57,6 +57,7 @@ type Context struct {
 
 	isSendErrorToClient bool
 	isSetContentType    bool
+	errorHandler        func(w http.ResponseWriter, r *http.Request, err error, code int, msg string, fields ...any)
 
 	// Server-configured size limits (used as defaults)
 	maxRequestBodySize int64
@@ -119,6 +120,7 @@ func NewContext(w http.ResponseWriter, r *http.Request, optsRaw ...Options) *Con
 		w:                   w,
 		r:                   r,
 		isSendErrorToClient: opts.SendErrorToClient,
+		errorHandler:        opts.ErrorHandler,
 		maxRequestBodySize:  lang.Check(opts.MaxRequestBodySize, defaultMaxRequestBodySize),
 		maxJSONBodySize:     lang.Check(opts.MaxJSONBodySize, defaultMaxJSONBodySize),
 		maxFileUploadSize:   lang.Check(opts.MaxFileUploadSize, defaultMaxFileUploadSize),

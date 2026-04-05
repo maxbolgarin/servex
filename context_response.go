@@ -628,13 +628,19 @@ func (ctx *Context) RedirectToHTTPSTemporary() {
 // Note: Do not modify the ResponseWriter after calling this method.
 // This method should typically be followed by a return statement.
 func (ctx *Context) Error(err error, code int, msg string, fields ...any) {
-	if err != nil {
-		ctx.setError(err, code, msg)
+	ctx.setError(err, code, msg)
 
+	if err != nil {
 		isSendErrorToClient := getValueFromContext[bool](ctx.r, sendErrorToClientKey{})
 		if isSendErrorToClient || ctx.isSendErrorToClient {
 			msg = fmt.Sprintf("%s: %s", msg, err.Error())
 		}
+	}
+
+	// Use custom error handler if set
+	if ctx.errorHandler != nil {
+		ctx.errorHandler(ctx.w, ctx.r, err, code, msg, fields...)
+		return
 	}
 
 	body := map[string]any{

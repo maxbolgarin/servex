@@ -2,6 +2,7 @@ package servex
 
 import (
 	"crypto/tls"
+	"net/http"
 	"time"
 
 	"github.com/maxbolgarin/lang"
