@@ -772,6 +772,7 @@ func generateAndStoreRefreshToken(t *testing.T, cfg servex.AuthConfig, db *MockA
 		"is_refresh": true,
 		"exp":        jwt.NewNumericDate(expiresAt).Unix(),
 		"iat":        jwt.NewNumericDate(time.Now()).Unix(),
+		"iss":        cfg.IssuerNameInJWT,
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(refreshSecretBytes)

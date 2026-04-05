@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"math/rand/v2"
 	"net/http"
 	"strings"
 	"sync"
@@ -237,7 +236,11 @@ func generateBackupCodes(count int) (plainCodes []string, hashedCodes []string, 
 	for i := 0; i < count; i++ {
 		code := make([]byte, 8)
 		for j := range code {
-			code[j] = backupCodeAlphabet[rand.IntN(len(backupCodeAlphabet))]
+			idx, err := crand.Int(crand.Reader, big.NewInt(int64(len(backupCodeAlphabet))))
+			if err != nil {
+				return nil, nil, fmt.Errorf("generate backup code: %w", err)
+			}
+			code[j] = backupCodeAlphabet[idx.Int64()]
 		}
 		plainCodes[i] = string(code)
 		hash, err := bcrypt.GenerateFromPassword(code, bcrypt.DefaultCost)

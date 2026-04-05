@@ -968,20 +968,29 @@ func TestOAuthCallbackRedirectSuccess(t *testing.T) {
 	}
 
 	location := rr.Header().Get("Location")
-	if !strings.HasPrefix(location, "https://myapp.com/auth/callback?") {
-		t.Fatalf("Expected redirect to frontend callback URL, got: %s", location)
-	}
-	if !strings.Contains(location, "access_token=") {
-		t.Fatalf("Expected access_token in redirect URL, got: %s", location)
+	if location != "https://myapp.com/auth/callback" {
+		t.Fatalf("Expected redirect to frontend callback URL without token in query, got: %s", location)
 	}
 
-	// Verify refresh token cookie is still set
+	// Verify access token is delivered via HttpOnly cookie instead of URL
+	var oauthTokenCookie *http.Cookie
 	var refreshCookie *http.Cookie
 	for _, c := range rr.Result().Cookies() {
-		if c.Name == "_servexrt" {
+		switch c.Name {
+		case "_servex_oauth_token":
+			oauthTokenCookie = c
+		case "_servexrt":
 			refreshCookie = c
-			break
 		}
+	}
+	if oauthTokenCookie == nil {
+		t.Fatal("Expected OAuth access token cookie to be set on redirect")
+	}
+	if !oauthTokenCookie.HttpOnly {
+		t.Fatal("Expected OAuth access token cookie to be HttpOnly")
+	}
+	if oauthTokenCookie.Value == "" {
+		t.Fatal("Expected OAuth access token cookie to have a value")
 	}
 	if refreshCookie == nil {
 		t.Fatal("Expected refresh token cookie to be set on redirect")

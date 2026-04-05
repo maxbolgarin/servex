@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"net/smtp"
 	"net/url"
 	"strings"
@@ -86,6 +87,14 @@ func (req ForgotPasswordRequest) Validate() error {
 	if req.Identifier == "" {
 		return errors.New("identifier is required")
 	}
+	if strings.Contains(req.Identifier, "@") {
+		if _, err := mail.ParseAddress(req.Identifier); err != nil {
+			return errors.New("invalid email address format")
+		}
+		if strings.ContainsAny(req.Identifier, "\r\n") {
+			return errors.New("invalid email address format")
+		}
+	}
 	return nil
 }
 
@@ -141,7 +150,10 @@ func (req verifyEmailRequest) validateForMode(mode EmailVerificationMode) error 
 // It returns the raw token (userID:randomHex format), the bcrypt hash of the random portion,
 // and any error encountered.
 func generateEmailToken(userID string) (rawToken string, hash string, err error) {
-	randomPart := generateRandomHex(32)
+	randomPart, err := generateRandomHex(32)
+	if err != nil {
+		return "", "", fmt.Errorf("generating random token: %w", err)
+	}
 	hashBytes, err := bcrypt.GenerateFromPassword([]byte(randomPart), bcrypt.DefaultCost)
 	if err != nil {
 		return "", "", fmt.Errorf("hashing email token: %w", err)
@@ -540,6 +552,10 @@ func (h *AuthManager) ResetPasswordHandler(w http.ResponseWriter, r *http.Reques
 
 	if h.service.cfg.MinPasswordLength > 0 && len(req.Password) < h.service.cfg.MinPasswordLength {
 		ctx.BadRequest(errPasswordTooShort, fmt.Sprintf("password must be at least %d characters", h.service.cfg.MinPasswordLength))
+		return
+	}
+	if len(req.Password) > 128 {
+		ctx.BadRequest(nil, "password must be 128 characters or fewer")
 		return
 	}
 

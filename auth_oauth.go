@@ -52,7 +52,10 @@ func (req oauthLinkRequest) Validate() error {
 // The state is a random 32-byte hex string, and the mac is the HMAC-SHA256
 // of that state using the provided signing key, hex-encoded.
 func generateOAuthState(signingKey []byte) (state string, mac string, err error) {
-	state = generateRandomHex(32)
+	state, err = generateRandomHex(32)
+	if err != nil {
+		return "", "", fmt.Errorf("generating OAuth state: %w", err)
+	}
 	h := hmac.New(sha256.New, signingKey)
 	h.Write([]byte(state))
 	mac = hex.EncodeToString(h.Sum(nil))
@@ -130,12 +133,19 @@ func (h *AuthManager) shouldRedirectOAuth() bool {
 	return h.service.cfg.OAuth.FrontendCallbackURL != ""
 }
 
-// oauthRedirectSuccess redirects to FrontendCallbackURL with the access token.
+// oauthRedirectSuccess sets the access token as an HttpOnly cookie and redirects to FrontendCallbackURL.
+// The token is NOT placed in the URL to prevent exposure via browser history and referrer headers.
 func (h *AuthManager) oauthRedirectSuccess(w http.ResponseWriter, r *http.Request, accessToken string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "_servex_oauth_token",
+		Value:    accessToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil || h.service.cfg.ForceSecureCookies,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   300,
+	})
 	u, _ := url.Parse(h.service.cfg.OAuth.FrontendCallbackURL)
-	q := u.Query()
-	q.Set("access_token", accessToken)
-	u.RawQuery = q.Encode()
 	http.Redirect(w, r, u.String(), http.StatusFound)
 }
 
@@ -343,7 +353,16 @@ func (h *AuthManager) OAuthCallbackHandler(w http.ResponseWriter, r *http.Reques
 
 	// Ensure unique username
 	if _, exists, _ := h.service.db.FindByUsername(r.Context(), username); exists {
-		username = username + "_" + generateRandomHex(4)
+		suffix, err := generateRandomHex(4)
+		if err != nil {
+			if h.shouldRedirectOAuth() {
+				h.oauthRedirectError(ctx.w, r, "internal_error")
+				return
+			}
+			ctx.InternalServerError(err, "failed to generate username suffix")
+			return
+		}
+		username = username + "_" + suffix
 	}
 
 	userID, err := h.service.db.NewUser(r.Context(), username, "", h.service.cfg.RolesOnRegister...)

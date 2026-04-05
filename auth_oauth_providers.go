@@ -728,11 +728,15 @@ func (p *VKIDOAuthProvider) Exchange(_ context.Context, _ string) (*OAuthUserInf
 // ExchangeWithPKCE exchanges the authorization code for user information from VK ID using PKCE.
 func (p *VKIDOAuthProvider) ExchangeWithPKCE(ctx context.Context, code string, codeVerifier string) (*OAuthUserInfo, error) {
 	// Exchange code for access token.
+	deviceID, err := generateRandomHex(16)
+	if err != nil {
+		return nil, fmt.Errorf("vkid: generating device_id: %w", err)
+	}
 	tokenData, err := oauthPostForm(ctx, "https://id.vk.com/oauth2/auth", url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
 		"client_id":     {p.cfg.ClientID},
-		"device_id":     {generateRandomHex(16)},
+		"device_id":     {deviceID},
 		"code_verifier": {codeVerifier},
 		"redirect_uri":  {p.cfg.RedirectURL},
 	})

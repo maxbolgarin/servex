@@ -477,7 +477,7 @@ func (s *SQLAuthDatabase) NewUser(ctx context.Context, username string, password
 func (s *SQLAuthDatabase) FindByID(ctx context.Context, id string) (User, bool, error) {
 	numID, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
-		return User{}, false, nil
+		return User{}, false, fmt.Errorf("invalid user id %q: %w", id, err)
 	}
 
 	query := fmt.Sprintf(

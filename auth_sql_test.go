@@ -162,8 +162,8 @@ func TestSQLNewUserAndFindByID(t *testing.T) {
 
 	t.Run("FindByID non-numeric returns false", func(t *testing.T) {
 		_, exists, err := sqlDB.FindByID(ctx, "not-a-number")
-		if err != nil {
-			t.Fatalf("FindByID: %v", err)
+		if err == nil {
+			t.Fatal("expected error for non-numeric ID")
 		}
 		if exists {
 			t.Fatal("expected false for non-numeric ID")

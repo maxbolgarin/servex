@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/mail"
 	"slices"
 	"strings"
 	"sync"
@@ -146,8 +147,22 @@ func (req RegisterRequest) Validate() error {
 	if req.Username == "" {
 		return errors.New("username is required")
 	}
+	if len(req.Username) > 64 {
+		return errors.New("username must be 64 characters or fewer")
+	}
 	if req.Password == "" {
 		return errors.New("password is required")
+	}
+	if len(req.Password) > 128 {
+		return errors.New("password must be 128 characters or fewer")
+	}
+	if req.Email != "" {
+		if _, err := mail.ParseAddress(req.Email); err != nil {
+			return errors.New("invalid email address format")
+		}
+		if strings.ContainsAny(req.Email, "\r\n") {
+			return errors.New("invalid email address format")
+		}
 	}
 	return nil
 }
@@ -761,7 +776,7 @@ func (h *AuthManager) setAuthCookie(ctx *Context, token string, expiresAt time.T
 	ctx.SetRawCookie(&http.Cookie{
 		Name:     h.service.cfg.RefreshTokenCookieName,
 		Value:    token,
-		Path:     authBasePath,
+		Path:     h.service.cfg.AuthBasePath,
 		HttpOnly: true,
 		Secure:   h.isSecureCookie(ctx),
 		SameSite: http.SameSiteStrictMode,
@@ -773,7 +788,7 @@ func (h *AuthManager) setLogoutCookie(ctx *Context) {
 	ctx.SetRawCookie(&http.Cookie{
 		Name:     h.service.cfg.RefreshTokenCookieName,
 		Value:    "",
-		Path:     authBasePath,
+		Path:     h.service.cfg.AuthBasePath,
 		HttpOnly: true,
 		Secure:   h.isSecureCookie(ctx),
 		SameSite: http.SameSiteStrictMode,
@@ -943,9 +958,12 @@ func (s *service) logout(ctx context.Context, refreshToken string) {
 }
 
 func (s *service) getUserByID(ctx context.Context, id string) (User, error) {
-	user, _, err := s.db.FindByID(ctx, id)
+	user, exists, err := s.db.FindByID(ctx, id)
 	if err != nil {
 		return User{}, fmt.Errorf("FindByID: %w", err)
+	}
+	if !exists {
+		return User{}, fmt.Errorf("user %q not found", id)
 	}
 	return user, nil
 }
@@ -1006,6 +1024,10 @@ func (s *service) validateRefreshToken(ctx context.Context, tokenString string) 
 
 	if !claims.IsRefresh {
 		return user, fmt.Errorf("unexpected access token")
+	}
+
+	if claims.Issuer != s.cfg.IssuerNameInJWT {
+		return user, fmt.Errorf("invalid issuer")
 	}
 
 	if claims.TokenPurpose != "" && claims.TokenPurpose != tokenPurposeRefresh {
@@ -1128,11 +1150,15 @@ func (s *service) generateToken(user User, isRefresh bool) (string, time.Time, e
 
 func (s *service) generate2FAPendingToken(userID string) (string, time.Time, error) {
 	expiresAt := time.Now().Add(5 * time.Minute)
+	jwtID, err := generateRandomHex(16)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("generating 2FA pending token ID: %w", err)
+	}
 	claims := jwtClaims{
 		UserID:       userID,
 		TokenPurpose: tokenPurpose2FAPending,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ID:        generateRandomHex(16),
+			ID:        jwtID,
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			Issuer:    s.cfg.IssuerNameInJWT,
@@ -1163,12 +1189,12 @@ func (s *service) validate2FAPendingToken(tokenString string) (*jwtClaims, error
 	return claims, nil
 }
 
-func generateRandomHex(n int) string {
+func generateRandomHex(n int) (string, error) {
 	b := make([]byte, n)
 	if _, err := crand.Read(b); err != nil {
-		panic(fmt.Sprintf("crypto/rand failed: %v", err))
+		return "", fmt.Errorf("crypto/rand failed: %w", err)
 	}
-	return hex.EncodeToString(b)
+	return hex.EncodeToString(b), nil
 }
 
 var (
@@ -1198,6 +1224,9 @@ func (req UserLoginRequest) Validate() error {
 	if req.Username == "" {
 		return errors.New("username is required")
 	}
+	if len(req.Username) > 64 {
+		return errors.New("username must be 64 characters or fewer")
+	}
 	if req.Password == "" {
 		return errors.New("password is required")
 	}
@@ -1224,7 +1253,7 @@ func extractToken(r *http.Request) string {
 
 	// Format: "Bearer {token}"
 	parts := strings.Split(bearerToken, " ")
-	if len(parts) != 2 || parts[0] != "Bearer" {
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
 		return ""
 	}
 
