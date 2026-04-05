@@ -49,6 +49,7 @@ Servex is a production-ready HTTP(S) server library built on `net/http` and `gor
 | Static files & SPA | `static.go` |
 | Metrics & audit logging | `metrics.go`, `audit.go`, `logging.go` |
 | Swagger UI & OpenAPI spec serving | `swagger.go`, `options_swagger.go` |
+| WebSocket support | `websocket.go`, `options_websocket.go` |
 | Presets (Development, Production, etc.) | `presets.go` |
 | CLI entry point | `cmd/servex/main.go` |
 
@@ -201,6 +202,14 @@ swagger:
   path: "/swagger"
   spec_file: "./openapi.yaml"
   title: "API Documentation"
+
+websocket:
+  max_message_size: 32768        # 32 KB default
+  ping_interval: "30s"
+  pong_timeout: "10s"
+  allowed_origins:
+    - "https://myapp.com"
+  enable_compression: false
 ```
 
 ### Swagger UI
@@ -540,6 +549,92 @@ server, _ := servex.NewServer(
 )
 ```
 This registers `RegisterSimpleAuthMiddleware` which checks `Authorization: Bearer <token>` or `Authorization: <token>` on every request using constant-time comparison.
+
+## WebSocket System
+
+Servex includes WebSocket support built on `coder/websocket`. WebSocket activates lazily — no `Enabled` flag; calling `server.WS()` or `server.WSHub()` initializes the hub. Core code is in `websocket.go`, options in `options_websocket.go`.
+
+### Key Types
+
+- **`WSHandler`** — `func(ws *WSConn)`, called after successful upgrade; runs for the connection lifetime.
+- **`WSConn`** — wraps `*websocket.Conn` with typed read/write (JSON, text, binary), request metadata access (`Path`, `Query`, `Header`, `UserID`, `UserRoles`, `ClientIP`), room operations (`JoinRoom`, `LeaveRoom`, `Rooms`), and lifecycle methods (`ID`, `Context`, `Close`, `CloseNow`). Thread-safe writes.
+- **`WSHub`** — manages all active connections and room membership. Provides `BroadcastAll`, `BroadcastRoom`, `BroadcastRoomExcept`, `Send`, `ConnCount`, `RoomCount`, `Rooms`, `CloseAll`. Thread-safe.
+- **`MessageType`** — re-exported: `MessageText`, `MessageBinary`.
+- **`StatusCode`** — re-exported: `StatusNormalClosure`, `StatusGoingAway`, `StatusProtocolError`, `StatusPolicyViolation`, `StatusMessageTooBig`, `StatusInternalError`.
+
+### Server Methods
+
+```go
+server.WS(path, handler)                        // Register WS route
+server.WSWithAuth(path, handler, roles...)       // Register WS route with auth
+server.WSHub()                                   // Get or init the hub
+```
+
+### Quick Example
+
+```go
+server.WS("/ws/chat/{room}", func(ws *servex.WSConn) {
+    room := ws.Path("room")
+    ws.JoinRoom(room)
+    defer ws.LeaveRoom(room)
+
+    for {
+        var msg map[string]string
+        if err := ws.ReadJSON(&msg); err != nil {
+            return
+        }
+        server.WSHub().BroadcastRoomExcept(room, ws.ID(), msg)
+    }
+})
+```
+
+### Configuration
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `WithWebSocketMaxMessageSize(n)` | `32 KB` | Max message size |
+| `WithWebSocketPingInterval(d)` | `30s` | Ping interval (negative = disable) |
+| `WithWebSocketPongTimeout(d)` | `10s` | Pong timeout (must be < PingInterval) |
+| `WithWebSocketAllowedOrigins(origins...)` | all | Origin control |
+| `WithWebSocketCompression()` | `false` | RFC 7692 per-message deflate |
+| `WithWebSocketConfig(cfg)` | - | Full `WebSocketConfig` |
+
+### WebSocket Metrics
+
+When default metrics are enabled (`WithDefaultMetrics`), WebSocket metrics are collected automatically:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `servex_ws_connections_active` | gauge | Current active connections |
+| `servex_ws_connections_total` | counter | Total connections opened |
+| `servex_ws_disconnections_total` | counter | Total connections closed |
+| `servex_ws_messages_sent_total` | counter | Messages sent |
+| `servex_ws_messages_received_total` | counter | Messages received |
+| `servex_ws_errors_total` | counter | Errors (upgrade failures, read/write errors) |
+
+### Low-Level Escape Hatch
+
+For raw `coder/websocket` access without the high-level API:
+
+```go
+func handler(w http.ResponseWriter, r *http.Request) {
+    ctx := servex.C(w, r)
+    conn, err := ctx.UpgradeWebSocket(nil) // returns *websocket.Conn
+    if err != nil {
+        ctx.BadRequest(err, "upgrade failed")
+        return
+    }
+    defer conn.Close(servex.StatusNormalClosure, "")
+}
+```
+
+### Design Decisions
+
+- **Lazy initialization**: Hub created on first `WS()` or `WSHub()` call via `sync.Once`.
+- **Thread-safe writes**: Mutex serializes concurrent writes per connection.
+- **Graceful cleanup**: `sync.Once` ensures cleanup runs exactly once, even on panic.
+- **Middleware compatible**: All response writer wrappers (`loggingResponseWriter`, `enhancedUniversalResponseWriter`, `compressionResponseWriter`) implement `http.Hijacker`.
+- **Auth integration**: `WSWithAuth` validates the upgrade request with the same auth middleware used for HTTP routes.
 
 ## Testing Conventions
 

@@ -9,6 +9,7 @@
 - 🚀 **Zero Boilerplate** - Configure once, code business logic
 - 🔒 **Security First** - JWT auth, OAuth, 2FA, email verification, rate limiting, request filtering, security headers, audit logging
 - 🔄 **Reverse Proxy / API Gateway** - Load balancing, health checks, traffic analysis
+- 🌐 **WebSocket** - Built-in WebSocket support with rooms, broadcasting, and auth integration
 - ⚡ **Native Compatibility** - Works seamlessly with existing `net/http` code
 
 ## Quick Start
@@ -75,6 +76,7 @@ Quick configurations for common scenarios:
 | **HTTPS / TLS** | `WithCertificate(cert)` - TLS certificate<br>`WithCertificateFromFile(cert, key)` - Load from files<br>`WithHTTPSRedirect()` - Redirect HTTP to HTTPS<br>`WithHTTPSRedirectTemporary()` - 307 redirect<br>`WithHTTPSRedirectConfig(config)` - Full redirect config |
 | **Logging & Monitoring** | `WithLogger(logger)` - Custom logger<br>`WithDefaultAuditLogger()` - Security audit logs<br>`WithAuditLogger(logger)` - Custom audit logger<br>`WithDisableRequestLogging()` - Disable request logs<br>`WithNoLogClientErrors()` - Skip 4xx errors<br>`WithLogFields(fields...)` - Additional log fields |
 | **Health & Metrics** | `WithHealthEndpoint()` - Enable `/health`<br>`WithHealthPath(path)` - Custom health path<br>`WithDefaultMetrics(path)` - Prometheus metrics<br>`WithMetrics(metrics)` - Custom metrics<br>`WithDisableHealthEndpoint()` - Disable health |
+| **WebSocket** | `WithWebSocketMaxMessageSize(size)` - Max message size<br>`WithWebSocketPingInterval(d)` - Ping interval<br>`WithWebSocketPongTimeout(d)` - Pong timeout<br>`WithWebSocketAllowedOrigins(origins...)` - Origin control<br>`WithWebSocketCompression()` - Per-message deflate<br>`WithWebSocketConfig(cfg)` - Full configuration |
 | **Server Timeouts** | `WithReadTimeout(duration)` - Request read timeout<br>`WithReadHeaderTimeout(duration)` - Header read timeout<br>`WithIdleTimeout(duration)` - Keep-alive timeout<br>`WithMaxHeaderBytes(size)` - Max header size |
 | **Request Size Limits** | `WithMaxRequestBodySize(size)` - Max body size<br>`WithMaxJSONBodySize(size)` - Max JSON size<br>`WithMaxFileUploadSize(size)` - Max file size<br>`WithMaxMultipartMemory(size)` - Multipart memory<br>`WithRequestSizeLimits()` - Enable defaults<br>`WithStrictRequestSizeLimits()` - Strict limits |
 
@@ -1395,6 +1397,208 @@ server, _ := servex.New(
 | `WithRequestSizeLimits()` | - | Enable global size limits with defaults |
 | `WithStrictRequestSizeLimits()` | - | Enable strict limits (smaller values) |
 
+### WebSocket
+
+Servex provides built-in WebSocket support with connection management, rooms, broadcasting, and authentication — powered by [coder/websocket](https://github.com/coder/websocket). WebSocket support activates lazily when you register a WS route.
+
+#### Basic Usage
+
+```go
+server, _ := servex.New(servex.ProductionPreset()...)
+
+// Echo handler
+server.WS("/ws/echo", func(ws *servex.WSConn) {
+    for {
+        typ, data, err := ws.Read()
+        if err != nil {
+            return
+        }
+        ws.Write(typ, data)
+    }
+})
+
+// JSON handler
+server.WS("/ws/json", func(ws *servex.WSConn) {
+    for {
+        var msg map[string]any
+        if err := ws.ReadJSON(&msg); err != nil {
+            return
+        }
+        ws.WriteJSON(map[string]string{"status": "ok"})
+    }
+})
+```
+
+#### Authenticated WebSocket
+
+```go
+// Only admin users can connect
+server.WSWithAuth("/ws/admin", func(ws *servex.WSConn) {
+    userID := ws.UserID()
+    roles := ws.UserRoles()
+    // ...
+}, "admin")
+
+// Any authenticated user
+server.WSWithAuth("/ws/user", func(ws *servex.WSConn) {
+    // ...
+})
+```
+
+Auth middleware validates the HTTP upgrade request before upgrading. Clients send the access token as a query parameter or header:
+```
+ws://localhost:8080/ws/admin?token=eyJ...
+```
+
+#### Rooms & Broadcasting
+
+```go
+server.WS("/ws/chat/{room}", func(ws *servex.WSConn) {
+    room := ws.Path("room")
+    ws.JoinRoom(room)
+    defer ws.LeaveRoom(room)
+
+    for {
+        var msg map[string]string
+        if err := ws.ReadJSON(&msg); err != nil {
+            return
+        }
+        // Broadcast to everyone in the room except sender
+        server.WSHub().BroadcastRoomExcept(room, ws.ID(), msg)
+    }
+})
+
+// Send from anywhere (HTTP handler, background task, etc.)
+hub := server.WSHub()
+hub.BroadcastAll(map[string]string{"event": "update"})           // all connections
+hub.BroadcastRoom("general", map[string]string{"msg": "hello"})  // all in room
+hub.Send(connID, map[string]string{"personal": "message"})       // specific connection
+```
+
+#### WSConn Methods
+
+**Read/Write:**
+
+| Method | Description |
+|--------|-------------|
+| `Read()` | Read next message (blocks) |
+| `Write(typ, data)` | Write message (thread-safe) |
+| `ReadJSON(v)` | Read and unmarshal JSON |
+| `WriteJSON(v)` | Marshal and write JSON |
+| `ReadText()` | Read text message |
+| `WriteText(s)` | Write text message |
+
+**Request metadata (from upgrade request):**
+
+| Method | Description |
+|--------|-------------|
+| `Path(key)` | Path parameter (gorilla/mux) |
+| `Query(key)` | URL query parameter |
+| `Header(key)` | Request header |
+| `UserID()` | Authenticated user ID |
+| `UserRoles()` | Authenticated user roles |
+| `ClientIP()` | Client IP address |
+| `RequestID()` | Request ID |
+
+**Lifecycle:**
+
+| Method | Description |
+|--------|-------------|
+| `ID()` | Unique connection identifier |
+| `Context()` | Connection context (cancelled on close) |
+| `Close(code, reason)` | Graceful close with status |
+| `CloseNow()` | Immediate close |
+| `JoinRoom(room)` | Join a room |
+| `LeaveRoom(room)` | Leave a room |
+| `Rooms()` | List joined rooms |
+
+#### WSHub Methods
+
+| Method | Description |
+|--------|-------------|
+| `BroadcastAll(msg)` | Send JSON to all connections |
+| `BroadcastRoom(room, msg)` | Send JSON to all in room |
+| `BroadcastRoomExcept(room, connID, msg)` | Send to room excluding one |
+| `Send(connID, msg)` | Send JSON to specific connection |
+| `ConnCount()` | Active connection count |
+| `RoomCount(room)` | Connections in room |
+| `Rooms()` | All active room names |
+| `CloseAll(code, reason)` | Close all connections |
+
+#### Configuration
+
+```go
+server, _ := servex.New(
+    servex.WithWebSocketMaxMessageSize(64 << 10),    // 64 KB (default 32 KB)
+    servex.WithWebSocketPingInterval(20*time.Second), // default 30s
+    servex.WithWebSocketPongTimeout(5*time.Second),   // default 10s
+    servex.WithWebSocketAllowedOrigins("https://myapp.com", "https://admin.myapp.com"),
+    servex.WithWebSocketCompression(),                // RFC 7692
+)
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `WithWebSocketMaxMessageSize(n)` | `32 KB` | Max single message size |
+| `WithWebSocketPingInterval(d)` | `30s` | Server ping interval (negative = disable) |
+| `WithWebSocketPongTimeout(d)` | `10s` | Pong wait timeout |
+| `WithWebSocketAllowedOrigins(origins...)` | all | Origin control (`"*"` = skip check) |
+| `WithWebSocketCompression()` | `false` | Per-message deflate |
+| `WithWebSocketConfig(cfg)` | - | Full `WebSocketConfig` |
+
+#### YAML Configuration
+
+```yaml
+websocket:
+  max_message_size: 65536          # 64 KB
+  ping_interval: "20s"
+  pong_timeout: "5s"
+  allowed_origins:
+    - "https://myapp.com"
+  enable_compression: true
+```
+
+Environment variables: `SERVEX_WEBSOCKET_MAX_MESSAGE_SIZE`, `SERVEX_WEBSOCKET_PING_INTERVAL`, `SERVEX_WEBSOCKET_PONG_TIMEOUT`, `SERVEX_WEBSOCKET_ENABLE_COMPRESSION`.
+
+#### Low-Level Upgrade
+
+For advanced use cases, bypass the high-level API and upgrade directly:
+
+```go
+func handler(w http.ResponseWriter, r *http.Request) {
+    ctx := servex.C(w, r)
+    conn, err := ctx.UpgradeWebSocket(nil) // *websocket.Conn from coder/websocket
+    if err != nil {
+        ctx.BadRequest(err, "upgrade failed")
+        return
+    }
+    defer conn.Close(servex.StatusNormalClosure, "")
+    // Use raw coder/websocket API
+}
+```
+
+#### Metrics
+
+When default metrics are enabled, WebSocket metrics are automatically collected:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `servex_ws_connections_active` | gauge | Current active connections |
+| `servex_ws_connections_total` | counter | Total connections opened |
+| `servex_ws_disconnections_total` | counter | Total connections closed |
+| `servex_ws_messages_sent_total` | counter | Total messages sent |
+| `servex_ws_messages_received_total` | counter | Total messages received |
+| `servex_ws_errors_total` | counter | Total errors (upgrade failures, read/write errors) |
+
+#### Utility
+
+```go
+// Check if an error is a normal close (StatusNormalClosure or StatusGoingAway)
+if servex.IsCloseError(err) {
+    // connection closed gracefully
+}
+```
+
 ## Context Helpers
 
 ```go
@@ -1651,6 +1855,14 @@ server.StartHTTPS(":8443")
 - `WithDefaultMetrics(path)` - Built-in JSON metrics
 - `WithMetrics(metrics)` - Custom `Metrics` implementation
 - `WithDisableHealthEndpoint()` - Disable health endpoint
+
+### WebSocket
+- `WithWebSocketMaxMessageSize(n)` - Max message size (default 32 KB)
+- `WithWebSocketPingInterval(d)` - Ping interval (default 30s, negative = disable)
+- `WithWebSocketPongTimeout(d)` - Pong timeout (default 10s)
+- `WithWebSocketAllowedOrigins(origins...)` - Allowed origins
+- `WithWebSocketCompression()` - Enable per-message deflate
+- `WithWebSocketConfig(cfg)` - Full `WebSocketConfig`
 
 ### Request Size Limits
 - `WithMaxRequestBodySize(n)` - Max body size

@@ -98,6 +98,9 @@ type Config struct {
 
 	// Swagger contains Swagger UI configuration
 	Swagger SwaggerConfiguration `yaml:"swagger" json:"swagger"`
+
+	// WebSocket contains WebSocket configuration
+	WebSocket WebSocketConfiguration `yaml:"websocket" json:"websocket"`
 }
 
 // ServerConfig represents basic server configuration
@@ -391,6 +394,15 @@ type SwaggerConfiguration struct {
 	Path     string `yaml:"path" json:"path" env:"SERVEX_SWAGGER_PATH"`
 	SpecFile string `yaml:"spec_file" json:"spec_file" env:"SERVEX_SWAGGER_SPEC_FILE"`
 	Title    string `yaml:"title" json:"title" env:"SERVEX_SWAGGER_TITLE"`
+}
+
+// WebSocketConfiguration represents WebSocket configuration for YAML/env loading
+type WebSocketConfiguration struct {
+	MaxMessageSize    int64         `yaml:"max_message_size" json:"max_message_size" env:"SERVEX_WEBSOCKET_MAX_MESSAGE_SIZE"`
+	PingInterval      time.Duration `yaml:"ping_interval" json:"ping_interval" env:"SERVEX_WEBSOCKET_PING_INTERVAL"`
+	PongTimeout       time.Duration `yaml:"pong_timeout" json:"pong_timeout" env:"SERVEX_WEBSOCKET_PONG_TIMEOUT"`
+	AllowedOrigins    []string      `yaml:"allowed_origins" json:"allowed_origins"`
+	EnableCompression bool          `yaml:"enable_compression" json:"enable_compression" env:"SERVEX_WEBSOCKET_ENABLE_COMPRESSION"`
 }
 
 // LoadConfigFromFile loads configuration from a YAML file
@@ -857,6 +869,18 @@ func (c *Config) ToOptions() ([]Option, error) {
 		if c.Swagger.Path != "" {
 			opts = append(opts, WithSwaggerUIPath(c.Swagger.Path))
 		}
+	}
+
+	// WebSocket configuration
+	ws := c.WebSocket
+	if ws.MaxMessageSize > 0 || ws.PingInterval > 0 || ws.PongTimeout > 0 || len(ws.AllowedOrigins) > 0 || ws.EnableCompression {
+		opts = append(opts, WithWebSocketConfig(WebSocketConfig{
+			MaxMessageSize:    ws.MaxMessageSize,
+			PingInterval:      ws.PingInterval,
+			PongTimeout:       ws.PongTimeout,
+			AllowedOrigins:    ws.AllowedOrigins,
+			EnableCompression: ws.EnableCompression,
+		}))
 	}
 
 	return opts, nil

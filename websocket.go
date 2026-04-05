@@ -59,6 +59,8 @@ type WSConn struct {
 	mu     sync.Mutex // serialises writes
 
 	closeOnce sync.Once // guards connection close to prevent double-close
+
+	metrics *builtinMetrics // optional, for recording WS metrics
 }
 
 // --- Low-level read/write ---
@@ -67,7 +69,13 @@ type WSConn struct {
 func (ws *WSConn) Read() (MessageType, []byte, error) {
 	typ, data, err := ws.conn.Read(ws.ctx)
 	if err != nil {
+		if ws.metrics != nil && !IsCloseError(err) {
+			ws.metrics.wsError()
+		}
 		return typ, nil, err
+	}
+	if ws.metrics != nil {
+		ws.metrics.wsMsgRecv()
 	}
 	return typ, data, nil
 }
@@ -76,7 +84,17 @@ func (ws *WSConn) Read() (MessageType, []byte, error) {
 func (ws *WSConn) Write(typ MessageType, data []byte) error {
 	ws.mu.Lock()
 	defer ws.mu.Unlock()
-	return ws.conn.Write(ws.ctx, typ, data)
+	err := ws.conn.Write(ws.ctx, typ, data)
+	if err != nil {
+		if ws.metrics != nil && !IsCloseError(err) {
+			ws.metrics.wsError()
+		}
+		return err
+	}
+	if ws.metrics != nil {
+		ws.metrics.wsMsgSent()
+	}
+	return nil
 }
 
 // --- Typed helpers ---
@@ -453,6 +471,17 @@ func generateWSConnID() string {
 
 // --- Server integration ---
 
+// getBuiltinMetrics extracts the builtinMetrics from the server's metrics, if any.
+func (s *Server) getBuiltinMetrics() *builtinMetrics {
+	if m, ok := s.opts.Metrics.(*builtinMetrics); ok {
+		return m
+	}
+	if c, ok := s.opts.Metrics.(*compositeMetrics); ok {
+		return c.getBuiltinMetrics()
+	}
+	return nil
+}
+
 func (s *Server) initWSHub() {
 	s.wsOnce.Do(func() {
 		s.wsHub = newWSHub()
@@ -531,6 +560,9 @@ func (s *Server) wsUpgradeHandler(handler WSHandler) http.HandlerFunc {
 			if s.opts.Logger != nil {
 				s.opts.Logger.Error("websocket upgrade failed", "error", err, "path", r.URL.Path)
 			}
+			if bm := s.getBuiltinMetrics(); bm != nil {
+				bm.wsError()
+			}
 			return // websocket.Accept already wrote the HTTP error
 		}
 
@@ -544,23 +576,30 @@ func (s *Server) wsUpgradeHandler(handler WSHandler) http.HandlerFunc {
 		// Create WSConn with 128-bit random ID
 		ctx, cancel := context.WithCancel(r.Context())
 		ws := &WSConn{
-			conn:   conn,
-			r:      r,
-			id:     generateWSConnID(),
-			hub:    s.wsHub,
-			cfg:    cfg,
-			ctx:    ctx,
-			cancel: cancel,
+			conn:    conn,
+			r:       r,
+			id:      generateWSConnID(),
+			hub:     s.wsHub,
+			cfg:     cfg,
+			ctx:     ctx,
+			cancel:  cancel,
+			metrics: s.getBuiltinMetrics(),
 		}
 
-		// Register with hub
+		// Register with hub and record metrics
 		s.wsHub.register(ws)
+		if ws.metrics != nil {
+			ws.metrics.wsConnect()
+		}
 
 		// Ensure cleanup runs even if handler panics
 		defer func() {
 			s.wsHub.leaveAllRooms(ws.id)
 			s.wsHub.unregister(ws.id)
 			ws.shutdown() // cancel ctx + close conn (once)
+			if ws.metrics != nil {
+				ws.metrics.wsDisconnect()
+			}
 		}()
 
 		// Start ping/pong if configured (default is enabled)

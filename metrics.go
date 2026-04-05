@@ -33,6 +33,14 @@ type builtinMetrics struct {
 	pathMetrics      map[string]*pathMetrics
 	methodMetrics    map[string]int64
 	enabled          bool
+
+	// WebSocket metrics
+	wsConnections    int64 // current active connections (gauge)
+	wsConnTotal      int64 // total connections ever opened
+	wsDisconnTotal   int64 // total connections closed
+	wsMsgSentTotal   int64 // total messages sent
+	wsMsgRecvTotal   int64 // total messages received
+	wsErrorTotal     int64 // total WebSocket errors
 }
 
 // pathMetrics tracks metrics for specific paths
@@ -305,6 +313,30 @@ func (m *builtinMetrics) registerMetricsEndpoint(server *Server, path string) {
 	}).Methods(GET)
 }
 
+// WebSocket metrics recording methods
+
+func (m *builtinMetrics) wsConnect() {
+	atomic.AddInt64(&m.wsConnections, 1)
+	atomic.AddInt64(&m.wsConnTotal, 1)
+}
+
+func (m *builtinMetrics) wsDisconnect() {
+	atomic.AddInt64(&m.wsConnections, -1)
+	atomic.AddInt64(&m.wsDisconnTotal, 1)
+}
+
+func (m *builtinMetrics) wsMsgSent() {
+	atomic.AddInt64(&m.wsMsgSentTotal, 1)
+}
+
+func (m *builtinMetrics) wsMsgRecv() {
+	atomic.AddInt64(&m.wsMsgRecvTotal, 1)
+}
+
+func (m *builtinMetrics) wsError() {
+	atomic.AddInt64(&m.wsErrorTotal, 1)
+}
+
 // reset clears all metrics (useful for testing)
 func (m *builtinMetrics) reset() {
 	m.mu.Lock()
@@ -319,6 +351,13 @@ func (m *builtinMetrics) reset() {
 	m.statusCodes = make(map[int]int64)
 	m.pathMetrics = make(map[string]*pathMetrics)
 	m.methodMetrics = make(map[string]int64)
+
+	atomic.StoreInt64(&m.wsConnections, 0)
+	atomic.StoreInt64(&m.wsConnTotal, 0)
+	atomic.StoreInt64(&m.wsDisconnTotal, 0)
+	atomic.StoreInt64(&m.wsMsgSentTotal, 0)
+	atomic.StoreInt64(&m.wsMsgRecvTotal, 0)
+	atomic.StoreInt64(&m.wsErrorTotal, 0)
 }
 
 // getPrometheusMetrics returns metrics in Prometheus text format
@@ -413,6 +452,37 @@ func (m *builtinMetrics) getPrometheusMetrics() string {
 		result.WriteString(fmt.Sprintf("servex_path_errors_total{path=\"%s\"} %d\n", escapedPath, pathSummary.ErrorCount))
 		result.WriteString(fmt.Sprintf("servex_path_error_rate_percent{path=\"%s\"} %.2f\n", escapedPath, pathSummary.ErrorRate))
 	}
+	result.WriteString("\n")
+
+	// WebSocket metrics
+	result.WriteString("# HELP servex_ws_connections_active Current number of active WebSocket connections\n")
+	result.WriteString("# TYPE servex_ws_connections_active gauge\n")
+	result.WriteString(fmt.Sprintf("servex_ws_connections_active %d\n", atomic.LoadInt64(&m.wsConnections)))
+	result.WriteString("\n")
+
+	result.WriteString("# HELP servex_ws_connections_total Total WebSocket connections opened\n")
+	result.WriteString("# TYPE servex_ws_connections_total counter\n")
+	result.WriteString(fmt.Sprintf("servex_ws_connections_total %d\n", atomic.LoadInt64(&m.wsConnTotal)))
+	result.WriteString("\n")
+
+	result.WriteString("# HELP servex_ws_disconnections_total Total WebSocket connections closed\n")
+	result.WriteString("# TYPE servex_ws_disconnections_total counter\n")
+	result.WriteString(fmt.Sprintf("servex_ws_disconnections_total %d\n", atomic.LoadInt64(&m.wsDisconnTotal)))
+	result.WriteString("\n")
+
+	result.WriteString("# HELP servex_ws_messages_sent_total Total WebSocket messages sent\n")
+	result.WriteString("# TYPE servex_ws_messages_sent_total counter\n")
+	result.WriteString(fmt.Sprintf("servex_ws_messages_sent_total %d\n", atomic.LoadInt64(&m.wsMsgSentTotal)))
+	result.WriteString("\n")
+
+	result.WriteString("# HELP servex_ws_messages_received_total Total WebSocket messages received\n")
+	result.WriteString("# TYPE servex_ws_messages_received_total counter\n")
+	result.WriteString(fmt.Sprintf("servex_ws_messages_received_total %d\n", atomic.LoadInt64(&m.wsMsgRecvTotal)))
+	result.WriteString("\n")
+
+	result.WriteString("# HELP servex_ws_errors_total Total WebSocket errors\n")
+	result.WriteString("# TYPE servex_ws_errors_total counter\n")
+	result.WriteString(fmt.Sprintf("servex_ws_errors_total %d\n", atomic.LoadInt64(&m.wsErrorTotal)))
 	result.WriteString("\n")
 
 	// System metrics
