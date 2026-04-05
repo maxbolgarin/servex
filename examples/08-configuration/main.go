@@ -11,18 +11,16 @@ import (
 )
 
 func main() {
-	fmt.Println("🚀 Servex Tutorial - Configuration")
-	fmt.Println("===================================")
+	fmt.Println("Servex Tutorial - Configuration")
+	fmt.Println("===============================")
 
 	// Create sample configuration files
 	createSampleConfigs()
 
 	// Example 1: Set up environment variables first
-	fmt.Println("Setting up environment variables...")
 	setupEnvironmentConfig()
 
 	// Example 2: Load configuration from YAML file with environment overlay
-	fmt.Println("Loading configuration from YAML file with environment variables overlay...")
 	config, err := servex.LoadConfig("server.yaml")
 	if err != nil {
 		log.Fatalf("Failed to load configuration: %v", err)
@@ -233,26 +231,9 @@ SERVEX_LOGGING_DISABLE_REQUEST_LOGGING="false" go run main.go
 		servex.C(w, r).Response(200, html)
 	})
 
-	fmt.Println("🌐 Server starting on http://localhost:8080")
-	fmt.Println("📄 Configuration loaded from server.yaml with environment overlay")
-	fmt.Println("🔧 Available environment variables:")
-	fmt.Println("    SERVEX_SERVER_HTTP - Server listen address")
-	fmt.Println("    SERVEX_SERVER_AUTH_TOKEN - API authentication token")
-	fmt.Println("    SERVEX_RATE_LIMIT_ENABLED - Enable/disable rate limiting")
-	fmt.Println("    SERVEX_SECURITY_ENABLED - Enable/disable security headers")
-	fmt.Println("")
-	fmt.Println("Try these URLs:")
-	fmt.Println("  → http://localhost:8080/ (configuration demo)")
-	fmt.Println("  → http://localhost:8080/api/config (config info)")
-	fmt.Println("  → http://localhost:8080/api/environment (env vars)")
-	fmt.Println("  → http://localhost:8080/health (health check)")
-	fmt.Println("")
-	fmt.Println("Configuration files created:")
-	fmt.Println("  → server.yaml (main config)")
-	fmt.Println("  → development.yaml (dev config)")
-	fmt.Println("  → production.yaml (prod config)")
-	fmt.Println("")
-	fmt.Println("Try custom settings: SERVEX_SERVER_HTTP=':9090' SERVEX_RATE_LIMIT_ENABLED='false' go run main.go")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Config: server.yaml with environment overlay")
+	fmt.Println("Try: curl http://localhost:8080/api/config")
 	fmt.Println("Press Ctrl+C to stop")
 
 	// Use config.Server.HTTP for the address

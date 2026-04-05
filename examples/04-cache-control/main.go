@@ -12,7 +12,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Servex Cache Control Examples ===")
+	fmt.Println("Servex Tutorial - Cache Control")
 	fmt.Println("Choose an example to run:")
 	fmt.Println("1. Basic Cache Example")
 	fmt.Println("2. Intermediate Cache Example (Path-based)")
@@ -20,9 +20,6 @@ func main() {
 	fmt.Println("4. Complex Cache Example (Comprehensive)")
 	fmt.Println("5. Interactive Demo (Default)")
 	fmt.Println("")
-
-	// For demo purposes, we'll run the interactive demo
-	// Users can modify main() to run different examples
 	fmt.Println("Running: Interactive Cache Demo")
 	fmt.Println("Edit main() to run specific examples")
 	interactiveCacheDemo()
@@ -30,8 +27,9 @@ func main() {
 
 // Interactive demo that showcases all cache features
 func interactiveCacheDemo() {
-	log.Println("Starting interactive cache demo server on :8080")
-	log.Println("Visit http://localhost:8080 for interactive demo")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl -I http://localhost:8080/api/v1/public/version")
+	fmt.Println("Press Ctrl+C to stop")
 
 	server, err := servex.NewServer(
 		servex.WithCachePublic(1800),
@@ -128,8 +126,9 @@ func basicCacheExample() {
 	// This will add "Cache-Control: public, max-age=3600" to all responses
 	// Test with: curl -I http://localhost:8080/api/status
 
-	log.Println("Basic cache example server starting on :8080")
-	fmt.Println("Test with: curl -I http://localhost:8080/api/status")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl -I http://localhost:8080/api/status")
+	fmt.Println("Press Ctrl+C to stop")
 	server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 }
 
@@ -182,9 +181,9 @@ func intermediateCacheExample() {
 	// curl -I http://localhost:8080/api/public/data    (will have cache headers)
 	// curl -I http://localhost:8080/api/private/user   (will NOT have cache headers)
 
-	log.Println("Intermediate cache example server starting on :8080")
-	fmt.Println("Test cached: curl -I http://localhost:8080/api/public/data")
-	fmt.Println("Test non-cached: curl -I http://localhost:8080/api/private/user")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl -I http://localhost:8080/api/public/data")
+	fmt.Println("Press Ctrl+C to stop")
 	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 	if err != nil {
 		log.Fatal("Failed to start server:", err)
@@ -277,8 +276,9 @@ func advancedCacheExample() {
 	// curl -H 'If-None-Match: "user-profile-v1.2.3"' http://localhost:8080/api/user/profile
 	// curl -H 'If-Modified-Since: <last-modified-date>' http://localhost:8080/api/user/profile
 
-	log.Println("Advanced cache example server starting on :8080")
-	fmt.Println("Test conditional: curl -H 'If-None-Match: \"user-profile-v1.2.3\"' http://localhost:8080/api/user/profile")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl -I http://localhost:8080/api/user/profile")
+	fmt.Println("Press Ctrl+C to stop")
 	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 	if err != nil {
 		log.Fatal("Failed to start server:", err)
@@ -452,8 +452,9 @@ body {
 		})
 	})
 
-	log.Println("Complex cache example server starting on :8080")
-	fmt.Println("Visit http://localhost:8080 for interactive demo")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl -I http://localhost:8080/api/v1/public/version")
+	fmt.Println("Press Ctrl+C to stop")
 	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 	if err != nil {
 		log.Fatal("Failed to start server:", err)
@@ -463,14 +464,7 @@ body {
 // Example 5: Cache Strategy Presets (Bonus)
 // This example shows different cache strategies using servex presets
 func cacheStrategyExamples() {
-	fmt.Println("Cache Strategy Examples:")
-	fmt.Println("This example demonstrates different cache presets.")
-	fmt.Println("Check the source code for implementations:")
-	fmt.Println("- WithCacheNoStore() - No caching for sensitive data")
-	fmt.Println("- WithCacheNoCache() - Force revalidation")
-	fmt.Println("- WithCachePrivate(900) - Private caching")
-	fmt.Println("- WithCacheStaticAssets(31536000) - Long-term caching")
-	fmt.Println("- WithCacheAPI(300) - API caching with revalidation")
+	fmt.Println("Cache Strategy Presets")
 
 	// For demo, create a simple server with no-cache strategy
 	server, err := servex.NewServer(
@@ -488,8 +482,9 @@ func cacheStrategyExamples() {
 		})
 	})
 
-	log.Println("Cache strategy example (no-cache) server starting on :8080")
-	fmt.Println("Test with: curl -I http://localhost:8080/")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl -I http://localhost:8080/")
+	fmt.Println("Press Ctrl+C to stop")
 	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 	if err != nil {
 		log.Fatal("Failed to start server:", err)

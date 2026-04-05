@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -423,7 +424,55 @@ func (m *rateLimiterMiddleware) middleware(next http.Handler) http.Handler {
 		}
 
 		// Check if this request exceeds the rate limit
-		if !limiter.Allow() {
+		allowed := limiter.Allow()
+
+		// Compute and set rate limit headers after Allow() consumes the token
+		if cfg.EnableRateLimitHeaders {
+			limit := cfg.BurstSize
+			if limit <= 0 {
+				limit = cfg.RequestsPerInterval
+			}
+			tokens := limiter.Tokens()
+			remaining := int(tokens)
+			if remaining < 0 {
+				remaining = 0
+			}
+			if remaining > limit {
+				remaining = limit
+			}
+
+			var resetUnix int64
+			if cfg.RequestsPerInterval > 0 && cfg.Interval > 0 {
+				ratePerSec := float64(cfg.RequestsPerInterval) / cfg.Interval.Seconds()
+				deficit := float64(limit) - tokens
+				if deficit > 0 && ratePerSec > 0 {
+					secsUntilFull := deficit / ratePerSec
+					resetUnix = time.Now().Add(time.Duration(secsUntilFull * float64(time.Second))).Unix()
+				} else {
+					resetUnix = time.Now().Unix()
+				}
+			}
+
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limit))
+			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
+			if resetUnix > 0 {
+				w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(resetUnix, 10))
+			}
+
+			if !allowed {
+				if resetUnix > 0 {
+					retryAfter := resetUnix - time.Now().Unix()
+					if retryAfter < 1 {
+						retryAfter = 1
+					}
+					w.Header().Set("Retry-After", strconv.FormatInt(retryAfter, 10))
+				} else {
+					w.Header().Set("Retry-After", "60")
+				}
+			}
+		}
+
+		if !allowed {
 			// Rate limit exceeded - log security event
 			if m.auditLogger != nil {
 				details := map[string]any{
@@ -435,7 +484,9 @@ func (m *rateLimiterMiddleware) middleware(next http.Handler) http.Handler {
 				m.auditLogger.LogRateLimitEvent(r, key, details)
 			}
 
-			w.Header().Set("Retry-After", "60") // Suggest retry after 1 minute
+			if !cfg.EnableRateLimitHeaders {
+				w.Header().Set("Retry-After", "60")
+			}
 			C(w, r).Error(fmt.Errorf("rate limit exceeded"), cfg.StatusCode, cfg.Message)
 			return
 		}

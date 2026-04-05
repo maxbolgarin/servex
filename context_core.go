@@ -182,6 +182,9 @@ type (
 
 	sendErrorToClientKey struct{}
 	noLogClientErrorsKey struct{}
+
+	traceIDKey struct{}
+	spanIDKey  struct{}
 )
 
 // getValueFromContext returns a value from the context of the request.

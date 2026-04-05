@@ -276,6 +276,22 @@ func WithErrorHandler(handler func(w http.ResponseWriter, r *http.Request, err e
 	}
 }
 
+// WithTracePropagation enables W3C Trace Context propagation (RFC 9531).
+// Parses incoming traceparent headers, generates a new span ID per request,
+// stores trace/span IDs in the request context, and sets traceparent on responses.
+// Adds trace_id and span_id fields to request logs.
+//
+// Example:
+//
+//	server, _ := servex.NewServer(
+//		servex.WithTracePropagation(),
+//	)
+func WithTracePropagation() Option {
+	return func(op *Options) {
+		op.EnableTracePropagation = true
+	}
+}
+
 // WithDebug enables debug mode for development.
 // When enabled, it sends detailed error information to clients and keeps all logging verbose,
 // including client errors (4xx) at error level.
@@ -446,4 +462,67 @@ func ReadCertificate(cert, key []byte) (tls.Certificate, error) {
 // and returns a [tls.Certificate] instance.
 func ReadCertificateFromFile(certFile, keyFile string) (tls.Certificate, error) {
 	return tls.LoadX509KeyPair(certFile, keyFile)
+}
+
+// TCPKeepAliveConfig configures TCP keepalive probes for accepted connections.
+// Keepalive probes detect dead connections faster than relying on read/write timeouts alone,
+// which is especially important for long-lived WebSocket, SSE, and proxy connections.
+type TCPKeepAliveConfig struct {
+	// Interval is the time between keepalive probes. Default: 15s.
+	Interval time.Duration
+	// Count is the maximum number of probes before the connection is considered dead. Default: 9.
+	// Note: Count is applied via net.TCPConn.SetKeepAliveConfig (Go 1.24+).
+	// On older Go versions, the OS default probe count is used.
+	Count int
+}
+
+// WithTCPKeepAlive configures TCP keepalive probes on accepted connections.
+// Interval is the time between probes. Count is the max probes before dropping the connection.
+//
+// Example:
+//
+//	server := servex.NewServer(servex.WithTCPKeepAlive(15*time.Second, 9))
+func WithTCPKeepAlive(interval time.Duration, count int) Option {
+	return func(op *Options) {
+		op.TCPKeepAlive = TCPKeepAliveConfig{
+			Interval: interval,
+			Count:    count,
+		}
+	}
+}
+
+// WithTCPKeepAliveDisabled disables TCP keepalive probes on accepted connections.
+func WithTCPKeepAliveDisabled() Option {
+	return func(op *Options) {
+		op.tcpKeepAliveDisabled = true
+	}
+}
+
+// WithDrainTimeout sets the maximum time to wait for active WebSocket connections
+// to close gracefully during shutdown.
+//
+// Set to 0 to skip draining (immediate close). Default: 10s.
+//
+// Example:
+//
+//	server := servex.NewServer(servex.WithDrainTimeout(30 * time.Second))
+func WithDrainTimeout(d time.Duration) Option {
+	return func(op *Options) {
+		op.DrainTimeout = d
+	}
+}
+
+// WithShutdownDelay sets a delay before starting the shutdown process.
+// This gives load balancers time to detect the server is going away
+// and stop routing new traffic to it.
+//
+// Default: 0 (no delay).
+//
+// Example:
+//
+//	server := servex.NewServer(servex.WithShutdownDelay(5 * time.Second))
+func WithShutdownDelay(d time.Duration) Option {
+	return func(op *Options) {
+		op.ShutdownDelay = d
+	}
 }

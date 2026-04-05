@@ -12,8 +12,7 @@ import (
 )
 
 func main() {
-	fmt.Println("🚀 Servex Tutorial - Hello World")
-	fmt.Println("===================================")
+	fmt.Println("Servex Tutorial - Hello World")
 
 	// Create the simplest possible server - just one line!
 	server, err := servex.NewServer()
@@ -31,10 +30,8 @@ func main() {
 	})
 
 	// Start the server
-	fmt.Println("🌐 Server starting on http://localhost:8080")
-	fmt.Println("Try these URLs:")
-	fmt.Println("  → http://localhost:8080/")
-	fmt.Println("")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl http://localhost:8080/")
 	fmt.Println("Press Ctrl+C to stop")
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -47,5 +44,5 @@ func main() {
 	defer server.Shutdown(ctx)
 
 	<-ctx.Done()
-	fmt.Println("👋 Server stopped")
+	fmt.Println("Server stopped")
 }

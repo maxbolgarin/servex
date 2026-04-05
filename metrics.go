@@ -2,12 +2,15 @@ package servex
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/gorilla/mux"
 )
 
 // Metrics is an interface for collecting metrics on each request.
@@ -21,36 +24,41 @@ type Metrics interface {
 	HandleResponse(r *http.Request, w http.ResponseWriter, statusCode int, duration time.Duration)
 }
 
-// builtinMetrics provides comprehensive request and system metrics
+// builtinMetrics provides comprehensive request and system metrics.
+// All hot-path recording uses lock-free atomic operations and sync.Map.
 type builtinMetrics struct {
-	mu               sync.RWMutex
-	startTime        time.Time
-	requestCount     int64
-	responseCount    int64
-	errorCount       int64
-	totalRequestTime int64 // in nanoseconds
-	statusCodes      map[int]int64
-	pathMetrics      map[string]*pathMetrics
-	methodMetrics    map[string]int64
-	enabled          bool
+	startTimeNano   atomic.Int64 // UnixNano of start time
+	requestCount    atomic.Int64
+	responseCount    atomic.Int64
+	errorCount       atomic.Int64
+	totalRequestTime atomic.Int64 // in nanoseconds
+
+	statusCodes   sync.Map // map[int]*atomic.Int64
+	pathMetricsM  sync.Map // map[string]*atomicPathMetrics
+	methodMetrics sync.Map // map[string]*atomic.Int64
+
+	maxPathMetrics  int          // cardinality cap, default 1000
+	pathMetricCount atomic.Int32 // current number of unique paths
+
+	enabled atomic.Bool
 
 	// WebSocket metrics
-	wsConnections    int64 // current active connections (gauge)
-	wsConnTotal      int64 // total connections ever opened
-	wsDisconnTotal   int64 // total connections closed
-	wsMsgSentTotal   int64 // total messages sent
-	wsMsgRecvTotal   int64 // total messages received
-	wsErrorTotal     int64 // total WebSocket errors
+	wsConnections  int64 // current active connections (gauge)
+	wsConnTotal    int64 // total connections ever opened
+	wsDisconnTotal int64 // total connections closed
+	wsMsgSentTotal int64 // total messages sent
+	wsMsgRecvTotal int64 // total messages received
+	wsErrorTotal   int64 // total WebSocket errors
 }
 
-// pathMetrics tracks metrics for specific paths
-type pathMetrics struct {
-	Count       int64
-	TotalTime   int64 // in nanoseconds
-	ErrorCount  int64
-	MaxTime     int64
-	MinTime     int64
-	StatusCodes map[int]int64
+// atomicPathMetrics tracks metrics for specific paths using lock-free atomics.
+type atomicPathMetrics struct {
+	Count       atomic.Int64
+	TotalTime   atomic.Int64 // in nanoseconds
+	ErrorCount  atomic.Int64
+	MaxTime     atomic.Int64
+	MinTime     atomic.Int64
+	StatusCodes sync.Map // map[int]*atomic.Int64
 }
 
 // metricsSnapshot provides a point-in-time view of metrics
@@ -90,126 +98,186 @@ type systemMetrics struct {
 	CPUUsagePercent float64 `json:"cpu_usage_percent,omitempty"`
 }
 
+// defaultMaxPathMetrics is the default cardinality cap for path metrics.
+const defaultMaxPathMetrics = 1000
+
 // newBuiltinMetrics creates a new metrics collector
 func newBuiltinMetrics() *builtinMetrics {
-	return &builtinMetrics{
-		startTime:     time.Now(),
-		statusCodes:   make(map[int]int64),
-		pathMetrics:   make(map[string]*pathMetrics),
-		methodMetrics: make(map[string]int64),
-		enabled:       true,
+	m := &builtinMetrics{
+		maxPathMetrics: defaultMaxPathMetrics,
 	}
+	m.startTimeNano.Store(time.Now().UnixNano())
+	m.enabled.Store(true)
+	return m
+}
+
+// startTime returns the start time reconstructed from the atomic UnixNano field.
+func (m *builtinMetrics) startTime() time.Time {
+	return time.Unix(0, m.startTimeNano.Load())
 }
 
 // Enable/disable metrics collection
 func (m *builtinMetrics) setEnabled(enabled bool) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.enabled = enabled
+	m.enabled.Store(enabled)
 }
 
 // HandleRequest implements the Metrics interface
 func (m *builtinMetrics) HandleRequest(r *http.Request) {
-	if !m.enabled {
+	if !m.enabled.Load() {
 		return
 	}
 
-	atomic.AddInt64(&m.requestCount, 1)
+	m.requestCount.Add(1)
 
-	// Track method metrics
-	m.mu.Lock()
-	m.methodMetrics[r.Method]++
-	m.mu.Unlock()
+	// Track method metrics (lock-free)
+	method := r.Method
+	if v, ok := m.methodMetrics.Load(method); ok {
+		v.(*atomic.Int64).Add(1)
+	} else {
+		counter := &atomic.Int64{}
+		counter.Store(1)
+		if actual, loaded := m.methodMetrics.LoadOrStore(method, counter); loaded {
+			actual.(*atomic.Int64).Add(1)
+		}
+	}
 }
 
-// HandleResponse implements the Metrics interface
+// HandleResponse implements the Metrics interface.
+// It uses the gorilla/mux route template as the path label when available,
+// falling back to the raw URL path. This prevents cardinality explosion
+// from path parameters like /users/123, /users/456 becoming separate entries.
 func (m *builtinMetrics) HandleResponse(r *http.Request, w http.ResponseWriter, statusCode int, duration time.Duration) {
-	m.recordResponse(r.URL.Path, r.Method, statusCode, duration, statusCode >= 400)
+	path := r.URL.Path
+	if route := mux.CurrentRoute(r); route != nil {
+		if tpl, err := route.GetPathTemplate(); err == nil {
+			path = tpl
+		}
+	}
+	m.recordResponse(path, r.Method, statusCode, duration, statusCode >= 400)
 }
 
-// recordResponse records response metrics
+// recordResponse records response metrics using lock-free atomic operations.
 func (m *builtinMetrics) recordResponse(path, method string, statusCode int, duration time.Duration, isError bool) {
-	if !m.enabled {
+	if !m.enabled.Load() {
 		return
 	}
 
-	atomic.AddInt64(&m.responseCount, 1)
-	atomic.AddInt64(&m.totalRequestTime, duration.Nanoseconds())
+	m.responseCount.Add(1)
+	m.totalRequestTime.Add(duration.Nanoseconds())
 
 	if isError {
-		atomic.AddInt64(&m.errorCount, 1)
+		m.errorCount.Add(1)
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// Track status codes (lock-free)
+	atomicAdd(&m.statusCodes, statusCode)
 
-	// Track status codes
-	m.statusCodes[statusCode]++
+	// Track path metrics (lock-free) with cardinality protection
+	durationNs := duration.Nanoseconds()
+	if v, ok := m.pathMetricsM.Load(path); ok {
+		v.(*atomicPathMetrics).record(statusCode, durationNs, isError)
+	} else {
+		// Check cardinality cap before creating new entry
+		if m.maxPathMetrics > 0 && int(m.pathMetricCount.Load()) >= m.maxPathMetrics {
+			path = "_other"
+			if v, ok := m.pathMetricsM.Load(path); ok {
+				v.(*atomicPathMetrics).record(statusCode, durationNs, isError)
+				return
+			}
+		}
+		pm := newAtomicPathMetrics()
+		if actual, loaded := m.pathMetricsM.LoadOrStore(path, pm); loaded {
+			actual.(*atomicPathMetrics).record(statusCode, durationNs, isError)
+		} else {
+			m.pathMetricCount.Add(1)
+			pm.record(statusCode, durationNs, isError)
+		}
+	}
+}
 
-	// Track path metrics
-	if m.pathMetrics[path] == nil {
-		m.pathMetrics[path] = &pathMetrics{
-			StatusCodes: make(map[int]int64),
-			MinTime:     duration.Nanoseconds(),
-			MaxTime:     duration.Nanoseconds(),
+// atomicAdd increments a counter in a sync.Map[K]*atomic.Int64, creating it if needed.
+func atomicAdd[K comparable](m *sync.Map, key K) {
+	if v, ok := m.Load(key); ok {
+		v.(*atomic.Int64).Add(1)
+		return
+	}
+	counter := &atomic.Int64{}
+	counter.Store(1)
+	if actual, loaded := m.LoadOrStore(key, counter); loaded {
+		actual.(*atomic.Int64).Add(1)
+	}
+}
+
+// newAtomicPathMetrics creates a new atomicPathMetrics with initial min/max set.
+func newAtomicPathMetrics() *atomicPathMetrics {
+	pm := &atomicPathMetrics{}
+	pm.MinTime.Store(math.MaxInt64)
+	return pm
+}
+
+// record atomically records a response into path metrics.
+func (pm *atomicPathMetrics) record(statusCode int, durationNs int64, isError bool) {
+	pm.Count.Add(1)
+	pm.TotalTime.Add(durationNs)
+
+	if isError {
+		pm.ErrorCount.Add(1)
+	}
+
+	atomicAdd(&pm.StatusCodes, statusCode)
+
+	// Update max time using CAS loop
+	for {
+		old := pm.MaxTime.Load()
+		if durationNs <= old || pm.MaxTime.CompareAndSwap(old, durationNs) {
+			break
 		}
 	}
 
-	pathMetric := m.pathMetrics[path]
-	pathMetric.Count++
-	pathMetric.TotalTime += duration.Nanoseconds()
-	pathMetric.StatusCodes[statusCode]++
-
-	if isError {
-		pathMetric.ErrorCount++
-	}
-
-	// Update min/max times
-	durationNs := duration.Nanoseconds()
-	if durationNs < pathMetric.MinTime {
-		pathMetric.MinTime = durationNs
-	}
-	if durationNs > pathMetric.MaxTime {
-		pathMetric.MaxTime = durationNs
+	// Update min time using CAS loop
+	for {
+		old := pm.MinTime.Load()
+		if durationNs >= old || pm.MinTime.CompareAndSwap(old, durationNs) {
+			break
+		}
 	}
 }
 
-// getSnapshot returns current metrics snapshot
+// getSnapshot returns current metrics snapshot (eventually consistent, no locks).
 func (m *builtinMetrics) getSnapshot() metricsSnapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	snapshot := metricsSnapshot{
 		Timestamp:     time.Now(),
-		Uptime:        time.Since(m.startTime).String(),
-		RequestCount:  atomic.LoadInt64(&m.requestCount),
-		ResponseCount: atomic.LoadInt64(&m.responseCount),
-		ErrorCount:    atomic.LoadInt64(&m.errorCount),
+		Uptime:        time.Since(m.startTime()).String(),
+		RequestCount:  m.requestCount.Load(),
+		ResponseCount: m.responseCount.Load(),
+		ErrorCount:    m.errorCount.Load(),
 		StatusCodes:   make(map[int]int64),
 		Methods:       make(map[string]int64),
 		SystemMetrics: getSystemMetrics(),
 	}
 
-	// Copy status codes
-	for code, count := range m.statusCodes {
-		snapshot.StatusCodes[code] = count
-	}
+	// Copy status codes from sync.Map
+	m.statusCodes.Range(func(key, value any) bool {
+		snapshot.StatusCodes[key.(int)] = value.(*atomic.Int64).Load()
+		return true
+	})
 
-	// Copy method metrics
-	for method, count := range m.methodMetrics {
-		snapshot.Methods[method] = count
-	}
+	// Copy method metrics from sync.Map
+	m.methodMetrics.Range(func(key, value any) bool {
+		snapshot.Methods[key.(string)] = value.(*atomic.Int64).Load()
+		return true
+	})
 
 	// Calculate derived metrics
 	if snapshot.ResponseCount > 0 {
 		snapshot.ErrorRate = (float64(snapshot.ErrorCount) / float64(snapshot.ResponseCount)) * 100
 
-		totalTime := atomic.LoadInt64(&m.totalRequestTime)
+		totalTime := m.totalRequestTime.Load()
 		snapshot.AvgResponseTime = float64(totalTime) / float64(snapshot.ResponseCount) / 1e6 // Convert to milliseconds
 	}
 
 	// Calculate requests per second
-	uptime := time.Since(m.startTime).Seconds()
+	uptime := time.Since(m.startTime()).Seconds()
 	if uptime > 0 {
 		snapshot.RequestsPerSec = float64(snapshot.RequestCount) / uptime
 	}
@@ -222,15 +290,19 @@ func (m *builtinMetrics) getSnapshot() metricsSnapshot {
 
 // getTopPaths returns the top N paths by request count
 func (m *builtinMetrics) getTopPaths(limit int) []pathSummary {
-	type pathCount struct {
-		path  string
-		count int64
+	type pathEntry struct {
+		path   string
+		metric *atomicPathMetrics
+		count  int64
 	}
 
-	var paths []pathCount
-	for path, metric := range m.pathMetrics {
-		paths = append(paths, pathCount{path: path, count: metric.Count})
-	}
+	var paths []pathEntry
+	m.pathMetricsM.Range(func(key, value any) bool {
+		pm := value.(*atomicPathMetrics)
+		count := pm.Count.Load()
+		paths = append(paths, pathEntry{path: key.(string), metric: pm, count: count})
+		return true
+	})
 
 	// Simple selection sort for top N
 	for i := 0; i < len(paths) && i < limit; i++ {
@@ -248,26 +320,74 @@ func (m *builtinMetrics) getTopPaths(limit int) []pathSummary {
 	// Convert to summaries
 	summaries := make([]pathSummary, 0, limit)
 	for i := 0; i < len(paths) && i < limit; i++ {
-		path := paths[i].path
-		metric := m.pathMetrics[path]
-
-		summary := pathSummary{
-			Path:            path,
-			Count:           metric.Count,
-			ErrorCount:      metric.ErrorCount,
-			AvgResponseTime: float64(metric.TotalTime) / float64(metric.Count) / 1e6,
-			MaxResponseTime: float64(metric.MaxTime) / 1e6,
-			MinResponseTime: float64(metric.MinTime) / 1e6,
+		pm := paths[i].metric
+		count := paths[i].count
+		errorCount := pm.ErrorCount.Load()
+		minTime := pm.MinTime.Load()
+		if minTime == math.MaxInt64 {
+			minTime = 0
 		}
 
-		if metric.Count > 0 {
-			summary.ErrorRate = (float64(metric.ErrorCount) / float64(metric.Count)) * 100
+		summary := pathSummary{
+			Path:            paths[i].path,
+			Count:           count,
+			ErrorCount:      errorCount,
+			AvgResponseTime: float64(pm.TotalTime.Load()) / float64(count) / 1e6,
+			MaxResponseTime: float64(pm.MaxTime.Load()) / 1e6,
+			MinResponseTime: float64(minTime) / 1e6,
+		}
+
+		if count > 0 {
+			summary.ErrorRate = (float64(errorCount) / float64(count)) * 100
 		}
 
 		summaries = append(summaries, summary)
 	}
 
 	return summaries
+}
+
+// loadStatusCode returns the count for a specific status code.
+func (m *builtinMetrics) loadStatusCode(code int) int64 {
+	if v, ok := m.statusCodes.Load(code); ok {
+		return v.(*atomic.Int64).Load()
+	}
+	return 0
+}
+
+// loadMethodCount returns the count for a specific HTTP method.
+func (m *builtinMetrics) loadMethodCount(method string) int64 {
+	if v, ok := m.methodMetrics.Load(method); ok {
+		return v.(*atomic.Int64).Load()
+	}
+	return 0
+}
+
+// loadPathMetric returns the atomic path metrics for a path, or nil if not found.
+func (m *builtinMetrics) loadPathMetric(path string) *atomicPathMetrics {
+	if v, ok := m.pathMetricsM.Load(path); ok {
+		return v.(*atomicPathMetrics)
+	}
+	return nil
+}
+
+// statusCodesLen returns the number of unique status codes tracked.
+func (m *builtinMetrics) statusCodesLen() int {
+	n := 0
+	m.statusCodes.Range(func(_, _ any) bool { n++; return true })
+	return n
+}
+
+// pathMetricsLen returns the number of unique paths tracked.
+func (m *builtinMetrics) pathMetricsLen() int {
+	return int(m.pathMetricCount.Load())
+}
+
+// methodMetricsLen returns the number of unique methods tracked.
+func (m *builtinMetrics) methodMetricsLen() int {
+	n := 0
+	m.methodMetrics.Range(func(_, _ any) bool { n++; return true })
+	return n
 }
 
 // getSystemMetrics collects system-level metrics
@@ -339,18 +459,18 @@ func (m *builtinMetrics) wsError() {
 
 // reset clears all metrics (useful for testing)
 func (m *builtinMetrics) reset() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.requestCount.Store(0)
+	m.responseCount.Store(0)
+	m.errorCount.Store(0)
+	m.totalRequestTime.Store(0)
 
-	atomic.StoreInt64(&m.requestCount, 0)
-	atomic.StoreInt64(&m.responseCount, 0)
-	atomic.StoreInt64(&m.errorCount, 0)
-	atomic.StoreInt64(&m.totalRequestTime, 0)
+	m.startTimeNano.Store(time.Now().UnixNano())
 
-	m.startTime = time.Now()
-	m.statusCodes = make(map[int]int64)
-	m.pathMetrics = make(map[string]*pathMetrics)
-	m.methodMetrics = make(map[string]int64)
+	// Clear sync.Maps by deleting all entries
+	m.statusCodes.Range(func(key, _ any) bool { m.statusCodes.Delete(key); return true })
+	m.pathMetricsM.Range(func(key, _ any) bool { m.pathMetricsM.Delete(key); return true })
+	m.methodMetrics.Range(func(key, _ any) bool { m.methodMetrics.Delete(key); return true })
+	m.pathMetricCount.Store(0)
 
 	atomic.StoreInt64(&m.wsConnections, 0)
 	atomic.StoreInt64(&m.wsConnTotal, 0)
@@ -362,9 +482,6 @@ func (m *builtinMetrics) reset() {
 
 // getPrometheusMetrics returns metrics in Prometheus text format
 func (m *builtinMetrics) getPrometheusMetrics() string {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	snapshot := m.getSnapshot()
 	var result strings.Builder
 
@@ -377,7 +494,7 @@ func (m *builtinMetrics) getPrometheusMetrics() string {
 	// Uptime
 	result.WriteString("# HELP servex_uptime_seconds Server uptime in seconds\n")
 	result.WriteString("# TYPE servex_uptime_seconds gauge\n")
-	uptimeSeconds := time.Since(m.startTime).Seconds()
+	uptimeSeconds := time.Since(m.startTime()).Seconds()
 	result.WriteString(fmt.Sprintf("servex_uptime_seconds %.2f\n", uptimeSeconds))
 	result.WriteString("\n")
 

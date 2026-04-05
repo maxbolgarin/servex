@@ -566,3 +566,138 @@ func (g *Group) Head(path string, h http.HandlerFunc) *mux.Route {
 func (g *Group) HEAD(path string, h http.HandlerFunc) *mux.Route {
 	return g.Head(path, h)
 }
+
+// --- Per-route middleware chain ---
+
+// Middleware is a function that wraps an http.Handler.
+type Middleware = func(http.Handler) http.Handler
+
+// MiddlewareChain allows attaching middleware to individual route registrations.
+// Create via [Server.With] or [Group.With].
+//
+// Example:
+//
+//	server.With(auditLog, adminOnly).Post("/admin/action", handler)
+type MiddlewareChain struct {
+	middlewares []Middleware
+	server      *Server // non-nil when created from Server
+	group       *Group  // non-nil when created from Group
+}
+
+// With creates a MiddlewareChain for per-route middleware.
+// Middleware is applied in order: the first middleware is the outermost wrapper.
+//
+// Example:
+//
+//	server.With(rateLimiter, auditLog).Get("/secure", handler)
+func (s *Server) With(middleware ...Middleware) *MiddlewareChain {
+	return &MiddlewareChain{middlewares: middleware, server: s}
+}
+
+// With creates a MiddlewareChain for per-route middleware on a Group.
+func (g *Group) With(middleware ...Middleware) *MiddlewareChain {
+	return &MiddlewareChain{middlewares: middleware, group: g}
+}
+
+// applyChain wraps handler with all middleware in order.
+func (mc *MiddlewareChain) applyChain(h http.HandlerFunc) http.HandlerFunc {
+	if len(mc.middlewares) == 0 {
+		return h
+	}
+	var handler http.Handler = h
+	for i := len(mc.middlewares) - 1; i >= 0; i-- {
+		handler = mc.middlewares[i](handler)
+	}
+	return handler.ServeHTTP
+}
+
+func (mc *MiddlewareChain) handleFunc(path string, h http.HandlerFunc, methods ...string) *mux.Route {
+	wrapped := mc.applyChain(h)
+	if mc.server != nil {
+		return mc.server.HandleFunc(path, wrapped, methods...)
+	}
+	if mc.group != nil {
+		return mc.group.HandleFunc(path, wrapped, methods...)
+	}
+	panic("servex: MiddlewareChain has neither server nor group set")
+}
+
+// Handle registers a route with an http.Handler with the middleware chain applied.
+func (mc *MiddlewareChain) Handle(path string, h http.Handler, methods ...string) *mux.Route {
+	return mc.handleFunc(path, h.ServeHTTP, methods...)
+}
+
+// HandleFunc registers a route with an http.HandlerFunc with the middleware chain applied.
+func (mc *MiddlewareChain) HandleFunc(path string, h http.HandlerFunc, methods ...string) *mux.Route {
+	return mc.handleFunc(path, h, methods...)
+}
+
+// Get registers a GET route with the middleware chain applied.
+func (mc *MiddlewareChain) Get(path string, h http.HandlerFunc) *mux.Route {
+	return mc.handleFunc(path, h, GET)
+}
+
+// GET is an alias for [MiddlewareChain.Get].
+func (mc *MiddlewareChain) GET(path string, h http.HandlerFunc) *mux.Route {
+	return mc.Get(path, h)
+}
+
+// Post registers a POST route with the middleware chain applied.
+func (mc *MiddlewareChain) Post(path string, h http.HandlerFunc) *mux.Route {
+	return mc.handleFunc(path, h, POST)
+}
+
+// POST is an alias for [MiddlewareChain.Post].
+func (mc *MiddlewareChain) POST(path string, h http.HandlerFunc) *mux.Route {
+	return mc.Post(path, h)
+}
+
+// Put registers a PUT route with the middleware chain applied.
+func (mc *MiddlewareChain) Put(path string, h http.HandlerFunc) *mux.Route {
+	return mc.handleFunc(path, h, PUT)
+}
+
+// PUT is an alias for [MiddlewareChain.Put].
+func (mc *MiddlewareChain) PUT(path string, h http.HandlerFunc) *mux.Route {
+	return mc.Put(path, h)
+}
+
+// Patch registers a PATCH route with the middleware chain applied.
+func (mc *MiddlewareChain) Patch(path string, h http.HandlerFunc) *mux.Route {
+	return mc.handleFunc(path, h, PATCH)
+}
+
+// PATCH is an alias for [MiddlewareChain.Patch].
+func (mc *MiddlewareChain) PATCH(path string, h http.HandlerFunc) *mux.Route {
+	return mc.Patch(path, h)
+}
+
+// Delete registers a DELETE route with the middleware chain applied.
+func (mc *MiddlewareChain) Delete(path string, h http.HandlerFunc) *mux.Route {
+	return mc.handleFunc(path, h, DELETE)
+}
+
+// DELETE is an alias for [MiddlewareChain.Delete].
+func (mc *MiddlewareChain) DELETE(path string, h http.HandlerFunc) *mux.Route {
+	return mc.Delete(path, h)
+}
+
+// Options registers an OPTIONS route with the middleware chain applied.
+func (mc *MiddlewareChain) Options(path string, h http.HandlerFunc) *mux.Route {
+	return mc.handleFunc(path, h, OPTIONS)
+}
+
+// OPTIONS is an alias for [MiddlewareChain.Options].
+func (mc *MiddlewareChain) OPTIONS(path string, h http.HandlerFunc) *mux.Route {
+	return mc.Options(path, h)
+}
+
+// Head registers a HEAD route with the middleware chain applied.
+func (mc *MiddlewareChain) Head(path string, h http.HandlerFunc) *mux.Route {
+	return mc.handleFunc(path, h, HEAD)
+}
+
+// HEAD is an alias for [MiddlewareChain.Head].
+func (mc *MiddlewareChain) HEAD(path string, h http.HandlerFunc) *mux.Route {
+	return mc.Head(path, h)
+}

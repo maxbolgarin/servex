@@ -31,6 +31,8 @@ type cliConfig struct {
 	logFormat      string
 	port           string
 	httpsPort      string
+	preset         string
+	staticDir      string
 	showVersion    bool
 	validate       bool
 	generateConfig bool
@@ -121,6 +123,8 @@ func parseFlags() *cliConfig {
 	flag.StringVar(&config.port, "p", "", "HTTP port override (short)")
 	flag.StringVar(&config.httpsPort, "https-port", "", "HTTPS port override")
 	flag.StringVar(&config.configType, "type", "yaml", "Configuration type for generation (yaml, env)")
+	flag.StringVar(&config.preset, "preset", "", "Use a built-in preset (production, api, webapp, microservice, security, spa, static)")
+	flag.StringVar(&config.staticDir, "static-dir", "", "Directory for static files (used with spa/static presets)")
 
 	flag.BoolVar(&config.showVersion, "version", false, "Show version information")
 	flag.BoolVar(&config.showVersion, "v", false, "Show version information (short)")
@@ -243,12 +247,65 @@ func applyCliOverrides(config *servex.Config, cli *cliConfig) {
 	}
 }
 
+// getPresetOptions returns the preset options for the given preset name
+func getPresetOptions(preset, staticDir string) ([]servex.Option, error) {
+	switch strings.ToLower(preset) {
+	case "production", "prod":
+		return servex.ProductionPreset(), nil
+	case "api":
+		return servex.APIServerPreset(), nil
+	case "webapp", "web":
+		return servex.WebAppPreset(), nil
+	case "microservice", "micro":
+		return servex.MicroservicePreset(), nil
+	case "security", "secure":
+		return servex.HighSecurityPreset(), nil
+	case "spa":
+		dir := staticDir
+		if dir == "" {
+			dir = "/var/www/html"
+		}
+		return servex.SPAPreset(dir), nil
+	case "static":
+		dir := staticDir
+		if dir == "" {
+			dir = "/var/www/html"
+		}
+		return servex.StaticFilePreset(dir, "/"), nil
+	default:
+		return nil, fmt.Errorf("unknown preset: %s (available: production, api, webapp, microservice, security, spa, static)", preset)
+	}
+}
+
 // runServer creates and runs the server
 func runServer(ctx context.Context, config *servex.Config, cli *cliConfig) error {
-	// Create server from configuration
-	server, err := servex.NewServerFromConfig(config)
-	if err != nil {
-		return fmt.Errorf("create server: %w", err)
+	// Create server: apply preset options first, then config options on top
+	var server *servex.Server
+	var err error
+
+	if cli.preset != "" {
+		presetOpts, presetErr := getPresetOptions(cli.preset, cli.staticDir)
+		if presetErr != nil {
+			return presetErr
+		}
+
+		// Merge preset options with config options
+		configOpts, configErr := config.ToOptions()
+		if configErr != nil {
+			return fmt.Errorf("convert config to options: %w", configErr)
+		}
+
+		allOpts := append(presetOpts, configOpts...)
+		server, err = servex.NewServer(allOpts...)
+		if err != nil {
+			return fmt.Errorf("create server: %w", err)
+		}
+		logInfo("🎛️  Applied preset: %s", cli.preset)
+	} else {
+		server, err = servex.NewServerFromConfig(config)
+		if err != nil {
+			return fmt.Errorf("create server: %w", err)
+		}
 	}
 
 	// Show startup information
@@ -307,6 +364,10 @@ func showStartupInfo(config *servex.Config, cli *cliConfig) {
 	logInfo("📊 Build: %s (commit: %s)", BuildTime, GitCommit)
 	logInfo("🏗️  Go: %s", runtime.Version())
 
+	if cli.preset != "" {
+		logInfo("🎛️  Preset: %s", cli.preset)
+	}
+
 	if cli.verbose {
 		logInfo("📁 Working directory: %s", getWorkingDir())
 		logInfo("👤 Running as: %s", getUser())
@@ -349,6 +410,9 @@ func showDryRunInfo(config *servex.Config, cli *cliConfig) {
 	fmt.Printf("🔍 DRY RUN MODE - Showing configuration without starting server\n\n")
 
 	fmt.Printf("📋 Configuration Summary:\n")
+	if cli.preset != "" {
+		fmt.Printf("  Preset: %s\n", cli.preset)
+	}
 	fmt.Printf("  Config file: %s\n", cli.configFile)
 	if cli.envFile != "" {
 		fmt.Printf("  Env file: %s\n", cli.envFile)
@@ -595,6 +659,8 @@ OPTIONS:
       -env-file FILE    Environment file to load (.env)
   -p, -port PORT        HTTP port override
       -https-port PORT  HTTPS port override
+      -preset NAME      Use a built-in preset (see PRESETS below)
+      -static-dir DIR   Static files directory (for spa/static presets)
       -log-level LEVEL  Log level (debug, info, warn, error)
       -log-format FMT   Log format (json, text)
 
@@ -609,9 +675,33 @@ COMMANDS:
       -verbose          Enable verbose output
       -daemon           Run as daemon (disable interactive features)
 
+PRESETS:
+  production (prod)     Security headers, CSRF, rate limiting (100 rps),
+                        compression, health/metrics, audit logging
+  api                   CORS, rate limiting (1000 rpm), compression,
+                        10 MB body limit, 1 MB JSON limit, API caching
+  webapp (web)          Strict security, CSRF, web-friendly CSP,
+                        50 MB uploads, compression, rate limiting
+  microservice (micro)  Fast timeouts (5s read), minimal security,
+                        5 MB body limit, 200 rps rate limiting
+  security (secure)     Strict security, bot filtering, aggressive
+                        rate limiting (20 rps), full audit logging
+  spa                   SPA mode with index.html fallback, compression,
+                        1-year asset cache (-static-dir to set path)
+  static                Static file server with compression, caching
+                        (-static-dir to set path)
+
 EXAMPLES:
   # Start with default config
   servex
+
+  # Start with a preset — no config file needed
+  servex -preset production -port 8080
+  servex -preset api -port 3000
+  servex -preset spa -static-dir ./dist -port 8080
+
+  # Preset + config file (preset as base, config overrides)
+  servex -preset production -config overrides.yaml
 
   # Start with custom config
   servex -config production.yaml

@@ -1,0 +1,37 @@
+# Servex — Full-Featured Setup with Docker Compose
+#
+# Usage:
+#   docker compose -f docker-compose-full.yaml up -d
+#
+# Includes: reverse proxy, static files, JWT auth, TLS.
+# Replace "your-backend:latest" with your actual backend image.
+
+services:
+  servex:
+    image: maxbolgarin/servex:latest
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    volumes:
+      - ./full-server.yaml:/etc/servex/servex.yaml:ro
+      - ./site:/var/www/html:ro
+      - ./certs:/etc/servex/certs:ro
+    environment:
+      # Generate with: openssl rand -hex 32
+      - SERVEX_AUTH_JWT_ACCESS_SECRET=change-me-use-openssl-rand-hex-32
+      - SERVEX_AUTH_JWT_REFRESH_SECRET=change-me-use-openssl-rand-hex-32
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  backend:
+    image: your-backend:latest
+    expose:
+      - "3000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped

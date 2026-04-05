@@ -725,7 +725,7 @@ func TestRegisterCompressionMiddleware(t *testing.T) {
 		})
 
 		req := httptest.NewRequest(http.MethodGet, "/test", nil)
-		req.Header.Set("Accept-Encoding", "br") // Only Brotli (not supported)
+		req.Header.Set("Accept-Encoding", "lzma") // Only lzma (not supported by servex)
 
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, req)
@@ -746,7 +746,7 @@ func TestCompressionResponseWriter(t *testing.T) {
 
 		crw := &compressionResponseWriter{
 			ResponseWriter:    w,
-			encoding:          "gzip",
+			encoder:           defaultEncoders[2],
 			level:             6,
 			minSize:           100,
 			compressibleTypes: compressibleTypes,
@@ -776,7 +776,7 @@ func TestCompressionResponseWriter(t *testing.T) {
 
 		crw := &compressionResponseWriter{
 			ResponseWriter:    w,
-			encoding:          "gzip",
+			encoder:           defaultEncoders[2],
 			level:             6,
 			minSize:           50,
 			compressibleTypes: compressibleTypes,
@@ -823,7 +823,7 @@ func TestCompressionResponseWriter(t *testing.T) {
 
 		crw := &compressionResponseWriter{
 			ResponseWriter:    w,
-			encoding:          "gzip",
+			encoder:           defaultEncoders[2],
 			level:             6,
 			minSize:           50,
 			compressibleTypes: compressibleTypes,
@@ -854,7 +854,7 @@ func TestCompressionResponseWriter(t *testing.T) {
 
 		crw := &compressionResponseWriter{
 			ResponseWriter:    w,
-			encoding:          "gzip",
+			encoder:           defaultEncoders[2],
 			level:             6,
 			minSize:           50,
 			compressibleTypes: compressibleTypes,
@@ -886,7 +886,7 @@ func TestCompressionResponseWriter(t *testing.T) {
 
 		crw := &compressionResponseWriter{
 			ResponseWriter:    w,
-			encoding:          "gzip",
+			encoder:           defaultEncoders[2],
 			level:             6,
 			minSize:           50,
 			compressibleTypes: compressibleTypes,
@@ -918,7 +918,7 @@ func TestCompressionResponseWriter(t *testing.T) {
 
 		crw := &compressionResponseWriter{
 			ResponseWriter:    w,
-			encoding:          "gzip",
+			encoder:           defaultEncoders[2],
 			level:             6,
 			minSize:           100,
 			compressibleTypes: compressibleTypes,
@@ -1166,7 +1166,7 @@ func TestCompressionEdgeCases(t *testing.T) {
 
 		crw := &compressionResponseWriter{
 			ResponseWriter:    w,
-			encoding:          "gzip",
+			encoder:           defaultEncoders[2],
 			level:             6,
 			minSize:           50,
 			compressibleTypes: compressibleTypes,
@@ -1198,7 +1198,7 @@ func TestCompressionEdgeCases(t *testing.T) {
 
 		crw := &compressionResponseWriter{
 			ResponseWriter:    w,
-			encoding:          "gzip",
+			encoder:           defaultEncoders[2],
 			level:             6,
 			minSize:           50,
 			compressibleTypes: compressibleTypes,
@@ -1228,7 +1228,7 @@ func TestCompressionEdgeCases(t *testing.T) {
 
 		crw := &compressionResponseWriter{
 			ResponseWriter:    w,
-			encoding:          "gzip",
+			encoder:           defaultEncoders[2],
 			level:             6,
 			minSize:           50,
 			compressibleTypes: compressibleTypes,
@@ -1256,7 +1256,7 @@ func TestCompressionEdgeCases(t *testing.T) {
 
 		crw := &compressionResponseWriter{
 			ResponseWriter:    w,
-			encoding:          "gzip",
+			encoder:           defaultEncoders[2],
 			level:             6,
 			minSize:           50,
 			compressibleTypes: compressibleTypes,

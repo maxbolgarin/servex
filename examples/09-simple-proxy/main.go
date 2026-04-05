@@ -10,10 +10,8 @@ import (
 )
 
 func main() {
-	log.Println("🚀 Servex Tutorial - Simple Proxy")
-	log.Println("==================================")
-	log.Println("This tutorial demonstrates reverse proxy with load balancing.")
-	log.Println("")
+	log.Println("Servex Tutorial - Simple Proxy")
+	log.Println("==============================")
 
 	// Simple proxy configuration with two rules
 	proxyConfig := servex.ProxyConfiguration{
@@ -299,29 +297,9 @@ python3 -m http.server 8083 &
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	log.Println("🌐 Server starting on http://localhost:8080")
-	log.Println("🔀 Proxy configuration:")
-	log.Println("    → /api/* -> localhost:8081 (weight 2), localhost:8082 (weight 1)")
-	log.Println("    → /auth/* -> localhost:8083")
-	log.Println("")
-	log.Println("🛠️  Features enabled:")
-	log.Println("    → Load balancing (weighted round-robin)")
-	log.Println("    → Health checking (30s intervals)")
-	log.Println("    → Traffic dumping (50% sampling → ./traffic_logs/)")
-	log.Println("    → Rate limiting (100 RPM)")
-	log.Println("")
-	log.Println("Try these URLs:")
-	log.Println("  → http://localhost:8080/ (interactive demo)")
-	log.Println("  → http://localhost:8080/api/test (load balanced)")
-	log.Println("  → http://localhost:8080/auth/login (auth service)")
-	log.Println("  → http://localhost:8080/status (proxy status)")
-	log.Println("")
-	log.Println("⚠️  Backend services needed:")
-	log.Println("  → localhost:8081 (API backend 1)")
-	log.Println("  → localhost:8082 (API backend 2)")
-	log.Println("  → localhost:8083 (Auth service)")
-	log.Println("")
-	log.Println("Quick start backends: python3 -m http.server 8081 &")
+	log.Println("Server: http://localhost:8080")
+	log.Println("Proxy: /api/* -> localhost:8081,8082 | /auth/* -> localhost:8083")
+	log.Println("Try: curl http://localhost:8080/status")
 	log.Println("Press Ctrl+C to stop")
 
 	if err := server.StartWithWaitSignalsHTTP(ctx, ":8080"); err != nil {

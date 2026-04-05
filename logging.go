@@ -29,6 +29,10 @@ const (
 	StatusLogField = "status"
 	// DurationLogField adds request duration in milliseconds to logs.
 	DurationLogField = "duration_ms"
+	// TraceIDLogField adds W3C trace ID to logs.
+	TraceIDLogField = "trace_id"
+	// SpanIDLogField adds W3C span ID to logs.
+	SpanIDLogField = "span_id"
 )
 
 // Pre-allocated string constants to avoid allocations
@@ -107,6 +111,8 @@ type RequestLogger interface {
 type RequestLogBundle struct {
 	Request           *http.Request
 	RequestID         string
+	TraceID           string
+	SpanID            string
 	Error             error
 	ErrorMessage      string
 	StatusCode        int
@@ -157,6 +163,12 @@ func (l *BaseRequestLogger) Log(r RequestLogBundle) {
 	// Add optional fields based on configuration
 	if l.shouldIncludeField(RequestIDLogField) {
 		fields = append(fields, "request_id", r.RequestID)
+	}
+	if r.TraceID != "" && l.shouldIncludeField(TraceIDLogField) {
+		fields = append(fields, "trace_id", r.TraceID)
+	}
+	if r.SpanID != "" && l.shouldIncludeField(SpanIDLogField) {
+		fields = append(fields, "span_id", r.SpanID)
 	}
 	if l.shouldIncludeField(IPLogField) {
 		fields = append(fields, "ip", r.Request.RemoteAddr)

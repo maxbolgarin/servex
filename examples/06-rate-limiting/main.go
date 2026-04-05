@@ -11,8 +11,7 @@ import (
 )
 
 func main() {
-	fmt.Println("🚀 Servex Tutorial - Rate Limiting")
-	fmt.Println("===================================")
+	fmt.Println("Servex Tutorial - Rate Limiting")
 
 	// Create server with different rate limiting strategies
 	server, err := servex.NewServer(
@@ -194,17 +193,8 @@ curl http://localhost:8080/api/status
 		servex.C(w, r).Response(200, html)
 	})
 
-	fmt.Println("🌐 Server starting on http://localhost:8080")
-	fmt.Println("🛡️  Rate limiting: 5 requests per second")
-	fmt.Println("")
-	fmt.Println("Try these URLs:")
-	fmt.Println("  → http://localhost:8080/ (interactive demo)")
-	fmt.Println("  → http://localhost:8080/api/test (test endpoint)")
-	fmt.Println("  → http://localhost:8080/api/status (rate limit info)")
-	fmt.Println("")
-	fmt.Println("Test rate limiting:")
-	fmt.Println("  for i in {1..10}; do curl http://localhost:8080/api/test; done")
-	fmt.Println("")
+	fmt.Println("Server: http://localhost:8080 (rate limit: 5 RPS)")
+	fmt.Println("Try: for i in {1..10}; do curl http://localhost:8080/api/test; done")
 	fmt.Println("Press Ctrl+C to stop")
 
 	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")

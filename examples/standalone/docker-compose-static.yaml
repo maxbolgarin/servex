@@ -1,0 +1,16 @@
+# Servex — Static File Server with Docker Compose
+#
+# Usage:
+#   docker compose -f docker-compose-static.yaml up -d
+#
+# Place your site files (React/Vue/Angular build output) in ./site/
+
+services:
+  servex:
+    image: maxbolgarin/servex:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./static-site.yaml:/etc/servex/servex.yaml:ro
+      - ./site:/var/www/html:ro
+    restart: unless-stopped

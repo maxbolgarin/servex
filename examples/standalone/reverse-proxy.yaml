@@ -1,0 +1,92 @@
+# Servex Standalone — Reverse Proxy / API Gateway
+#
+# Routes requests to backend services with load balancing and health checks.
+# Usage:
+#   servex -config reverse-proxy.yaml
+#   docker run -v ./reverse-proxy.yaml:/etc/servex/servex.yaml -p 8080:8080 maxbolgarin/servex
+
+server:
+  http: ":8080"
+  read_timeout: "30s"
+  read_header_timeout: "10s"
+  idle_timeout: "120s"
+  enable_health_endpoint: true
+  health_path: "/health"
+  enable_default_metrics: true
+  metrics_path: "/metrics"
+
+rate_limit:
+  enabled: true
+  requests_per_interval: 1000
+  interval: "1m"
+  burst_size: 50
+  exclude_paths:
+    - "/health"
+    - "/metrics"
+
+security:
+  enabled: true
+  x_frame_options: "DENY"
+  x_content_type_options: "nosniff"
+  referrer_policy: "strict-origin-when-cross-origin"
+  exclude_paths:
+    - "/health"
+    - "/metrics"
+
+compression:
+  enabled: true
+  level: 6
+  min_size: 1024
+  types:
+    - "application/json"
+    - "text/html"
+    - "text/css"
+    - "application/javascript"
+
+logging:
+  log_fields:
+    - "method"
+    - "url"
+    - "status"
+    - "duration_ms"
+    - "ip"
+
+proxy:
+  enabled: true
+  global_timeout: "30s"
+  max_idle_conns: 100
+  max_idle_conns_per_host: 10
+  idle_conn_timeout: "90s"
+
+  health_check:
+    enabled: true
+    default_interval: "30s"
+    timeout: "5s"
+    retry_count: 3
+
+  rules:
+    # API backend — round robin across 2 instances
+    - name: "api"
+      path_prefix: "/api/"
+      strip_prefix: "/api"
+      load_balancing: "round_robin"
+      backends:
+        - url: "http://api-server-1:3000"
+          health_check_path: "/health"
+        - url: "http://api-server-2:3000"
+          health_check_path: "/health"
+
+    # Auth service — single backend
+    - name: "auth"
+      path_prefix: "/auth/"
+      strip_prefix: "/auth"
+      backends:
+        - url: "http://auth-service:4000"
+          health_check_path: "/health"
+
+    # WebSocket backend
+    - name: "websocket"
+      path_prefix: "/ws/"
+      timeout: "0s"  # no timeout for long-lived connections
+      backends:
+        - url: "http://ws-service:5000"

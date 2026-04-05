@@ -13,10 +13,138 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/andybalholm/brotli"
 	"github.com/gorilla/mux"
+	"github.com/klauspost/compress/zstd"
 )
+
+var compressionBufPool = sync.Pool{New: func() any { b := make([]byte, 0, 4096); return &b }}
+
+// compressionEncoder creates compression writers for a specific encoding.
+type compressionEncoder struct {
+	name      string
+	priority  int // higher = preferred when client has no preference
+	pool      sync.Pool
+	newWriter func(w io.Writer, level int) (io.WriteCloser, error)
+}
+
+// defaultEncoders is the ordered list of supported encoders (highest priority first).
+// Priority order: zstd > br > gzip > deflate.
+var defaultEncoders = []*compressionEncoder{
+	{
+		name:     "zstd",
+		priority: 40,
+		newWriter: func(w io.Writer, level int) (io.WriteCloser, error) {
+			var opts []zstd.EOption
+			switch {
+			case level <= 3:
+				opts = append(opts, zstd.WithEncoderLevel(zstd.SpeedFastest))
+			case level <= 6:
+				opts = append(opts, zstd.WithEncoderLevel(zstd.SpeedDefault))
+			default:
+				opts = append(opts, zstd.WithEncoderLevel(zstd.SpeedBetterCompression))
+			}
+			return zstd.NewWriter(w, opts...)
+		},
+	},
+	{
+		name:     "br",
+		priority: 30,
+		newWriter: func(w io.Writer, level int) (io.WriteCloser, error) {
+			return brotli.NewWriterLevel(w, level), nil
+		},
+	},
+	{
+		name:     "gzip",
+		priority: 20,
+		newWriter: func(w io.Writer, level int) (io.WriteCloser, error) {
+			return gzip.NewWriterLevel(w, level)
+		},
+	},
+	{
+		name:     "deflate",
+		priority: 10,
+		newWriter: func(w io.Writer, level int) (io.WriteCloser, error) {
+			return flate.NewWriter(w, level)
+		},
+	},
+}
+
+// encodingPreference represents a client's preference for an encoding.
+type encodingPreference struct {
+	name    string
+	quality float64
+}
+
+// parseAcceptEncoding parses the Accept-Encoding header into a list of preferences.
+// Example: "gzip;q=0.8, br, zstd;q=0.5" -> [{br, 1.0}, {gzip, 0.8}, {zstd, 0.5}]
+func parseAcceptEncoding(header string) []encodingPreference {
+	var prefs []encodingPreference
+	for _, part := range strings.Split(header, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		name := part
+		quality := 1.0
+
+		if idx := strings.Index(part, ";"); idx >= 0 {
+			name = strings.TrimSpace(part[:idx])
+			qPart := strings.TrimSpace(part[idx+1:])
+			if strings.HasPrefix(qPart, "q=") {
+				if q, err := strconv.ParseFloat(qPart[2:], 64); err == nil {
+					quality = q
+				}
+			}
+		}
+
+		if quality > 0 {
+			prefs = append(prefs, encodingPreference{name: strings.ToLower(name), quality: quality})
+		}
+	}
+	return prefs
+}
+
+// selectEncoder picks the best encoder based on client Accept-Encoding preferences
+// and available encoders.
+func selectEncoder(acceptEncoding string, enabledEncoders []*compressionEncoder) *compressionEncoder {
+	prefs := parseAcceptEncoding(acceptEncoding)
+	if len(prefs) == 0 {
+		return nil
+	}
+
+	// Build a set of acceptable encodings with quality values.
+	accepted := make(map[string]float64, len(prefs))
+	for _, p := range prefs {
+		accepted[p.name] = p.quality
+	}
+
+	// Check for wildcard.
+	wildcardQ, hasWildcard := accepted["*"]
+
+	// Find best matching encoder: score = quality * 1000 + priority (breaks quality ties).
+	var best *compressionEncoder
+	bestScore := -1.0
+	for _, enc := range enabledEncoders {
+		q, ok := accepted[enc.name]
+		if !ok && hasWildcard {
+			q = wildcardQ
+			ok = true
+		}
+		if !ok || q <= 0 {
+			continue
+		}
+		score := q*1000 + float64(enc.priority)
+		if score > bestScore {
+			bestScore = score
+			best = enc
+		}
+	}
+	return best
+}
 
 // RegisterLoggingMiddleware registers a middleware that logs incoming requests.
 // It logs details such as request method, path, status code, duration, and any errors encountered during processing.
@@ -56,6 +184,8 @@ func RegisterLoggingMiddleware(router MiddlewareRouter, logger RequestLogger, me
 
 			logBundle.Request = r
 			logBundle.RequestID = getOrSetRequestID(r)
+			logBundle.TraceID = getValueFromContext[string](r, traceIDKey{})
+			logBundle.SpanID = getValueFromContext[string](r, spanIDKey{})
 			logBundle.StartTime = start
 			logBundle.NoLogClientErrors = getValueFromContext[bool](r, noLogClientErrorsKey{})
 			if len(noLogClientErrors) > 0 {
@@ -649,26 +779,41 @@ func RegisterCompressionMiddleware(router MiddlewareRouter, cfg CompressionConfi
 				return
 			}
 
-			// Determine which compression encoding to use
-			var encoding string
-			if strings.Contains(acceptEncoding, "gzip") {
-				encoding = "gzip"
-			} else if strings.Contains(acceptEncoding, "deflate") {
-				encoding = "deflate"
-			} else {
-				// Client doesn't accept compression
+			// Build list of enabled encoders.
+			enabledEncoders := defaultEncoders
+			if len(cfg.EnabledEncodings) > 0 {
+				enabledEncoderSet := make(map[string]bool, len(cfg.EnabledEncodings))
+				for _, name := range cfg.EnabledEncodings {
+					enabledEncoderSet[strings.ToLower(name)] = true
+				}
+				filtered := make([]*compressionEncoder, 0, len(cfg.EnabledEncodings))
+				for _, enc := range defaultEncoders {
+					if enabledEncoderSet[enc.name] {
+						filtered = append(filtered, enc)
+					}
+				}
+				enabledEncoders = filtered
+			}
+
+			// Select best encoding based on Accept-Encoding header.
+			encoder := selectEncoder(acceptEncoding, enabledEncoders)
+			if encoder == nil {
+				// Client doesn't accept any supported encoding.
 				next.ServeHTTP(w, r)
 				return
 			}
 
 			// Create compression response writer
+			bufPtr := compressionBufPool.Get().(*[]byte)
+			buf := (*bufPtr)[:0]
 			crw := &compressionResponseWriter{
 				ResponseWriter:    w,
-				encoding:          encoding,
+				encoder:           encoder,
 				level:             level,
 				minSize:           minSize,
 				compressibleTypes: compressibleTypes,
-				buf:               make([]byte, 0),
+				buf:               buf,
+				bufPtr:            bufPtr,
 			}
 
 			// Ensure cleanup
@@ -688,12 +833,13 @@ func shouldApplyCompression(r *http.Request, cfg CompressionConfig) bool {
 // compressionResponseWriter wraps http.ResponseWriter to provide compression
 type compressionResponseWriter struct {
 	http.ResponseWriter
-	encoding          string
+	encoder           *compressionEncoder
 	level             int
 	minSize           int
 	compressibleTypes map[string]bool
-	writer            io.Writer
+	writer            io.WriteCloser
 	buf               []byte
+	bufPtr            *[]byte
 	headerWritten     bool
 	compressed        bool
 }
@@ -793,37 +939,49 @@ func (crw *compressionResponseWriter) setupCompressionIfNeeded() {
 	crw.setupCompression()
 }
 
-// setupCompression initializes the compression writer
+// setupCompression initializes the compression writer using the selected encoder.
 func (crw *compressionResponseWriter) setupCompression() {
 	if crw.writer != nil || crw.compressed {
 		return
 	}
 
-	// Set compression headers
-	crw.Header().Set("Content-Encoding", crw.encoding)
+	// Set compression headers.
+	crw.Header().Set("Content-Encoding", crw.encoder.name)
 	crw.Header().Set("Vary", "Accept-Encoding")
-	crw.Header().Del("Content-Length") // Remove content-length as it will change
+	crw.Header().Del("Content-Length") // Remove content-length as it will change after compression.
 
-	// Create compression writer
-	switch crw.encoding {
-	case "gzip":
-		gzipWriter, err := gzip.NewWriterLevel(crw.ResponseWriter, crw.level)
-		if err != nil {
-			crw.compressed = true
+	// Try to get a writer from the per-encoder pool and reset it.
+	if w, ok := crw.encoder.pool.Get().(io.WriteCloser); ok {
+		reset := false
+		switch rw := w.(type) {
+		case *gzip.Writer:
+			rw.Reset(crw.ResponseWriter)
+			reset = true
+		case *flate.Writer:
+			rw.Reset(crw.ResponseWriter)
+			reset = true
+		case *brotli.Writer:
+			rw.Reset(crw.ResponseWriter)
+			reset = true
+		case *zstd.Encoder:
+			rw.Reset(crw.ResponseWriter)
+			reset = true
+		}
+		if reset {
+			crw.writer = w
 			return
 		}
-		crw.writer = gzipWriter
-	case "deflate":
-		deflateWriter, err := flate.NewWriter(crw.ResponseWriter, crw.level)
-		if err != nil {
-			crw.compressed = true
-			return
-		}
-		crw.writer = deflateWriter
-	default:
+		// Unknown type — fall through to create a new writer.
+		crw.encoder.pool.Put(w)
+	}
+
+	// Create a new compression writer.
+	w, err := crw.encoder.newWriter(crw.ResponseWriter, crw.level)
+	if err != nil {
 		crw.compressed = true
 		return
 	}
+	crw.writer = w
 }
 
 // Close flushes and closes the compression writer
@@ -838,6 +996,7 @@ func (crw *compressionResponseWriter) Close() error {
 					return fmt.Errorf("write uncompressed buffer: %w", err)
 				}
 				crw.buf = nil
+				crw.returnBuf()
 				return nil
 			}
 
@@ -850,6 +1009,7 @@ func (crw *compressionResponseWriter) Close() error {
 			} else {
 				// Compression setup failed, write directly
 				if _, err := crw.ResponseWriter.Write(crw.buf); err != nil {
+					crw.returnBuf()
 					return fmt.Errorf("write buffer after compression setup failed: %w", err)
 				}
 			}
@@ -858,16 +1018,37 @@ func (crw *compressionResponseWriter) Close() error {
 	}
 
 	if crw.writer != nil {
-		// Close compression writer
-		switch w := crw.writer.(type) {
+		err := crw.writer.Close()
+		// Reset the writer to discard and return it to the per-encoder pool.
+		switch rw := crw.writer.(type) {
 		case *gzip.Writer:
-			return w.Close()
+			rw.Reset(io.Discard)
+			crw.encoder.pool.Put(rw)
 		case *flate.Writer:
-			return w.Close()
+			rw.Reset(io.Discard)
+			crw.encoder.pool.Put(rw)
+		case *brotli.Writer:
+			rw.Reset(io.Discard)
+			crw.encoder.pool.Put(rw)
+		case *zstd.Encoder:
+			rw.Reset(io.Discard)
+			crw.encoder.pool.Put(rw)
 		}
+		crw.writer = nil // prevent double-close
+		crw.returnBuf()
+		return err
 	}
 
+	crw.returnBuf()
 	return nil
+}
+
+func (crw *compressionResponseWriter) returnBuf() {
+	if crw.bufPtr != nil {
+		*crw.bufPtr = (*crw.bufPtr)[:0]
+		compressionBufPool.Put(crw.bufPtr)
+		crw.bufPtr = nil
+	}
 }
 
 // Hijack implements http.Hijacker so WebSocket upgrades work through this wrapper.

@@ -348,27 +348,10 @@ func setupGracefulShutdown(cancel context.CancelFunc) {
 }
 
 func printStartupInfo(port string) {
-	log.Printf("🚀 %s v%s starting on %s", serviceName, serviceVersion, port)
-	log.Println("📊 Monitoring endpoints:")
-	log.Println("   → /health       - Health check")
-	log.Println("   → /metrics      - Prometheus metrics")
-	log.Println("   → /info         - Service information")
-	log.Println("   → /proxy-status - Proxy configuration")
-	log.Println("   → /strategies   - Load balancing info")
-	log.Println("")
-	log.Println("🔀 Proxy endpoints:")
-	log.Println("   → /api/*        - API backends (weighted round-robin)")
-	log.Println("   → /auth/*       - Auth services (least connections)")
-	log.Println("   → users.example.com - User service (IP hash)")
-	log.Println("   → /static/*     - CDN backends (random)")
-	log.Println("   → /payments/*   - Payment service (round-robin)")
-	log.Println("")
-	log.Println("🔧 Features enabled:")
-	log.Println("   ✅ Health checking with automatic failover")
-	log.Println("   ✅ Traffic dumping with 10% sampling")
-	log.Println("   ✅ Security headers and rate limiting")
-	log.Println("   ✅ Request filtering and monitoring")
-	log.Println("   ✅ Comprehensive logging and metrics")
+	log.Printf("%s v%s starting on %s", serviceName, serviceVersion, port)
+	log.Println("Proxy: /api/*, /auth/*, /static/*, /payments/* (5 rules)")
+	log.Println("Try: curl http://localhost:8080/proxy-status")
+	log.Println("Press Ctrl+C to stop")
 }
 
 func showHelp() {

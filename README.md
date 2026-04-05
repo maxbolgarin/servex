@@ -42,6 +42,36 @@ func handler(w http.ResponseWriter, r *http.Request) {
 }
 ```
 
+### Standalone Binary (No Go Code)
+
+Use servex as a standalone server like Caddy or Nginx — no Go code required:
+
+```bash
+# Install
+go install github.com/maxbolgarin/servex/v2/cmd/servex@latest
+
+# Start with a preset — no config file needed
+servex -preset production -port 8080
+servex -preset api -port 3000
+servex -preset spa -static-dir ./dist -port 8080
+
+# Or use a config file
+servex -config server.yaml
+
+# Docker
+docker run -p 8080:8080 maxbolgarin/servex servex -preset production -port 8080
+```
+
+Use as a Docker base image:
+
+```dockerfile
+FROM maxbolgarin/servex:latest
+COPY servex.yaml /etc/servex/servex.yaml
+COPY dist/ /var/www/html/
+```
+
+Available presets: `production`, `api`, `webapp`, `microservice`, `security`, `spa`, `static`. See the [Standalone Server Guide](docs/STANDALONE.md) for full documentation.
+
 ## Presets
 
 Quick configurations for common scenarios:

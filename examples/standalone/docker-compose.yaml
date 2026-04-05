@@ -1,0 +1,21 @@
+# Servex — Reverse Proxy with Docker Compose
+#
+# Usage:
+#   docker compose up -d
+#
+# Mount your config file and point backends at other services in the network.
+
+services:
+  servex:
+    image: maxbolgarin/servex:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./reverse-proxy.yaml:/etc/servex/servex.yaml:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

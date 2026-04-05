@@ -15,20 +15,12 @@ func TestNewBuiltinMetrics(t *testing.T) {
 		t.Fatal("expected non-nil metrics instance")
 	}
 
-	if !metrics.enabled {
+	if !metrics.enabled.Load() {
 		t.Error("metrics should be enabled by default")
 	}
 
-	if metrics.statusCodes == nil {
-		t.Error("status codes map should be initialized")
-	}
-
-	if metrics.pathMetrics == nil {
-		t.Error("path metrics map should be initialized")
-	}
-
-	if metrics.methodMetrics == nil {
-		t.Error("method metrics map should be initialized")
+	if metrics.maxPathMetrics != defaultMaxPathMetrics {
+		t.Errorf("expected maxPathMetrics %d, got %d", defaultMaxPathMetrics, metrics.maxPathMetrics)
 	}
 }
 
@@ -36,12 +28,12 @@ func TestBuiltinMetrics_SetEnabled(t *testing.T) {
 	metrics := newBuiltinMetrics()
 
 	metrics.setEnabled(false)
-	if metrics.enabled {
+	if metrics.enabled.Load() {
 		t.Error("metrics should be disabled")
 	}
 
 	metrics.setEnabled(true)
-	if !metrics.enabled {
+	if !metrics.enabled.Load() {
 		t.Error("metrics should be enabled")
 	}
 }
@@ -55,16 +47,16 @@ func TestBuiltinMetrics_HandleRequest(t *testing.T) {
 	metrics.HandleRequest(req1)
 	metrics.HandleRequest(req2)
 
-	if metrics.requestCount != 2 {
-		t.Errorf("expected request count 2, got %d", metrics.requestCount)
+	if metrics.requestCount.Load() != 2 {
+		t.Errorf("expected request count 2, got %d", metrics.requestCount.Load())
 	}
 
-	if metrics.methodMetrics[GET] != 1 {
-		t.Errorf("expected GET method count 1, got %d", metrics.methodMetrics[GET])
+	if metrics.loadMethodCount(GET) != 1 {
+		t.Errorf("expected GET method count 1, got %d", metrics.loadMethodCount(GET))
 	}
 
-	if metrics.methodMetrics[POST] != 1 {
-		t.Errorf("expected POST method count 1, got %d", metrics.methodMetrics[POST])
+	if metrics.loadMethodCount(POST) != 1 {
+		t.Errorf("expected POST method count 1, got %d", metrics.loadMethodCount(POST))
 	}
 }
 
@@ -75,8 +67,8 @@ func TestBuiltinMetrics_HandleRequest_Disabled(t *testing.T) {
 	req := httptest.NewRequest(GET, "/test", nil)
 	metrics.HandleRequest(req)
 
-	if metrics.requestCount != 0 {
-		t.Errorf("expected request count 0 when disabled, got %d", metrics.requestCount)
+	if metrics.requestCount.Load() != 0 {
+		t.Errorf("expected request count 0 when disabled, got %d", metrics.requestCount.Load())
 	}
 }
 
@@ -86,45 +78,48 @@ func TestBuiltinMetrics_RecordResponse(t *testing.T) {
 	// Record a successful response
 	metrics.recordResponse("/api/users", GET, 200, 100*time.Millisecond, false)
 
-	if metrics.responseCount != 1 {
-		t.Errorf("expected response count 1, got %d", metrics.responseCount)
+	if metrics.responseCount.Load() != 1 {
+		t.Errorf("expected response count 1, got %d", metrics.responseCount.Load())
 	}
 
-	if metrics.errorCount != 0 {
-		t.Errorf("expected error count 0, got %d", metrics.errorCount)
+	if metrics.errorCount.Load() != 0 {
+		t.Errorf("expected error count 0, got %d", metrics.errorCount.Load())
 	}
 
-	if metrics.statusCodes[200] != 1 {
-		t.Errorf("expected status code 200 count 1, got %d", metrics.statusCodes[200])
+	if metrics.loadStatusCode(200) != 1 {
+		t.Errorf("expected status code 200 count 1, got %d", metrics.loadStatusCode(200))
 	}
 
-	pathMetric := metrics.pathMetrics["/api/users"]
+	pathMetric := metrics.loadPathMetric("/api/users")
 	if pathMetric == nil {
 		t.Fatal("expected path metric to be created")
 	}
 
-	if pathMetric.Count != 1 {
-		t.Errorf("expected path count 1, got %d", pathMetric.Count)
+	if pathMetric.Count.Load() != 1 {
+		t.Errorf("expected path count 1, got %d", pathMetric.Count.Load())
 	}
 
-	if pathMetric.ErrorCount != 0 {
-		t.Errorf("expected path error count 0, got %d", pathMetric.ErrorCount)
+	if pathMetric.ErrorCount.Load() != 0 {
+		t.Errorf("expected path error count 0, got %d", pathMetric.ErrorCount.Load())
 	}
 
 	// Record an error response
 	metrics.recordResponse("/api/error", POST, 500, 50*time.Millisecond, true)
 
-	if metrics.responseCount != 2 {
-		t.Errorf("expected response count 2, got %d", metrics.responseCount)
+	if metrics.responseCount.Load() != 2 {
+		t.Errorf("expected response count 2, got %d", metrics.responseCount.Load())
 	}
 
-	if metrics.errorCount != 1 {
-		t.Errorf("expected error count 1, got %d", metrics.errorCount)
+	if metrics.errorCount.Load() != 1 {
+		t.Errorf("expected error count 1, got %d", metrics.errorCount.Load())
 	}
 
-	errorPathMetric := metrics.pathMetrics["/api/error"]
-	if errorPathMetric.ErrorCount != 1 {
-		t.Errorf("expected path error count 1, got %d", errorPathMetric.ErrorCount)
+	errorPathMetric := metrics.loadPathMetric("/api/error")
+	if errorPathMetric == nil {
+		t.Fatal("expected error path metric to be created")
+	}
+	if errorPathMetric.ErrorCount.Load() != 1 {
+		t.Errorf("expected path error count 1, got %d", errorPathMetric.ErrorCount.Load())
 	}
 }
 
@@ -134,8 +129,8 @@ func TestBuiltinMetrics_RecordResponse_Disabled(t *testing.T) {
 
 	metrics.recordResponse("/api/test", GET, 200, 100*time.Millisecond, false)
 
-	if metrics.responseCount != 0 {
-		t.Errorf("expected response count 0 when disabled, got %d", metrics.responseCount)
+	if metrics.responseCount.Load() != 0 {
+		t.Errorf("expected response count 0 when disabled, got %d", metrics.responseCount.Load())
 	}
 }
 
@@ -230,7 +225,7 @@ func TestBuiltinMetrics_Reset(t *testing.T) {
 	metrics.recordResponse("/test", GET, 200, 100*time.Millisecond, false)
 
 	// Verify data exists
-	if metrics.requestCount == 0 {
+	if metrics.requestCount.Load() == 0 {
 		t.Error("expected non-zero request count before reset")
 	}
 
@@ -238,28 +233,28 @@ func TestBuiltinMetrics_Reset(t *testing.T) {
 	metrics.reset()
 
 	// Verify data is cleared
-	if metrics.requestCount != 0 {
-		t.Errorf("expected request count 0 after reset, got %d", metrics.requestCount)
+	if metrics.requestCount.Load() != 0 {
+		t.Errorf("expected request count 0 after reset, got %d", metrics.requestCount.Load())
 	}
 
-	if metrics.responseCount != 0 {
-		t.Errorf("expected response count 0 after reset, got %d", metrics.responseCount)
+	if metrics.responseCount.Load() != 0 {
+		t.Errorf("expected response count 0 after reset, got %d", metrics.responseCount.Load())
 	}
 
-	if metrics.errorCount != 0 {
-		t.Errorf("expected error count 0 after reset, got %d", metrics.errorCount)
+	if metrics.errorCount.Load() != 0 {
+		t.Errorf("expected error count 0 after reset, got %d", metrics.errorCount.Load())
 	}
 
-	if len(metrics.statusCodes) != 0 {
-		t.Errorf("expected empty status codes map after reset, got %d entries", len(metrics.statusCodes))
+	if metrics.statusCodesLen() != 0 {
+		t.Errorf("expected empty status codes after reset, got %d entries", metrics.statusCodesLen())
 	}
 
-	if len(metrics.pathMetrics) != 0 {
-		t.Errorf("expected empty path metrics map after reset, got %d entries", len(metrics.pathMetrics))
+	if metrics.pathMetricsLen() != 0 {
+		t.Errorf("expected empty path metrics after reset, got %d entries", metrics.pathMetricsLen())
 	}
 
-	if len(metrics.methodMetrics) != 0 {
-		t.Errorf("expected empty method metrics map after reset, got %d entries", len(metrics.methodMetrics))
+	if metrics.methodMetricsLen() != 0 {
+		t.Errorf("expected empty method metrics after reset, got %d entries", metrics.methodMetricsLen())
 	}
 }
 
@@ -395,30 +390,30 @@ func TestPathMetrics_TimingCalculations(t *testing.T) {
 		metrics.recordResponse("/api/test", GET, 200, duration, false)
 	}
 
-	pathMetric := metrics.pathMetrics["/api/test"]
+	pathMetric := metrics.loadPathMetric("/api/test")
 	if pathMetric == nil {
 		t.Fatal("expected path metric to exist")
 	}
 
 	// Check min time (10ms = 10,000,000 ns)
-	if pathMetric.MinTime != 10000000 {
-		t.Errorf("expected min time 10000000 ns, got %d", pathMetric.MinTime)
+	if pathMetric.MinTime.Load() != 10000000 {
+		t.Errorf("expected min time 10000000 ns, got %d", pathMetric.MinTime.Load())
 	}
 
 	// Check max time (100ms = 100,000,000 ns)
-	if pathMetric.MaxTime != 100000000 {
-		t.Errorf("expected max time 100000000 ns, got %d", pathMetric.MaxTime)
+	if pathMetric.MaxTime.Load() != 100000000 {
+		t.Errorf("expected max time 100000000 ns, got %d", pathMetric.MaxTime.Load())
 	}
 
 	// Check total time (160ms = 160,000,000 ns)
 	expectedTotal := int64(160000000)
-	if pathMetric.TotalTime != expectedTotal {
-		t.Errorf("expected total time %d ns, got %d", expectedTotal, pathMetric.TotalTime)
+	if pathMetric.TotalTime.Load() != expectedTotal {
+		t.Errorf("expected total time %d ns, got %d", expectedTotal, pathMetric.TotalTime.Load())
 	}
 
 	// Check count
-	if pathMetric.Count != 3 {
-		t.Errorf("expected count 3, got %d", pathMetric.Count)
+	if pathMetric.Count.Load() != 3 {
+		t.Errorf("expected count 3, got %d", pathMetric.Count.Load())
 	}
 }
 
@@ -477,8 +472,8 @@ func TestMetricsIntegration(t *testing.T) {
 	server.Router().ServeHTTP(recorder, req)
 
 	// Check that metrics were recorded
-	if metrics.requestCount != 1 {
-		t.Errorf("expected request count 1, got %d", metrics.requestCount)
+	if metrics.requestCount.Load() != 1 {
+		t.Errorf("expected request count 1, got %d", metrics.requestCount.Load())
 	}
 
 	// The response recording happens in the logging middleware
@@ -486,5 +481,43 @@ func TestMetricsIntegration(t *testing.T) {
 	snapshot := metrics.getSnapshot()
 	if snapshot.RequestCount != 1 {
 		t.Errorf("expected snapshot request count 1, got %d", snapshot.RequestCount)
+	}
+}
+
+func TestBuiltinMetrics_CardinalityProtection(t *testing.T) {
+	metrics := newBuiltinMetrics()
+	metrics.maxPathMetrics = 3 // Low cap for testing
+
+	// Record paths up to the cap
+	metrics.recordResponse("/api/a", GET, 200, 10*time.Millisecond, false)
+	metrics.recordResponse("/api/b", GET, 200, 10*time.Millisecond, false)
+	metrics.recordResponse("/api/c", GET, 200, 10*time.Millisecond, false)
+
+	// This should go to "_other" bucket
+	metrics.recordResponse("/api/d", GET, 200, 10*time.Millisecond, false)
+	metrics.recordResponse("/api/e", GET, 200, 10*time.Millisecond, false)
+
+	// Verify cap was respected
+	if metrics.loadPathMetric("/api/a") == nil {
+		t.Error("expected /api/a metric to exist")
+	}
+	if metrics.loadPathMetric("/api/b") == nil {
+		t.Error("expected /api/b metric to exist")
+	}
+	if metrics.loadPathMetric("/api/c") == nil {
+		t.Error("expected /api/c metric to exist")
+	}
+
+	// /api/d and /api/e should have been routed to _other
+	if metrics.loadPathMetric("/api/d") != nil {
+		t.Error("expected /api/d metric to NOT exist (should be in _other)")
+	}
+
+	otherMetric := metrics.loadPathMetric("_other")
+	if otherMetric == nil {
+		t.Fatal("expected _other metric to exist")
+	}
+	if otherMetric.Count.Load() != 2 {
+		t.Errorf("expected _other count 2, got %d", otherMetric.Count.Load())
 	}
 }

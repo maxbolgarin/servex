@@ -11,10 +11,8 @@ import (
 )
 
 func main() {
-	fmt.Println("🛡️  Tutorial 11: Location-Based Filtering & Rate Limiting")
-	fmt.Println("=====================================================")
-	fmt.Println("Learn how to apply different filtering rules AND rate limits to different URL paths")
-	fmt.Println()
+	fmt.Println("Servex Tutorial - Location-Based Filtering & Rate Limiting")
+	fmt.Println("==========================================================")
 
 	// Create Servex server
 	server, err := servex.NewServer(
@@ -423,34 +421,9 @@ func main() {
 		})
 	}).Methods(servex.GET)
 
-	// Start server with helpful testing information
-	fmt.Println("🌐 Server starting on http://localhost:8080")
-	fmt.Println()
-	fmt.Println("🛡️  Security & Performance Protection:")
-	fmt.Println("  → Location-based filtering rules")
-	fmt.Println("  → Location-based rate limiting")
-	fmt.Println("  → Graduated security levels")
-	fmt.Println("  → Performance protection")
-	fmt.Println()
-	fmt.Println("📊 Protection configuration:")
-	fmt.Println("  🔐 Auth endpoints:   IP + User-Agent + 5 req/min")
-	fmt.Println("  🔑 API endpoints:    IP + API Key + 100 req/min")
-	fmt.Println("  👑 Admin endpoints:  Maximum Security + 500 req/min")
-	fmt.Println("  📁 Upload endpoints: Content-Type + 10 req/min")
-	fmt.Println("  🌍 Public endpoints: Bot protection + 1000 req/min")
-	fmt.Println("  ❌ Other endpoints:  No protection")
-	fmt.Println()
-	fmt.Println("📋 Available endpoints:")
-	fmt.Println("  POST /auth/login, /auth/register")
-	fmt.Println("  GET  /api/v1/users, /api/v2/posts")
-	fmt.Println("  GET  /admin/dashboard, /admin/users")
-	fmt.Println("  POST /upload/image, /upload/document")
-	fmt.Println("  GET  /public/info")
-	fmt.Println("  GET  /other/info")
-	fmt.Println("  GET  /security-performance-status")
-	fmt.Println("  GET  /health")
-	fmt.Println()
-	fmt.Println("🧪 Test both security filtering AND rate limiting!")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Zones: /auth/* (strict), /api/* (moderate), /admin/* (maximum), /upload/*, /public/*")
+	fmt.Println("Try: curl http://localhost:8080/security-performance-status")
 	fmt.Println("Press Ctrl+C to stop")
 
 	if err := server.StartWithWaitSignalsHTTP(context.Background(), ":8080"); err != nil {

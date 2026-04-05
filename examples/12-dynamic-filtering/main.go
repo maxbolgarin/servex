@@ -24,10 +24,8 @@ var (
 )
 
 func main() {
-	fmt.Println("🛡️  Tutorial 12: Dynamic Filtering")
-	fmt.Println("==================================")
-	fmt.Println("Learn how to dynamically update filtering rules at runtime")
-	fmt.Println()
+	fmt.Println("Servex Tutorial - Dynamic Filtering")
+	fmt.Println("===================================")
 
 	// Create server with initial filtering enabled
 	server, err := servex.NewServer(
@@ -69,41 +67,9 @@ func main() {
 	// === PATTERN DETECTION MIDDLEWARE ===
 	setupPatternDetection(server, filter)
 
-	// Start server with helpful information
-	fmt.Println("🌐 Server starting on http://localhost:8080")
-	fmt.Println()
-	fmt.Println("🛡️  Security Features:")
-	fmt.Println("  → Dynamic IP blocking/unblocking")
-	fmt.Println("  → Honeypot traps with automatic blocking")
-	fmt.Println("  → Temporary blocks with auto-expiration")
-	fmt.Println("  → Pattern-based threat detection")
-	fmt.Println("  → Real-time security monitoring")
-	fmt.Println()
-	fmt.Println("🎯 Test Endpoints:")
-	fmt.Println("  🍯 Honeypots (⚠️  will block your IP):")
-	fmt.Println("     → GET  /admin/backup.sql")
-	fmt.Println("     → GET  /wp-admin/admin-ajax.php")
-	fmt.Println("     → GET  /.env")
-	fmt.Println()
-	fmt.Println("  🔧 Security Management:")
-	fmt.Println("     → POST /security/block (ip=...)")
-	fmt.Println("     → POST /security/unblock (ip=...)")
-	fmt.Println("     → GET  /security/blocked")
-	fmt.Println("     → GET  /security/dashboard")
-	fmt.Println()
-	fmt.Println("  📊 Monitoring:")
-	fmt.Println("     → GET  /security/metrics")
-	fmt.Println("     → GET  /security/threats")
-	fmt.Println("     → GET  /security/events/live")
-	fmt.Println()
-	fmt.Println("  🧪 Test APIs:")
-	fmt.Println("     → GET  /api/test")
-	fmt.Println("     → GET  /api/rate-limited")
-	fmt.Println("     → GET  /api/public/info")
-	fmt.Println()
-	fmt.Println("⚠️  WARNING: Accessing honeypot endpoints will block your IP!")
-	fmt.Println("💡 Use /security/unblock to unblock yourself if needed")
-	fmt.Println()
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl http://localhost:8080/security/dashboard")
+	fmt.Println("Warning: honeypot endpoints (/admin/backup.sql, /.env) will block your IP")
 	fmt.Println("Press Ctrl+C to stop")
 
 	if err := server.StartWithWaitSignalsHTTP(context.Background(), ":8080"); err != nil {

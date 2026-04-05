@@ -2,39 +2,54 @@ package main
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/maxbolgarin/servex/v2"
 )
 
+// This example demonstrates all available presets.
+// Run with an argument to select a preset:
+//
+//	go run main.go             # development (default)
+//	go run main.go production  # production
+//	go run main.go api         # REST API
+//	go run main.go micro       # microservice
+//	go run main.go auth        # API with authentication
 func main() {
-	fmt.Println("=== Servex Quickstart Examples ===")
-	fmt.Println("Choose an example to run:")
-	fmt.Println("1. Quick Development Server")
-	fmt.Println("2. Production-Ready Server")
-	fmt.Println("3. REST API Server")
-	fmt.Println("4. Web Application Server")
-	fmt.Println("5. Microservice Server")
-	fmt.Println("6. High-Security Server")
-	fmt.Println("7. SSL-Enabled Server")
-	fmt.Println("8. API with Authentication")
-	fmt.Println("")
+	preset := "development"
+	if len(os.Args) > 1 {
+		preset = os.Args[1]
+	}
 
-	// For demo purposes, we'll run the development server
-	// Users can modify main() to run different examples
-	fmt.Println("Running: Quick Development Server")
-	quickDevelopmentServer()
+	switch preset {
+	case "development", "dev":
+		runDevelopment()
+	case "production", "prod":
+		runProduction()
+	case "api":
+		runAPI()
+	case "micro", "microservice":
+		runMicroservice()
+	case "auth":
+		runAuth()
+	default:
+		fmt.Println("Servex Quickstart - Available presets:")
+		fmt.Println("  go run main.go              development server")
+		fmt.Println("  go run main.go production   production with security + rate limiting")
+		fmt.Println("  go run main.go api          REST API with CORS + caching")
+		fmt.Println("  go run main.go micro        microservice with fast timeouts")
+		fmt.Println("  go run main.go auth         API with JWT authentication")
+		os.Exit(1)
+	}
 }
 
-// Example 1: Quick Development Server
-func quickDevelopmentServer() {
-	// === Quick Development Server ===
-
-	// Just one line with preset - perfect for development!
+// runDevelopment starts a server with DevelopmentPreset.
+// Features: health endpoint, metrics, debug mode (errors sent to client).
+func runDevelopment() {
 	server, err := servex.NewServer(servex.DevelopmentPreset()...)
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
@@ -48,33 +63,22 @@ func quickDevelopmentServer() {
 		})
 	})
 
-	// Development server configured with:
-	// - 30s read timeout
-	// - Health endpoint at /health
-	// - No security restrictions (for easy debugging)
-	// - Client errors logged (more noise for debugging)
-
-	fmt.Println("Starting development server on :8080")
+	fmt.Println("Servex Quickstart - Development Server")
+	fmt.Println("Server: http://localhost:8080")
 	fmt.Println("Try: curl http://localhost:8080/hello")
-	fmt.Println("Health check: curl http://localhost:8080/health")
+	fmt.Println("Press Ctrl+C to stop")
 
-	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
-	if err != nil {
-		log.Fatal("Failed to start server:", err)
+	if err := server.StartWithWaitSignalsHTTP(context.Background(), ":8080"); err != nil {
+		log.Fatal(err)
 	}
 }
 
-// Example 2: Production-Ready Server
-func productionReadyServer() {
-	// === Production-Ready Server ===
-
-	// TODO: Add TLS certificate and key to the server
-	tlsCert := tls.Certificate{}
-
-	// Production preset with additional custom options
+// runProduction starts a server with ProductionPreset.
+// Features: strict security headers, CSRF, 100 rps rate limiting,
+// compression, health/metrics, audit logging.
+func runProduction() {
 	server, err := servex.NewServer(servex.MergeWithPreset(
-		servex.ProductionPreset(tlsCert),
-		// Add any custom options on top of the preset
+		servex.ProductionPreset(),
 		servex.WithCustomHeaders(map[string]string{
 			"X-App-Version": "1.0.0",
 		}),
@@ -82,6 +86,7 @@ func productionReadyServer() {
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
 	}
+
 	server.HandleFunc("/api/users", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
 		ctx.Response(200, map[string]any{
@@ -98,28 +103,20 @@ func productionReadyServer() {
 		})
 	})
 
-	// Production server configured with:
-	// - Strict security headers
-	// - 100 RPS rate limiting
-	// - Health endpoint at /health
-	// - Server headers removed
-	// - Security exclusions for monitoring endpoints
+	fmt.Println("Servex Quickstart - Production Server")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl http://localhost:8080/api/users")
+	fmt.Println("Press Ctrl+C to stop")
 
-	// Start with graceful shutdown
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	fmt.Println("Starting production server on :8080 and :8443")
-	err = server.StartWithWaitSignals(ctx, ":8080", ":8443")
-	if err != nil {
-		log.Fatal("Failed to start server:", err)
+	if err := server.StartWithWaitSignalsHTTP(context.Background(), ":8080"); err != nil {
+		log.Fatal(err)
 	}
 }
 
-// Example 3: REST API Server
-func restAPIServer() {
-	// === REST API Server ===
-
+// runAPI starts a server with APIServerPreset.
+// Features: CORS, 1000 rpm rate limiting, compression,
+// 10 MB body limit, 1 MB JSON limit, API caching (5 min).
+func runAPI() {
 	server, err := servex.NewServer(
 		servex.MergeWithPreset(
 			servex.APIServerPreset(),
@@ -130,206 +127,110 @@ func restAPIServer() {
 		log.Fatal("Failed to create server:", err)
 	}
 
-	// API routes
-	server.HandleFunc("/api/v1/users", handleQuickUsers).Methods(servex.GET, servex.POST)
-	server.HandleFunc("/api/v1/users/{id}", handleUserByID).Methods(servex.GET, servex.PUT, servex.DELETE)
-	server.HandleFunc("/api/v1/posts", handlePosts).Methods(servex.GET, servex.POST)
+	server.HandleFunc("/api/v1/users", handleUsers).Methods(servex.GET, servex.POST)
+	server.HandleFunc("/api/v1/users/{id}", handleUserByID).Methods(servex.GET)
+	server.HandleFunc("/api/v1/posts", handlePosts).Methods(servex.GET)
 
-	// API server configured with:
-	// - API-friendly security headers
-	// - 1000 RPM rate limiting with 50 burst
-	// - Health endpoint at /api/health
-	// - X-API-Version header
-	// - No CSP (not needed for APIs)
+	fmt.Println("Servex Quickstart - REST API Server")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl http://localhost:8080/api/v1/users")
+	fmt.Println("Press Ctrl+C to stop")
 
-	fmt.Println("Starting REST API server on :8080")
-	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
-	if err != nil {
-		log.Fatal("Failed to start server:", err)
+	if err := server.StartWithWaitSignalsHTTP(context.Background(), ":8080"); err != nil {
+		log.Fatal(err)
 	}
 }
 
-// Example 4: Web Application Server
-func webApplicationServer() {
-	// === Web Application Server ===
-
-	// TODO: Add TLS certificate and key to the server
-	tlsCert := tls.Certificate{}
-
-	server, err := servex.NewServer(servex.WebAppPreset(tlsCert)...)
-	if err != nil {
-		log.Fatal("Failed to create server:", err)
-	}
-
-	// Web routes
-	server.HandleFunc("/", handleHomePage)
-	server.HandleFunc("/about", handleAboutPage)
-	server.HandleFunc("/api/data", handleAPIData)
-
-	// Static files (would typically use http.FileServer)
-	server.HandleFunc("/static/", handleStaticFiles)
-
-	// Web application server configured with:
-	// - Comprehensive web security headers
-	// - Content Security Policy for web apps
-	// - 50 RPS rate limiting
-	// - Static file exclusions from rate limiting
-	// - Common web asset exclusions
-
-	fmt.Println("Starting web application server on :8080 and :8443")
-	err = server.StartWithWaitSignals(context.Background(), ":8080", ":8443")
-	if err != nil {
-		log.Fatal("Failed to start server:", err)
-	}
-}
-
-// Example 5: Microservice Server
-func microserviceServer() {
-	// === Microservice Server ===
-
+// runMicroservice starts a server with MicroservicePreset.
+// Features: fast timeouts (5s read, 30s idle), basic security,
+// 5 MB body limit, 200 rps rate limiting.
+func runMicroservice() {
 	server, err := servex.NewServer(servex.MicroservicePreset()...)
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
 	}
-	// Microservice endpoints
-	server.HandleFunc("/api/v1/process", handleProcess)
-	server.HandleFunc("/api/v1/status", handleServiceStatus)
-	server.HandleFunc("/metrics", handleMetrics)
-	server.HandleFunc("/ready", handleReadiness)
 
-	// Microservice server configured with:
-	// - Fast timeouts (5s read, 2s header, 30s idle)
-	// - Basic security headers only
-	// - 200 RPS rate limiting
-	// - Health, metrics, and readiness endpoints
-	// - Monitoring exclusions from security
-
-	fmt.Println("Starting microservice server on :8080")
-	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
-	if err != nil {
-		log.Fatal("Failed to start server:", err)
-	}
-}
-
-// Example 6: High-Security Server
-func highSecurityServer() {
-	// === High-Security Server ===
-
-	// TODO: Add TLS certificate and key to the server
-	tlsCert := tls.Certificate{}
-
-	server, err := servex.NewServer(servex.HighSecurityPreset(tlsCert)...)
-	if err != nil {
-		log.Fatal("Failed to create server:", err)
-	}
-
-	// Secure endpoints only
-	server.HandleFunc("/api/secure/data", handleSecureData)
-	server.HandleFunc("/api/secure/admin", handleSecureAdmin)
-
-	// High-security server configured with:
-	// - Strict security headers with HSTS preload
-	// - Bot and scraper blocking
-	// - Debug parameter blocking
-	// - Aggressive rate limiting (20 RPS)
-	// - All server identification headers removed
-
-	fmt.Println("Starting high-security server on :8443 (HTTPS only)")
-	err = server.StartWithWaitSignalsHTTPS(context.Background(), ":8443") // HTTPS only for high security
-	if err != nil {
-		log.Fatal("Failed to start server:", err)
-	}
-}
-
-// Example 7: SSL-Enabled Server
-func sslEnabledServer() {
-	// === SSL-Enabled Server ===
-
-	// TODO: Add TLS certificate and key to the server
-	tlsCert := tls.Certificate{}
-
-	// Quick SSL setup with preset
-	server, err := servex.NewServer(
-		servex.MergeWithPreset(
-			servex.TLSPreset("cert.pem", "key.pem", tlsCert),
-			servex.WithReadTimeout(10*time.Second),
-			servex.WithIdleTimeout(60*time.Second),
-			servex.WithMaxRequestBodySize(1024*1024),
-			servex.WithCORS(),
-		)...,
-	)
-	if err != nil {
-		log.Fatal("Failed to create server:", err)
-	}
-
-	server.HandleFunc("/api/secure", func(w http.ResponseWriter, r *http.Request) {
+	server.HandleFunc("/api/v1/process", func(w http.ResponseWriter, r *http.Request) {
 		ctx := servex.C(w, r)
 		ctx.Response(200, map[string]string{
-			"message": "Secure HTTPS endpoint",
-			"tls":     "enabled",
+			"status": "processed",
+			"id":     "12345",
 		})
 	})
 
-	// SSL server configured with:
-	// - Production preset + SSL certificate
-	// - HSTS header (1 year)
-	// - All production security features
+	server.HandleFunc("/api/v1/status", func(w http.ResponseWriter, r *http.Request) {
+		ctx := servex.C(w, r)
+		ctx.Response(200, map[string]string{
+			"service": "running",
+			"version": "1.0.0",
+		})
+	})
 
-	fmt.Println("Starting SSL server on :8443")
-	err = server.StartWithWaitSignalsHTTPS(context.Background(), ":8443") // HTTPS only
-	if err != nil {
-		log.Fatal("Failed to start server:", err)
+	fmt.Println("Servex Quickstart - Microservice Server")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl http://localhost:8080/api/v1/process")
+	fmt.Println("Press Ctrl+C to stop")
+
+	if err := server.StartWithWaitSignalsHTTP(context.Background(), ":8080"); err != nil {
+		log.Fatal(err)
 	}
 }
 
-// Example 8: API with Authentication
-func apiWithAuthentication() {
-	// === API with Authentication ===
-
+// runAuth starts an API server with JWT authentication.
+// Features: in-memory auth database, auto-registered auth endpoints,
+// initial admin user, protected routes with role-based access.
+func runAuth() {
 	server, err := servex.NewServer(
-		// Enable in-memory auth database for this example
 		servex.WithAuthMemoryDatabase(),
-
-		// Add initial admin user
 		servex.WithAuthInitialUsers(servex.InitialUser{
 			Username: "admin",
 			Password: "admin123",
-			Roles:    []servex.UserRole{servex.UserRole("admin")},
+			Roles:    []servex.UserRole{"admin"},
 		}),
 	)
 	if err != nil {
 		log.Fatal("Failed to create server:", err)
 	}
-	// Public endpoints
-	server.HandleFunc("/api/v1/public", handlePublicData)
 
-	// Protected endpoints
-	server.HFA("/api/v1/protected", handleProtectedData, servex.UserRole("user"))
-	server.HFA("/api/v1/admin", handleAdminData, servex.UserRole("admin"))
+	// Public endpoint
+	server.HandleFunc("/api/v1/public", func(w http.ResponseWriter, r *http.Request) {
+		ctx := servex.C(w, r)
+		ctx.Response(200, map[string]string{
+			"message": "This is public data",
+		})
+	})
 
-	// Authenticated API server configured with:
-	// - API preset + JWT authentication
-	// - Auth endpoints at /api/v1/auth/*
-	// - 15-minute access tokens, 7-day refresh tokens
-	// - Initial admin user created
-	// - No rate limiting on auth routes
+	// Protected endpoints (require authentication)
+	server.HFA("/api/v1/protected", func(w http.ResponseWriter, r *http.Request) {
+		ctx := servex.C(w, r)
+		ctx.Response(200, map[string]string{
+			"message": "Authenticated!",
+			"user":    r.Context().Value(servex.UserContextKey{}).(string),
+		})
+	}, "user")
 
-	// Available auth endpoints:
-	// - POST /api/v1/auth/register
-	// - POST /api/v1/auth/login
-	// - POST /api/v1/auth/refresh
-	// - POST /api/v1/auth/logout
+	server.HFA("/api/v1/admin", func(w http.ResponseWriter, r *http.Request) {
+		ctx := servex.C(w, r)
+		ctx.Response(200, map[string]string{
+			"message": "Admin access granted",
+			"user":    r.Context().Value(servex.UserContextKey{}).(string),
+		})
+	}, "admin")
 
-	fmt.Println("Starting authenticated API server on :8080")
-	fmt.Println("Login with: admin/admin123")
-	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
-	if err != nil {
-		log.Fatal("Failed to start server:", err)
+	fmt.Println("Servex Quickstart - Auth API Server")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Auth endpoints: POST /api/v1/auth/{register,login,refresh,logout}")
+	fmt.Println("Login: admin / admin123")
+	fmt.Println("Press Ctrl+C to stop")
+
+	if err := server.StartWithWaitSignalsHTTP(context.Background(), ":8080"); err != nil {
+		log.Fatal(err)
 	}
 }
 
-// Handler functions
-func handleQuickUsers(w http.ResponseWriter, r *http.Request) {
+// Handlers
+
+func handleUsers(w http.ResponseWriter, r *http.Request) {
 	ctx := servex.C(w, r)
 	if r.Method == servex.GET {
 		ctx.Response(200, []map[string]string{
@@ -344,7 +245,7 @@ func handleQuickUsers(w http.ResponseWriter, r *http.Request) {
 func handleUserByID(w http.ResponseWriter, r *http.Request) {
 	ctx := servex.C(w, r)
 	ctx.Response(200, map[string]string{
-		"id":   "1",
+		"id":   ctx.Path("id"),
 		"name": "Alice",
 	})
 }
@@ -353,88 +254,5 @@ func handlePosts(w http.ResponseWriter, r *http.Request) {
 	ctx := servex.C(w, r)
 	ctx.Response(200, []map[string]string{
 		{"id": "1", "title": "Hello World"},
-	})
-}
-
-func handleHomePage(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "<html><body><h1>Welcome to My App</h1></body></html>")
-}
-
-func handleAboutPage(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "<html><body><h1>About Us</h1></body></html>")
-}
-
-func handleAPIData(w http.ResponseWriter, r *http.Request) {
-	ctx := servex.C(w, r)
-	ctx.Response(200, map[string]any{
-		"data": []string{"item1", "item2", "item3"},
-	})
-}
-
-func handleStaticFiles(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Static file content")
-}
-
-func handleProcess(w http.ResponseWriter, r *http.Request) {
-	ctx := servex.C(w, r)
-	ctx.Response(200, map[string]string{
-		"status": "processed",
-		"id":     "12345",
-	})
-}
-
-func handleServiceStatus(w http.ResponseWriter, r *http.Request) {
-	ctx := servex.C(w, r)
-	ctx.Response(200, map[string]string{
-		"service": "running",
-		"version": "1.0.0",
-	})
-}
-
-func handleMetrics(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "# HELP requests_total Total requests\nrequests_total 42\n")
-}
-
-func handleReadiness(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "ready")
-}
-
-func handleSecureData(w http.ResponseWriter, r *http.Request) {
-	ctx := servex.C(w, r)
-	ctx.Response(200, map[string]string{
-		"data":     "top secret",
-		"security": "maximum",
-	})
-}
-
-func handleSecureAdmin(w http.ResponseWriter, r *http.Request) {
-	ctx := servex.C(w, r)
-	ctx.Response(200, map[string]string{
-		"admin": "panel",
-		"users": "5",
-	})
-}
-
-func handlePublicData(w http.ResponseWriter, r *http.Request) {
-	ctx := servex.C(w, r)
-	ctx.Response(200, map[string]string{
-		"message": "This is public data",
-		"access":  "open",
-	})
-}
-
-func handleProtectedData(w http.ResponseWriter, r *http.Request) {
-	ctx := servex.C(w, r)
-	ctx.Response(200, map[string]string{
-		"message": "This is protected data",
-		"access":  "authenticated",
-	})
-}
-
-func handleAdminData(w http.ResponseWriter, r *http.Request) {
-	ctx := servex.C(w, r)
-	ctx.Response(200, map[string]string{
-		"message": "This is admin data",
-		"access":  "admin-only",
 	})
 }

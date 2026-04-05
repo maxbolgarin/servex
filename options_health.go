@@ -1,5 +1,75 @@
 package servex
 
+import (
+	"context"
+	"time"
+)
+
+// HealthCheckFunc is a dependency check invoked by the readiness probe.
+// Return nil if the dependency is healthy, or an error describing the failure.
+type HealthCheckFunc func(ctx context.Context) error
+
+// NamedHealthCheck pairs a check function with a display name used in probe responses.
+type NamedHealthCheck struct {
+	Name  string
+	Check HealthCheckFunc
+}
+
+// HealthCheck is a convenience constructor for NamedHealthCheck.
+//
+// Example:
+//
+//	servex.WithHealthChecks(
+//		servex.HealthCheck("postgres", db.PingContext),
+//		servex.HealthCheck("redis", redisClient.Ping),
+//	)
+func HealthCheck(name string, check HealthCheckFunc) NamedHealthCheck {
+	return NamedHealthCheck{Name: name, Check: check}
+}
+
+// WithHealthChecks registers dependency checks for the readiness probe.
+// When checks are registered, /ready and /live endpoints are auto-created
+// (unless custom paths are set via WithReadinessPath / WithLivenessPath).
+//
+// Example:
+//
+//	server, _ := servex.NewServer(
+//		servex.WithHealthChecks(
+//			servex.HealthCheck("postgres", db.PingContext),
+//			servex.HealthCheck("redis", func(ctx context.Context) error {
+//				return redisClient.Ping(ctx).Err()
+//			}),
+//		),
+//	)
+func WithHealthChecks(checks ...NamedHealthCheck) Option {
+	return func(op *Options) {
+		op.HealthChecks = append(op.HealthChecks, checks...)
+	}
+}
+
+// WithReadinessPath sets the path for the readiness probe endpoint.
+// Default is "/ready" when health checks are registered.
+func WithReadinessPath(path string) Option {
+	return func(op *Options) {
+		op.ReadinessPath = path
+	}
+}
+
+// WithLivenessPath sets the path for the liveness probe endpoint.
+// Default is "/live" when health checks are registered.
+func WithLivenessPath(path string) Option {
+	return func(op *Options) {
+		op.LivenessPath = path
+	}
+}
+
+// WithReadinessTimeout sets the maximum duration for running all health checks
+// during a readiness probe request. Default is 5 seconds.
+func WithReadinessTimeout(d time.Duration) Option {
+	return func(op *Options) {
+		op.ReadinessTimeout = d
+	}
+}
 
 // WithHealthEndpoint enables an automatic health check endpoint that returns server status.
 // This creates a simple endpoint that responds with "OK" and HTTP 200 status.
@@ -322,6 +392,16 @@ func WithMetricsAndDefault(customMetrics Metrics, path ...string) Option {
 		if len(path) > 0 {
 			op.MetricsPath = path[0]
 		}
+	}
+}
+
+// WithMaxPathMetrics sets the maximum number of unique path labels tracked by the built-in metrics.
+// When the limit is reached, new paths are grouped under the "_other" bucket.
+// This prevents cardinality explosion from path parameters like /users/{id}.
+// Default: 1000. Set to 0 to disable the cap (not recommended in production).
+func WithMaxPathMetrics(n int) Option {
+	return func(op *Options) {
+		op.maxPathMetrics = n
 	}
 }
 

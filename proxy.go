@@ -1,6 +1,7 @@
 package servex
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -56,10 +57,12 @@ type Backend struct {
 	MaxConnections int `yaml:"max_connections" json:"max_connections"`
 
 	// Internal fields
-	url         *url.URL
-	healthy     atomic.Bool
-	connections atomic.Int64
-	proxy       *httputil.ReverseProxy
+	url            *url.URL
+	healthy        atomic.Bool
+	connections    atomic.Int64
+	proxy          *httputil.ReverseProxy
+	failureTracker *backendFailureTracker
+	cb             *circuitBreaker
 }
 
 // ProxyRule represents a routing rule for the proxy
@@ -91,6 +94,21 @@ type ProxyRule struct {
 	// DumpDirectory specifies where to dump traffic (uses global if empty)
 	DumpDirectory string `yaml:"dump_directory" json:"dump_directory"`
 
+	// PassiveHealth configures passive health checking based on live traffic responses.
+	// When enabled, backends are marked unhealthy immediately when failure threshold is exceeded.
+	PassiveHealth PassiveHealthConfig `yaml:"passive_health" json:"passive_health"`
+
+	// ShouldBufferResponse decides whether to buffer the entire backend response before
+	// forwarding to the client. This allows inspecting the response status and headers,
+	// and replacing error responses with custom error pages.
+	// If nil, responses stream directly (default behavior).
+	// The function receives the backend's status code and response headers.
+	ShouldBufferResponse func(statusCode int, header http.Header) bool `yaml:"-" json:"-"`
+
+	// DynamicUpstream configures DNS-based dynamic backend discovery.
+	// When set, backends are resolved from DNS records instead of static configuration.
+	DynamicUpstream DynamicUpstreamConfig `yaml:"dynamic_upstream" json:"dynamic_upstream"`
+
 	// Internal fields
 	counter      atomic.Uint64 // for round robin
 	backends     []*Backend
@@ -115,6 +133,8 @@ type ProxyConfiguration struct {
 	TrafficDump TrafficDumpConfig `yaml:"traffic_dump" json:"traffic_dump"`
 	// HealthCheck configuration
 	HealthCheck HealthCheckConfig `yaml:"health_check" json:"health_check"`
+	// CircuitBreaker configures per-backend circuit breaking.
+	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker" json:"circuit_breaker"`
 	// InsecureSkipVerify skips certificate verification
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify" json:"insecure_skip_verify"`
 }
@@ -137,6 +157,91 @@ type TrafficDumpConfig struct {
 	SampleRate float64 `yaml:"sample_rate" json:"sample_rate"`
 }
 
+// CircuitBreakerConfig configures per-backend circuit breaking.
+// When enabled, backends are temporarily removed from the pool after consecutive failures.
+type CircuitBreakerConfig struct {
+	// Enabled activates circuit breaking for all proxy backends.
+	Enabled bool `yaml:"enabled" json:"enabled"`
+	// Threshold is the number of consecutive failures before opening the circuit.
+	// Default: 5.
+	Threshold int `yaml:"threshold" json:"threshold"`
+	// Timeout is how long to keep the circuit open before allowing a probe request (half-open).
+	// Default: 30 seconds.
+	Timeout time.Duration `yaml:"timeout" json:"timeout"`
+}
+
+// Circuit breaker states.
+const (
+	cbClosed   int32 = 0
+	cbOpen     int32 = 1
+	cbHalfOpen int32 = 2
+)
+
+// circuitBreaker implements a consecutive-failure circuit breaker per backend.
+type circuitBreaker struct {
+	state         atomic.Int32
+	failures      atomic.Int32
+	lastFailure   atomic.Int64 // Unix nanoseconds
+	probeInFlight atomic.Bool  // ensures only one probe in half-open state
+	threshold     int
+	timeout       time.Duration
+}
+
+// isOpen returns true if the circuit is open and no request should be sent.
+// On timeout expiry it transitions from open to half-open (allows exactly one probe).
+func (cb *circuitBreaker) isOpen() bool {
+	state := cb.state.Load()
+	if state == cbClosed {
+		return false
+	}
+	if state == cbOpen {
+		elapsed := time.Since(time.Unix(0, cb.lastFailure.Load()))
+		if elapsed >= cb.timeout {
+			if cb.state.CompareAndSwap(cbOpen, cbHalfOpen) {
+				// Won the CAS — this goroutine may probe
+				cb.probeInFlight.Store(true)
+				return false
+			}
+			// Another goroutine won the CAS; fall through to half-open check
+			state = cb.state.Load()
+			if state != cbHalfOpen {
+				return state == cbOpen
+			}
+		} else {
+			return true
+		}
+	}
+	// cbHalfOpen — allow only one concurrent probe request
+	if cb.probeInFlight.CompareAndSwap(true, false) {
+		return false // this goroutine is the probe
+	}
+	return true // another probe is already in flight, reject
+}
+
+// recordSuccess resets the failure count and closes the circuit.
+func (cb *circuitBreaker) recordSuccess() {
+	cb.failures.Store(0)
+	cb.probeInFlight.Store(false)
+	cb.state.Store(cbClosed)
+}
+
+// recordFailure increments the failure counter and opens the circuit on threshold breach.
+// In half-open state, a single failure immediately re-opens the circuit.
+func (cb *circuitBreaker) recordFailure() {
+	cb.lastFailure.Store(time.Now().UnixNano())
+	state := cb.state.Load()
+	if state == cbHalfOpen {
+		cb.state.Store(cbOpen)
+		return
+	}
+	if state == cbClosed {
+		n := cb.failures.Add(1)
+		if n >= int32(cb.threshold) {
+			cb.state.CompareAndSwap(cbClosed, cbOpen)
+		}
+	}
+}
+
 // HealthCheckConfig configures health checking
 type HealthCheckConfig struct {
 	// Enabled indicates if health checking is enabled
@@ -147,6 +252,69 @@ type HealthCheckConfig struct {
 	Timeout time.Duration `yaml:"timeout" json:"timeout"`
 	// RetryCount before marking backend as unhealthy
 	RetryCount int `yaml:"retry_count" json:"retry_count"`
+}
+
+// PassiveHealthConfig configures passive health checking.
+// Passive checks monitor actual proxy responses and mark backends unhealthy
+// when too many failures occur within a time window.
+type PassiveHealthConfig struct {
+	// FailThreshold is the number of failures within FailWindow before marking unhealthy. Default: 3.
+	FailThreshold int `yaml:"fail_threshold" json:"fail_threshold"`
+	// FailWindow is the time window for counting failures. Default: 30s.
+	FailWindow time.Duration `yaml:"fail_window" json:"fail_window"`
+	// RecoveryInterval is how long to wait before re-enabling an unhealthy backend. Default: 30s.
+	RecoveryInterval time.Duration `yaml:"recovery_interval" json:"recovery_interval"`
+	// UnhealthyStatusCodes are status codes that count as failures. Default: [502, 503, 504].
+	UnhealthyStatusCodes []int `yaml:"unhealthy_status_codes" json:"unhealthy_status_codes"`
+}
+
+// isActive returns true if passive health checking should be enabled.
+func (c PassiveHealthConfig) isActive() bool {
+	return c.FailThreshold > 0
+}
+
+// backendFailureTracker tracks recent failures for passive health checking.
+type backendFailureTracker struct {
+	mu        sync.Mutex
+	failures  []time.Time
+	threshold int
+	window    time.Duration
+}
+
+func newBackendFailureTracker(threshold int, window time.Duration) *backendFailureTracker {
+	return &backendFailureTracker{
+		failures:  make([]time.Time, 0, threshold),
+		threshold: threshold,
+		window:    window,
+	}
+}
+
+// recordFailure records a failure and returns true if the threshold is exceeded.
+func (t *backendFailureTracker) recordFailure() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	now := time.Now()
+	cutoff := now.Add(-t.window)
+
+	// Remove expired failures
+	valid := t.failures[:0]
+	for _, ts := range t.failures {
+		if ts.After(cutoff) {
+			valid = append(valid, ts)
+		}
+	}
+	valid = append(valid, now)
+	t.failures = valid
+
+	return len(t.failures) >= t.threshold
+}
+
+// reset clears the failure history.
+func (t *backendFailureTracker) reset() {
+	t.mu.Lock()
+	t.failures = t.failures[:0]
+	t.mu.Unlock()
 }
 
 // proxyManager manages the reverse proxy functionality
@@ -161,6 +329,7 @@ type proxyManager struct {
 	// Lifecycle management
 	shutdownCtx    context.Context
 	shutdownCancel context.CancelFunc
+	resolvers []*upstreamResolver
 }
 
 // trafficDumpWriter handles writing traffic dumps to files
@@ -312,6 +481,18 @@ func newProxyManager(config ProxyConfiguration, logger Logger) (*proxyManager, e
 		pm.startHealthChecks()
 	}
 
+
+	// Start dynamic upstream resolvers
+	for _, rule := range pm.rules {
+		if rule.DynamicUpstream.isActive() {
+			resolver := newUpstreamResolver(rule.DynamicUpstream, rule, pm, pm.logger)
+			if err := resolver.start(pm.shutdownCtx); err != nil {
+				pm.logger.Error("failed to start dynamic upstream resolver", "rule", rule.Name, "error", err)
+			}
+			pm.resolvers = append(pm.resolvers, resolver)
+		}
+	}
+
 	return pm, nil
 }
 
@@ -335,6 +516,26 @@ func (pm *proxyManager) initializeRule(rule *ProxyRule) error {
 		rule.healthyCount.Add(1) // Assume healthy initially
 	}
 
+	// Initialize passive health check failure trackers if configured
+	if rule.PassiveHealth.isActive() {
+		cfg := rule.PassiveHealth
+		if cfg.FailThreshold == 0 {
+			cfg.FailThreshold = 3
+		}
+		if cfg.FailWindow == 0 {
+			cfg.FailWindow = 30 * time.Second
+		}
+		if cfg.RecoveryInterval == 0 {
+			cfg.RecoveryInterval = 30 * time.Second
+		}
+		if len(cfg.UnhealthyStatusCodes) == 0 {
+			cfg.UnhealthyStatusCodes = []int{502, 503, 504}
+		}
+		for _, backend := range rule.backends {
+			backend.failureTracker = newBackendFailureTracker(cfg.FailThreshold, cfg.FailWindow)
+		}
+	}
+
 	return nil
 }
 
@@ -355,6 +556,22 @@ func (pm *proxyManager) initializeBackend(backend *Backend) error {
 
 	backend.healthy.Store(true) // Assume healthy initially
 
+	// Initialize circuit breaker if configured
+	if pm.config.CircuitBreaker.Enabled {
+		threshold := pm.config.CircuitBreaker.Threshold
+		if threshold <= 0 {
+			threshold = 5
+		}
+		timeout := pm.config.CircuitBreaker.Timeout
+		if timeout <= 0 {
+			timeout = 30 * time.Second
+		}
+		backend.cb = &circuitBreaker{
+			threshold: threshold,
+			timeout:   timeout,
+		}
+	}
+
 	// Create reverse proxy for this backend
 	backend.proxy = httputil.NewSingleHostReverseProxy(backend.url)
 	backend.proxy.Transport = pm.client.Transport
@@ -368,9 +585,17 @@ func (pm *proxyManager) createErrorHandler(backend *Backend) func(http.ResponseW
 	return func(w http.ResponseWriter, r *http.Request, err error) {
 		pm.logger.Error("proxy error", "backend", backend.URL, "error", err, "path", r.URL.Path)
 		backend.healthy.Store(false)
+		if backend.cb != nil {
+			backend.cb.recordFailure()
+		}
 
-		// Decrement connection count
-		backend.connections.Add(-1)
+		// Mark recorder so post-proxy circuit breaker check doesn't double-count.
+		if rr, ok := w.(*responseRecorder); ok {
+			rr.errorHandlerCalled = true
+		}
+
+		// Note: connection count is decremented by the defer in handleProxyRequestEnhanced.
+		// Do NOT decrement here — that causes a double-decrement.
 
 		http.Error(w, "Bad Gateway", http.StatusBadGateway)
 	}
@@ -488,10 +713,43 @@ func (pm *proxyManager) handleProxyRequestEnhanced(w http.ResponseWriter, r *htt
 	r = r.WithContext(ctx)
 
 	// Create response recorder to capture status code
-	recorder := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
+	recorder := &responseRecorder{
+		ResponseWriter: w,
+		statusCode:     http.StatusOK,
+		shouldBufferFn: rule.ShouldBufferResponse,
+	}
 
 	// Proxy the request
 	backend.proxy.ServeHTTP(recorder, r)
+
+	// If buffering was active, flush the response to the underlying writer
+	if recorder.buffering {
+		recorder.flushBuffered()
+	}
+
+	// Circuit breaker: record success/failure based on response status.
+	// The ErrorHandler already calls recordFailure for transport errors,
+	// so we only record here for actual upstream responses (success or 5xx from upstream).
+	if backend.cb != nil && !recorder.errorHandlerCalled {
+		if recorder.statusCode < 500 {
+			backend.cb.recordSuccess()
+		} else {
+			backend.cb.recordFailure()
+		}
+	}
+
+	// Passive health check: monitor response status
+	if rule.PassiveHealth.isActive() && backend.failureTracker != nil {
+		if isUnhealthyStatus(recorder.statusCode, rule.PassiveHealth.UnhealthyStatusCodes) {
+			if backend.failureTracker.recordFailure() && backend.healthy.CompareAndSwap(true, false) {
+				pm.logger.Info("passive health check: marking backend unhealthy",
+					"rule", rule.Name, "backend", backend.URL,
+					"status", recorder.statusCode)
+				// Start recovery goroutine
+				go pm.recoverBackend(backend, rule.PassiveHealth.RecoveryInterval)
+			}
+		}
+	}
 
 	// Calculate duration and log request
 	duration := time.Since(startTime)
@@ -501,24 +759,101 @@ func (pm *proxyManager) handleProxyRequestEnhanced(w http.ResponseWriter, r *htt
 	r.URL.Path = originalPath
 }
 
-// responseRecorder captures the response status code
+// responseRecorder captures the response status code and optionally buffers the body.
 type responseRecorder struct {
 	http.ResponseWriter
-	statusCode int
+	statusCode         int
+	shouldBufferFn     func(int, http.Header) bool
+	buffering          bool // true while actively buffering
+	body               bytes.Buffer
+	headerWritten      bool
+	errorHandlerCalled bool // set by ErrorHandler to avoid double circuit-breaker recording
 }
 
 func (rr *responseRecorder) WriteHeader(code int) {
 	rr.statusCode = code
-	rr.ResponseWriter.WriteHeader(code)
+	if rr.shouldBufferFn != nil && !rr.headerWritten {
+		rr.headerWritten = true
+		// Ask callback whether to buffer this response
+		if rr.shouldBufferFn(code, rr.Header()) {
+			rr.buffering = true
+			return // defer forwarding until flush
+		}
+		// Callback says don't buffer — forward headers immediately
+		rr.ResponseWriter.WriteHeader(code)
+		return
+	}
+	if !rr.buffering {
+		rr.ResponseWriter.WriteHeader(code)
+	}
 }
 
-// selectBackend selects a backend using the configured load balancing strategy
-func (pm *proxyManager) selectBackend(rule *ProxyRule, r *http.Request) *Backend {
-	healthyBackends := make([]*Backend, 0, len(rule.backends))
-	for _, backend := range rule.backends {
-		if backend.healthy.Load() {
-			healthyBackends = append(healthyBackends, backend)
+func (rr *responseRecorder) Write(data []byte) (int, error) {
+	if rr.buffering {
+		return rr.body.Write(data)
+	}
+	return rr.ResponseWriter.Write(data)
+}
+
+// flushBuffered writes the buffered status code, headers, and body to the underlying writer.
+func (rr *responseRecorder) flushBuffered() {
+	if !rr.headerWritten {
+		return
+	}
+	rr.ResponseWriter.WriteHeader(rr.statusCode)
+	if rr.body.Len() > 0 {
+		_, _ = rr.ResponseWriter.Write(rr.body.Bytes())
+	}
+}
+
+// Hijack implements http.Hijacker so WebSocket upgrades work through proxy.
+func (rr *responseRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := rr.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, fmt.Errorf("upstream ResponseWriter does not implement http.Hijacker")
+}
+
+// isUnhealthyStatus checks if the status code is in the list of unhealthy status codes.
+func isUnhealthyStatus(code int, unhealthyCodes []int) bool {
+	for _, c := range unhealthyCodes {
+		if code == c {
+			return true
 		}
+	}
+	return false
+}
+
+// recoverBackend waits for the recovery interval, then re-enables the backend and resets its failure tracker.
+func (pm *proxyManager) recoverBackend(backend *Backend, interval time.Duration) {
+	select {
+	case <-time.After(interval):
+		backend.healthy.Store(true)
+		if backend.failureTracker != nil {
+			backend.failureTracker.reset()
+		}
+		pm.logger.Info("passive health check: backend recovered", "backend", backend.URL)
+	case <-pm.shutdownCtx.Done():
+		return
+	}
+}
+
+// selectBackend selects a backend using the configured load balancing strategy.
+// Uses RLock to safely read rule.backends which may be updated by dynamic DNS resolution.
+func (pm *proxyManager) selectBackend(rule *ProxyRule, r *http.Request) *Backend {
+	pm.mu.RLock()
+	backends := rule.backends
+	pm.mu.RUnlock()
+
+	healthyBackends := make([]*Backend, 0, len(backends))
+	for _, backend := range backends {
+		if !backend.healthy.Load() {
+			continue
+		}
+		if backend.cb != nil && backend.cb.isOpen() {
+			continue
+		}
+		healthyBackends = append(healthyBackends, backend)
 	}
 
 	if len(healthyBackends) == 0 {

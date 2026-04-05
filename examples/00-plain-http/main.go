@@ -10,10 +10,8 @@ import (
 )
 
 func main() {
-	fmt.Println("🚀 Plain HTTP + Servex Context Tutorial")
-	fmt.Println("=====================================")
-	fmt.Println("Demonstrates using Servex context utilities with standard net/http")
-	fmt.Println()
+	fmt.Println("Servex Tutorial - Plain HTTP + Context Utilities")
+	fmt.Println("Server: http://localhost:8080")
 
 	// Create standard net/http ServeMux
 	mux := http.NewServeMux()
@@ -33,27 +31,7 @@ func main() {
 		WriteTimeout: 30 * time.Second,
 	}
 
-	fmt.Println("🌐 Server starting on http://localhost:8080")
-	fmt.Println()
-	fmt.Println("📋 Available endpoints:")
-	fmt.Println("  GET  /health            - Health check")
-	fmt.Println("  GET  /api/users         - List users")
-	fmt.Println("  POST /api/users         - Create user")
-	fmt.Println("  GET  /api/search?q=...  - Search with query params")
-	fmt.Println("  GET  /api/status        - Status with custom headers")
-	fmt.Println("  GET  /api/error?type=...    - Test error handling")
-	fmt.Println()
-	fmt.Println("🧪 Test commands:")
-	fmt.Println("  curl http://localhost:8080/health")
-	fmt.Println("  curl http://localhost:8080/api/users")
-	fmt.Println("  curl -X POST http://localhost:8080/api/users \\")
-	fmt.Println("       -H 'Content-Type: application/json' \\")
-	fmt.Println("       -d '{\"name\":\"Dave\",\"email\":\"dave@example.com\"}'")
-	fmt.Println("  curl 'http://localhost:8080/api/search?q=servex'")
-	fmt.Println("  curl -I http://localhost:8080/api/status")
-	fmt.Println("  curl 'http://localhost:8080/api/error?type=404'")
-	fmt.Println()
-	fmt.Println("💡 This is plain net/http enhanced with Servex context utilities!")
+	fmt.Println("Try: curl http://localhost:8080/api/users")
 	fmt.Println("Press Ctrl+C to stop")
 
 	log.Fatal(server.ListenAndServe())

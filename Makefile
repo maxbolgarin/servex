@@ -1,5 +1,5 @@
 # Servex Enterprise Makefile
-.PHONY: help build test deps clean docker run-dev
+.PHONY: help build test deps clean docker docker-push run-dev
 
 # Variables
 BINARY_NAME=servex
@@ -7,7 +7,7 @@ VERSION ?= $(shell git describe --tags --always --dirty)
 BUILD_TIME ?= $(shell date -u '+%Y-%m-%d_%H:%M:%S')
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD)
 LDFLAGS=-ldflags="-w -s -X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME) -X main.GitCommit=$(GIT_COMMIT)"
-DOCKER_IMAGE=servex
+DOCKER_IMAGE=maxbolgarin/servex
 DOCKER_TAG=latest
 
 # Go settings
@@ -82,18 +82,24 @@ docker-build: ## Build Docker image
 		.
 	@echo "$(GREEN)Docker image built: $(DOCKER_IMAGE):$(DOCKER_TAG)$(NC)"
 
+docker-push: ## Push Docker image to registry
+	@echo "$(YELLOW)Pushing Docker image...$(NC)"
+	docker push $(DOCKER_IMAGE):$(DOCKER_TAG)
+	docker push $(DOCKER_IMAGE):$(VERSION)
+	@echo "$(GREEN)Docker image pushed: $(DOCKER_IMAGE):$(DOCKER_TAG)$(NC)"
+
 docker-run: ## Run Docker container
 	@echo "$(YELLOW)Running Docker container...$(NC)"
 	docker run -it --rm \
 		-p 8080:8080 \
-		-v $(PWD)/examples/server.yaml:/app/config/server.yaml:ro \
+		-v $(PWD)/examples/standalone/reverse-proxy.yaml:/etc/servex/servex.yaml:ro \
 		$(DOCKER_IMAGE):$(DOCKER_TAG)
 
 
 ## Development servers
 run-dev: build ## Run development server
 	@echo "$(YELLOW)Starting development server...$(NC)"
-	./bin/$(BINARY_NAME) -config examples/server.yaml
+	./bin/$(BINARY_NAME) -config examples/08-configuration/server.yaml
 
 
 ## Maintenance

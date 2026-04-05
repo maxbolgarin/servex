@@ -363,3 +363,24 @@ func WithRateLimitTrustedProxies(proxies ...string) Option {
 		op.RateLimit.Enabled = true
 	}
 }
+
+// WithRateLimitHeaders enables X-RateLimit-Limit, X-RateLimit-Remaining, and
+// X-RateLimit-Reset response headers on every response from rate-limited endpoints.
+// Also makes the Retry-After header dynamic on rejected requests.
+//
+// Example:
+//
+//	server := servex.New(
+//		servex.WithRPM(100),
+//		servex.WithRateLimitHeaders(),
+//	)
+//
+// Headers added:
+//   - X-RateLimit-Limit: configured burst size (or RequestsPerInterval)
+//   - X-RateLimit-Remaining: available tokens (floor, never negative)
+//   - X-RateLimit-Reset: Unix timestamp when the bucket will be full
+func WithRateLimitHeaders() Option {
+	return func(op *Options) {
+		op.RateLimit.EnableRateLimitHeaders = true
+	}
+}

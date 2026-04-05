@@ -1,0 +1,52 @@
+# Servex Standalone — Static File Server / SPA
+#
+# Serves static files with SPA fallback, caching, and compression.
+# Usage:
+#   servex -config static-site.yaml
+#   docker run -v ./static-site.yaml:/etc/servex/servex.yaml -v ./dist:/var/www/html:ro -p 8080:8080 maxbolgarin/servex
+
+server:
+  http: ":8080"
+  read_timeout: "30s"
+  idle_timeout: "180s"
+  enable_health_endpoint: true
+  health_path: "/health"
+
+security:
+  enabled: true
+  content_security_policy: "default-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; script-src 'self'"
+  x_frame_options: "DENY"
+  x_content_type_options: "nosniff"
+  referrer_policy: "strict-origin-when-cross-origin"
+  exclude_paths:
+    - "/health"
+
+compression:
+  enabled: true
+  level: 6
+  min_size: 1024
+  types:
+    - "text/html"
+    - "text/css"
+    - "application/javascript"
+    - "application/json"
+    - "image/svg+xml"
+    - "application/xml"
+
+static_files:
+  enabled: true
+  dir: "/var/www/html"       # mount your build output here
+  url_prefix: "/"
+  spa_mode: true             # all unknown paths fall back to index.html
+  index_file: "index.html"
+  cache_max_age: 3600        # 1 hour default
+  cache_rules:
+    ".js": 31536000          # 1 year (hashed filenames)
+    ".css": 31536000
+    ".woff2": 31536000
+    ".woff": 31536000
+    ".png": 86400            # 1 day
+    ".jpg": 86400
+    ".svg": 86400
+    ".ico": 86400
+    "index.html": 0          # never cache (SPA entry point)

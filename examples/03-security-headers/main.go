@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Servex Security Headers Examples ===")
+	fmt.Println("Servex Tutorial - Security Headers")
 	fmt.Println("Choose an example to run:")
 	fmt.Println("1. Basic Security Headers")
 	fmt.Println("2. Strict Security Headers")
@@ -20,9 +20,6 @@ func main() {
 	fmt.Println("5. Production Security (Default)")
 	fmt.Println("6. Interactive Demo")
 	fmt.Println("")
-
-	// For demo purposes, we'll run the interactive security demo
-	// Users can modify main() to run different examples
 	fmt.Println("Running: Interactive Security Demo")
 	fmt.Println("Edit main() to run specific examples")
 	interactiveSecurityDemo()
@@ -30,8 +27,9 @@ func main() {
 
 // Interactive demo that showcases security features
 func interactiveSecurityDemo() {
-	log.Println("Starting interactive security demo server on :8080")
-	log.Println("Visit http://localhost:8080 to see security headers in action")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl -I http://localhost:8080/")
+	fmt.Println("Press Ctrl+C to stop")
 
 	server, err := servex.NewServer(
 		// Start with production-level security
@@ -182,8 +180,9 @@ func basicSecurityExample() {
 		w.Write([]byte("Data endpoint with basic security headers"))
 	})
 
-	log.Println("Basic security example starting on :8080")
-	fmt.Println("Test with: curl -I http://localhost:8080/api/data")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl -I http://localhost:8080/api/data")
+	fmt.Println("Press Ctrl+C to stop")
 	server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 }
 
@@ -201,8 +200,9 @@ func strictSecurityExample() {
 		w.Write([]byte("Secure endpoint with strict security headers"))
 	})
 
-	log.Println("Strict security example starting on :8080")
-	fmt.Println("Test with: curl -I http://localhost:8080/api/secure")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl -I http://localhost:8080/api/secure")
+	fmt.Println("Press Ctrl+C to stop")
 	server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 }
 
@@ -240,8 +240,9 @@ func customSecurityExample() {
 		w.Write([]byte("Endpoint with custom security configuration"))
 	})
 
-	log.Println("Custom security example starting on :8080")
-	fmt.Println("Test with: curl -I http://localhost:8080/api/custom")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl -I http://localhost:8080/api/custom")
+	fmt.Println("Press Ctrl+C to stop")
 	server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 }
 
@@ -271,10 +272,9 @@ func pathSpecificSecurityExample() {
 		w.Write([]byte("Health check - excluded from security headers"))
 	})
 
-	log.Println("Path-specific security example starting on :8080")
-	fmt.Println("Test secure: curl -I http://localhost:8080/api/v1/secure")
-	fmt.Println("Test public: curl -I http://localhost:8080/api/v1/public")
-	fmt.Println("Test health: curl -I http://localhost:8080/health")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl -I http://localhost:8080/api/v1/secure")
+	fmt.Println("Press Ctrl+C to stop")
 	server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 }
 
@@ -331,9 +331,9 @@ func productionSecurityExample() {
 	server.HandleFunc("/health", handleSecureHealth)
 	server.HandleFunc("/metrics", handleSecureMetrics)
 
-	log.Println("Production security example starting on :8080")
-	fmt.Println("Test API: curl -I http://localhost:8080/api/v2/users")
-	fmt.Println("Test health: curl -I http://localhost:8080/health")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl -I http://localhost:8080/api/v2/users")
+	fmt.Println("Press Ctrl+C to stop")
 	server.StartWithWaitSignalsHTTP(context.Background(), ":8080")
 }
 

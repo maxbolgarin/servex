@@ -12,8 +12,7 @@ import (
 )
 
 func main() {
-	fmt.Println("🚀 Servex Tutorial - Static Files")
-	fmt.Println("==================================")
+	fmt.Println("Servex Tutorial - Static Files")
 
 	// Create the static files directory and sample files
 	setupStaticFiles()
@@ -106,15 +105,8 @@ curl http://localhost:8080/api/files
 		})
 	})
 
-	fmt.Println("🌐 Server starting on http://localhost:8080")
-	fmt.Println("📁 Serving static files from ./static/")
-	fmt.Println("")
-	fmt.Println("Try these URLs:")
-	fmt.Println("  → http://localhost:8080/ (demo page)")
-	fmt.Println("  → http://localhost:8080/static/style.css (CSS file)")
-	fmt.Println("  → http://localhost:8080/api/files (list files)")
-	fmt.Println("")
-	fmt.Println("Test caching with: curl -I http://localhost:8080/static/style.css")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl http://localhost:8080/api/files")
 	fmt.Println("Press Ctrl+C to stop")
 
 	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")

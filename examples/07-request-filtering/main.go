@@ -10,8 +10,8 @@ import (
 )
 
 func main() {
-	fmt.Println("🚀 Servex Tutorial - Request Filtering")
-	fmt.Println("=======================================")
+	fmt.Println("Servex Tutorial - Request Filtering")
+	fmt.Println("===================================")
 
 	// Create server with comprehensive request filtering
 	server, err := servex.NewServer(
@@ -268,22 +268,9 @@ curl http://localhost:8080/api/status
 </html>`)
 	})
 
-	fmt.Println("🌐 Server starting on http://localhost:8080")
-	fmt.Println("🛡️  Active filters:")
-	fmt.Println("    → User-Agent filtering (blocks bots, scrapers)")
-	fmt.Println("    → Query parameter filtering (blocks debug, admin)")
-	fmt.Println("    → IP filtering (blocks demo IP)")
-	fmt.Println("")
-	fmt.Println("Try these URLs:")
-	fmt.Println("  → http://localhost:8080/ (interactive demo)")
-	fmt.Println("  → http://localhost:8080/api/test (test endpoint)")
-	fmt.Println("  → http://localhost:8080/api/status (filter status)")
-	fmt.Println("")
-	fmt.Println("Test filtering:")
-	fmt.Println("  curl \"http://localhost:8080/api/test?debug=true\"  # Blocked")
-	fmt.Println("  curl -H \"User-Agent: BadBot/1.0\" http://localhost:8080/api/test  # Blocked")
-	fmt.Println("  curl http://localhost:8080/health  # Allowed (excluded)")
-	fmt.Println("")
+	fmt.Println("Server: http://localhost:8080")
+	fmt.Println("Try: curl http://localhost:8080/api/test")
+	fmt.Println("Try: curl \"http://localhost:8080/api/test?debug=true\" (blocked)")
 	fmt.Println("Press Ctrl+C to stop")
 
 	err = server.StartWithWaitSignalsHTTP(context.Background(), ":8080")

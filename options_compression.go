@@ -1,5 +1,6 @@
 package servex
 
+import "strings"
 
 // WithCompressionConfig sets the complete compression configuration.
 // This provides full control over all compression settings.
@@ -226,4 +227,92 @@ func WithCompressionIncludePaths(paths ...string) Option {
 	return func(opts *Options) {
 		opts.Compression.IncludePaths = append(opts.Compression.IncludePaths, paths...)
 	}
+}
+
+// WithBrotliCompression enables Brotli compression support.
+// Brotli typically provides 15-25% better compression ratios than gzip at similar speed,
+// and is supported by all modern browsers.
+//
+// When called alone, only Brotli will be offered. Combine with other encoding options
+// or use WithCompression() (which enables all encodings) for broader client support.
+//
+// Example:
+//
+//	// Enable Brotli and gzip for broad compatibility
+//	server, _ := servex.New(
+//		servex.WithCompression(),
+//		servex.WithBrotliCompression(),
+//		servex.WithGzipCompression(),
+//	)
+func WithBrotliCompression() Option {
+	return func(opts *Options) {
+		opts.Compression.Enabled = true
+		if !containsEncodingStr(opts.Compression.EnabledEncodings, "br") {
+			opts.Compression.EnabledEncodings = append(opts.Compression.EnabledEncodings, "br")
+		}
+	}
+}
+
+// WithZstdCompression enables Zstd compression support.
+// Zstd is typically faster than gzip with similar or better compression ratios,
+// and is supported by modern browsers and HTTP clients.
+//
+// When called alone, only Zstd will be offered. Combine with other encoding options
+// or use WithCompression() (which enables all encodings) for broader client support.
+//
+// Example:
+//
+//	// Enable Zstd with gzip fallback
+//	server, _ := servex.New(
+//		servex.WithCompression(),
+//		servex.WithZstdCompression(),
+//		servex.WithGzipCompression(),
+//	)
+func WithZstdCompression() Option {
+	return func(opts *Options) {
+		opts.Compression.Enabled = true
+		if !containsEncodingStr(opts.Compression.EnabledEncodings, "zstd") {
+			opts.Compression.EnabledEncodings = append(opts.Compression.EnabledEncodings, "zstd")
+		}
+	}
+}
+
+// WithGzipCompression enables Gzip compression support.
+// Gzip has universal browser support and is a safe fallback for all clients.
+//
+// Example:
+//
+//	server, _ := servex.New(servex.WithGzipCompression())
+func WithGzipCompression() Option {
+	return func(opts *Options) {
+		opts.Compression.Enabled = true
+		if !containsEncodingStr(opts.Compression.EnabledEncodings, "gzip") {
+			opts.Compression.EnabledEncodings = append(opts.Compression.EnabledEncodings, "gzip")
+		}
+	}
+}
+
+// WithDeflateCompression enables Deflate compression support.
+//
+// Example:
+//
+//	server, _ := servex.New(servex.WithDeflateCompression())
+func WithDeflateCompression() Option {
+	return func(opts *Options) {
+		opts.Compression.Enabled = true
+		if !containsEncodingStr(opts.Compression.EnabledEncodings, "deflate") {
+			opts.Compression.EnabledEncodings = append(opts.Compression.EnabledEncodings, "deflate")
+		}
+	}
+}
+
+// containsEncodingStr is a helper that checks if a string slice contains a value (case-insensitive).
+func containsEncodingStr(slice []string, s string) bool {
+	s = strings.ToLower(s)
+	for _, v := range slice {
+		if strings.ToLower(v) == s {
+			return true
+		}
+	}
+	return false
 }

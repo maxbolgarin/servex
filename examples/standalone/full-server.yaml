@@ -1,0 +1,137 @@
+# Servex Standalone — Full-Featured Server
+#
+# Combined reverse proxy, static files, JWT auth, rate limiting, and security.
+# Usage:
+#   servex -config full-server.yaml
+#   docker run -v ./full-server.yaml:/etc/servex/servex.yaml \
+#     -e SERVEX_AUTH_JWT_ACCESS_SECRET=<hex-64-chars> \
+#     -e SERVEX_AUTH_JWT_REFRESH_SECRET=<hex-64-chars> \
+#     -p 8080:8080 maxbolgarin/servex
+
+server:
+  http: ":8080"
+  # Uncomment for HTTPS (mount certs into /etc/servex/certs/)
+  # https: ":8443"
+  # cert_file: "/etc/servex/certs/server.crt"
+  # key_file: "/etc/servex/certs/server.key"
+  read_timeout: "15s"
+  read_header_timeout: "5s"
+  idle_timeout: "120s"
+  enable_health_endpoint: true
+  health_path: "/health"
+  enable_default_metrics: true
+  metrics_path: "/metrics"
+  enable_request_size_limits: true
+  max_request_body_size: 33554432    # 32 MB
+  max_json_body_size: 1048576        # 1 MB
+
+  # Uncomment to redirect HTTP -> HTTPS
+  # https_redirect:
+  #   enabled: true
+  #   permanent: true
+
+# JWT authentication (uses in-memory database — for prototyping only)
+# For production, implement AuthDatabase in Go and use the library API.
+auth:
+  enabled: true
+  use_memory_database: true
+  # Set secrets via environment variables (hex-encoded, >= 64 chars):
+  #   SERVEX_AUTH_JWT_ACCESS_SECRET
+  #   SERVEX_AUTH_JWT_REFRESH_SECRET
+  access_token_duration: "15m"
+  refresh_token_duration: "720h"      # 30 days
+  issuer: "servex"
+  base_path: "/api/v1/auth"
+  initial_roles:
+    - "user"
+
+rate_limit:
+  enabled: true
+  requests_per_interval: 100
+  interval: "1m"
+  burst_size: 30
+  exclude_paths:
+    - "/health"
+    - "/metrics"
+
+filter:
+  blocked_user_agents:
+    - "BadBot"
+    - "Scrapy"
+    - "AhrefsBot"
+  exclude_paths:
+    - "/health"
+    - "/metrics"
+
+security:
+  enabled: true
+  content_security_policy: "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'"
+  x_frame_options: "DENY"
+  x_content_type_options: "nosniff"
+  strict_transport_security: "max-age=31536000; includeSubDomains"
+  referrer_policy: "strict-origin-when-cross-origin"
+  csrf_enabled: true
+  exclude_paths:
+    - "/health"
+    - "/metrics"
+
+cors:
+  enabled: true
+  allow_origins:
+    - "https://myapp.com"
+  allow_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+    - "OPTIONS"
+  allow_headers:
+    - "Content-Type"
+    - "Authorization"
+  max_age: 86400
+
+compression:
+  enabled: true
+  level: 6
+  min_size: 1024
+  types:
+    - "text/html"
+    - "text/css"
+    - "application/javascript"
+    - "application/json"
+
+logging:
+  log_fields:
+    - "method"
+    - "url"
+    - "status"
+    - "duration_ms"
+    - "ip"
+    - "user_agent"
+
+# Static files — mount your build output to /var/www/html
+static_files:
+  enabled: true
+  dir: "/var/www/html"
+  url_prefix: "/"
+  spa_mode: true
+  index_file: "index.html"
+  cache_max_age: 3600
+
+# Reverse proxy — route /api/ to backend service
+proxy:
+  enabled: true
+  global_timeout: "30s"
+
+  health_check:
+    enabled: true
+    default_interval: "30s"
+
+  rules:
+    - name: "backend-api"
+      path_prefix: "/api/"
+      # strip_prefix: "/api"  # uncomment to strip prefix before forwarding
+      load_balancing: "round_robin"
+      backends:
+        - url: "http://backend:3000"
+          health_check_path: "/health"
