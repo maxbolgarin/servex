@@ -1,6 +1,7 @@
 package servex
 
 import (
+	"database/sql"
 	"time"
 )
 
@@ -380,5 +381,48 @@ func WithAuthNotRegisterRoutes(notRegisterRoutes bool) Option {
 func WithAuthInitialUsers(users ...InitialUser) Option {
 	return func(op *Options) {
 		op.Auth.InitialUsers = users
+	}
+}
+
+// WithAuthSQL enables JWT-based authentication with a SQL database.
+// The driver parameter selects the SQL dialect: "postgres", "mysql", or "sqlite".
+// The caller must import the appropriate database driver (e.g. _ "github.com/jackc/pgx/v5/stdlib").
+//
+// Servex does not take ownership of the provided *sql.DB; the caller is responsible for closing it.
+// Tables are auto-created by default. Disable with SQLAutoMigrate(false).
+//
+// Example:
+//
+//	import _ "github.com/jackc/pgx/v5/stdlib"
+//
+//	db, _ := sql.Open("pgx", "postgres://user:pass@localhost/mydb")
+//	server, _ := servex.NewServer(
+//	    servex.WithAuthSQL(db, "postgres"),
+//	    servex.WithAuthKey(accessKey, refreshKey),
+//	)
+func WithAuthSQL(db *sql.DB, driver string, opts ...SQLOption) Option {
+	return func(op *Options) {
+		op.Auth.Enabled = true
+		op.Auth.sqlDB = db
+		op.Auth.sqlDriver = driver
+		op.Auth.sqlOptions = opts
+	}
+}
+
+// WithAuthSQLDSN enables JWT-based authentication by opening a SQL connection from a DSN.
+// Servex owns the connection and closes it on shutdown.
+//
+// Example:
+//
+//	server, _ := servex.NewServer(
+//	    servex.WithAuthSQLDSN("postgres", "postgres://user:pass@localhost/mydb"),
+//	    servex.WithAuthKey(accessKey, refreshKey),
+//	)
+func WithAuthSQLDSN(driver, dsn string, opts ...SQLOption) Option {
+	return func(op *Options) {
+		op.Auth.Enabled = true
+		op.Auth.sqlDSN = dsn
+		op.Auth.sqlDriver = driver
+		op.Auth.sqlOptions = opts
 	}
 }

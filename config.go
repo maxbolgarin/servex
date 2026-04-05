@@ -158,10 +158,22 @@ type AuthConfiguration struct {
 	UseMemoryDatabase      bool          `yaml:"use_memory_database" json:"use_memory_database" env:"SERVEX_AUTH_USE_MEMORY_DATABASE"`
 	MinPasswordLength      int           `yaml:"min_password_length" json:"min_password_length" env:"SERVEX_AUTH_MIN_PASSWORD_LENGTH"`
 
+	// Database configures the SQL auth database (postgres, mysql, sqlite).
+	Database AuthDatabaseConfiguration `yaml:"database" json:"database"`
+
 	EmailVerification EmailVerificationConfiguration `yaml:"email_verification" json:"email_verification"`
 	PasswordReset     PasswordResetConfiguration     `yaml:"password_reset" json:"password_reset"`
 	OAuth             OAuthConfiguration             `yaml:"oauth" json:"oauth"`
 	TwoFactor         TwoFactorConfiguration         `yaml:"two_factor" json:"two_factor"`
+}
+
+// AuthDatabaseConfiguration represents SQL database configuration for the built-in auth database.
+// Supports PostgreSQL, MySQL, and SQLite via database/sql.
+type AuthDatabaseConfiguration struct {
+	Driver      string `yaml:"driver" json:"driver" env:"SERVEX_AUTH_DATABASE_DRIVER"`
+	DSN         string `yaml:"dsn" json:"dsn" env:"SERVEX_AUTH_DATABASE_DSN"`
+	TablePrefix string `yaml:"table_prefix" json:"table_prefix" env:"SERVEX_AUTH_DATABASE_TABLE_PREFIX"`
+	AutoMigrate *bool  `yaml:"auto_migrate" json:"auto_migrate" env:"SERVEX_AUTH_DATABASE_AUTO_MIGRATE"`
 }
 
 // EmailVerificationConfiguration represents email verification configuration within auth.
@@ -574,6 +586,18 @@ func (c *Config) ToOptions() ([]Option, error) {
 	if c.Auth.Enabled {
 		if c.Auth.UseMemoryDatabase {
 			opts = append(opts, WithAuthMemoryDatabase())
+		} else if c.Auth.Database.Driver != "" {
+			if c.Auth.Database.DSN == "" {
+				return nil, errors.New("auth.database.driver is set but auth.database.dsn is empty")
+			}
+			var sqlOpts []SQLOption
+			if c.Auth.Database.TablePrefix != "" {
+				sqlOpts = append(sqlOpts, SQLTablePrefix(c.Auth.Database.TablePrefix))
+			}
+			if c.Auth.Database.AutoMigrate != nil {
+				sqlOpts = append(sqlOpts, SQLAutoMigrate(*c.Auth.Database.AutoMigrate))
+			}
+			opts = append(opts, WithAuthSQLDSN(c.Auth.Database.Driver, c.Auth.Database.DSN, sqlOpts...))
 		}
 
 		if c.Auth.JWTAccessSecret != "" && c.Auth.JWTRefreshSecret != "" {

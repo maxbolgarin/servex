@@ -13,6 +13,11 @@ import (
 	"syscall"
 	"time"
 
+	// SQL drivers for standalone mode (auth database).
+	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "modernc.org/sqlite"
+
 	"github.com/maxbolgarin/servex/v2"
 )
 

@@ -4,6 +4,7 @@ package servex
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -232,6 +233,26 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 		return nil, fmt.Errorf("register proxy middleware: %w", err)
 	}
 	s.cleanups = append(s.cleanups, proxyCleanup)
+
+	// Initialize SQL auth database if configured via WithAuthSQL / WithAuthSQLDSN.
+	if s.opts.Auth.sqlDriver != "" && s.opts.Auth.Database == nil {
+		var sqlDB *SQLAuthDatabase
+		var err error
+		if s.opts.Auth.sqlDB != nil {
+			sqlDB, err = NewSQLAuthDatabase(s.opts.Auth.sqlDB, s.opts.Auth.sqlDriver, s.opts.Auth.sqlOptions...)
+		} else if s.opts.Auth.sqlDSN != "" {
+			sqlDB, err = newSQLAuthDatabaseFromDSN(s.opts.Auth.sqlDriver, s.opts.Auth.sqlDSN, s.opts.Auth.sqlOptions...)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("sql auth database: %w", err)
+		}
+		if sqlDB != nil {
+			s.opts.Auth.Database = sqlDB
+			s.cleanups = append(s.cleanups, func() {
+				sqlDB.Close()
+			})
+		}
+	}
 
 	if s.opts.Auth.isActive() {
 		authManager, err := NewAuthManager(s.opts.Auth, opts.AuditLogger)
@@ -845,6 +866,18 @@ func (s *Server) AuthManager() *AuthManager {
 		return nil
 	}
 	return s.auth
+}
+
+// AuthSQLDB returns the underlying *sql.DB if the server uses a SQL auth database.
+// Returns nil if the auth database is not SQL-based.
+func (s *Server) AuthSQLDB() *sql.DB {
+	if s.auth == nil {
+		return nil
+	}
+	if sqlDB, ok := s.auth.service.db.(*SQLAuthDatabase); ok {
+		return sqlDB.DB()
+	}
+	return nil
 }
 
 // Filter returns the active filter instance for dynamic modification.

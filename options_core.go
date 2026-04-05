@@ -2,6 +2,7 @@ package servex
 
 import (
 	"crypto/tls"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
@@ -879,6 +880,12 @@ type AuthConfig struct {
 	// refreshSecret is the decoded refresh secret key (internal use).
 	// This field is populated automatically from JWTRefreshSecret during initialization.
 	refreshSecret []byte
+
+	// SQL database fields (internal, set by WithAuthSQL / WithAuthSQLDSN).
+	sqlDB      *sql.DB
+	sqlDSN     string
+	sqlDriver  string
+	sqlOptions []SQLOption
 }
 
 // InitialUser represents a user to be created during server startup.
