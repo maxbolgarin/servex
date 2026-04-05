@@ -230,7 +230,7 @@ func (h *staticFileHandler) serveStaticFile(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	if !strings.HasPrefix(absFilePath, absConfigDir) {
+	if !strings.HasPrefix(absFilePath, absConfigDir+string(filepath.Separator)) && absFilePath != absConfigDir {
 		next.ServeHTTP(w, r)
 		return
 	}
@@ -480,12 +480,18 @@ func (w *staticResponseWriter) WriteHeader(code int) {
 	if w.statusCode == 0 {
 		w.statusCode = code
 	}
-	w.ResponseWriter.WriteHeader(code)
+	if code != http.StatusNotFound {
+		w.ResponseWriter.WriteHeader(code)
+	}
 }
 
 func (w *staticResponseWriter) Write(b []byte) (int, error) {
 	if w.statusCode == 0 {
 		w.statusCode = 200
+	}
+	if w.statusCode == http.StatusNotFound {
+		w.bytesWritten += len(b)
+		return len(b), nil
 	}
 	n, err := w.ResponseWriter.Write(b)
 	w.bytesWritten += n

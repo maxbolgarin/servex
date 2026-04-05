@@ -195,7 +195,7 @@ func validateCSRFToken(r *http.Request, tokenName, cookieName string) bool {
 	}
 
 	// 3. Try multipart form if still not found
-	if providedToken == "" {
+	if providedToken == "" && strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
 		if err := r.ParseMultipartForm(32 << 20); err == nil { // 32MB max
 			if r.MultipartForm != nil && r.MultipartForm.Value != nil {
 				if values := r.MultipartForm.Value[tokenName]; len(values) > 0 {
@@ -203,11 +203,6 @@ func validateCSRFToken(r *http.Request, tokenName, cookieName string) bool {
 				}
 			}
 		}
-	}
-
-	// 4. Try query parameter as fallback
-	if providedToken == "" {
-		providedToken = r.URL.Query().Get(tokenName)
 	}
 
 	// Validate token using constant-time comparison

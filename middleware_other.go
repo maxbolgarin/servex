@@ -9,7 +9,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"path/filepath"
+	stdpath "path"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -400,7 +400,7 @@ func handleConditionalRequest(w http.ResponseWriter, r *http.Request, etag, last
 //   - path: the request path to check
 //   - excludePaths: list of paths/patterns to exclude (takes precedence)
 //   - includePaths: list of paths/patterns to include (only checked if excludePaths don't match)
-//   - useWildcards: if true, uses filepath.Match for pattern matching; if false, uses exact string matching
+//   - useWildcards: if true, uses path.Match for pattern matching; if false, uses exact string matching
 //
 // Logic:
 //  1. If path matches any exclude pattern, return false
@@ -411,7 +411,7 @@ func matchPath(path string, excludePaths, includePaths []string, useWildcards bo
 	for _, excludePath := range excludePaths {
 		var matched bool
 		if useWildcards {
-			matched, _ = filepath.Match(excludePath, path)
+			matched, _ = stdpath.Match(excludePath, path)
 		} else {
 			matched = excludePath == path
 		}
@@ -425,7 +425,7 @@ func matchPath(path string, excludePaths, includePaths []string, useWildcards bo
 		for _, includePath := range includePaths {
 			var matched bool
 			if useWildcards {
-				matched, _ = filepath.Match(includePath, path)
+				matched, _ = stdpath.Match(includePath, path)
 			} else {
 				matched = includePath == path
 			}
