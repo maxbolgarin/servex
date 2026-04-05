@@ -507,6 +507,13 @@ type Options struct {
 	//
 	// Default path: "/swagger"
 	Swagger SwaggerAutoConfig
+
+	// WebSocket is the WebSocket connection configuration.
+	// Set via WithWebSocketConfig() or other WebSocket With* options.
+	//
+	// WebSocket support is activated lazily when server.WS() or server.WSHub() is called.
+	// These options just set parameters — there is no Enabled flag.
+	WebSocket WebSocketConfig
 }
 
 // CompressionConfig holds the HTTP response compression configuration.
@@ -2932,6 +2939,12 @@ func (opts *Options) Validate() error {
 				errors = append(errors, "CSP should include at least default-src or script-src directive")
 			}
 		}
+	}
+
+	// WebSocket validation
+	ws := opts.WebSocket
+	if ws.PongTimeout > 0 && ws.PingInterval > 0 && ws.PongTimeout >= ws.PingInterval {
+		errors = append(errors, "websocket pong timeout must be less than ping interval")
 	}
 
 	if len(errors) > 0 {

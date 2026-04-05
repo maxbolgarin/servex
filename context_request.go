@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/gorilla/mux"
 	jsoniter "github.com/json-iterator/go"
 )
@@ -633,4 +634,23 @@ func (ctx *Context) EmailVerified() bool {
 // Returns false if user is not authenticated or field is not set.
 func (ctx *Context) TwoFactorEnabled() bool {
 	return getValueFromContext[bool](ctx.r, TwoFactorEnabledContextKey{})
+}
+
+// UpgradeWebSocket upgrades the HTTP connection to a WebSocket connection.
+// This is a low-level escape hatch; prefer server.WS() for most use cases.
+//
+// Example:
+//
+//	func handler(w http.ResponseWriter, r *http.Request) {
+//		ctx := servex.C(w, r)
+//		conn, err := ctx.UpgradeWebSocket(nil)
+//		if err != nil {
+//			ctx.BadRequest(err, "websocket upgrade failed")
+//			return
+//		}
+//		defer conn.Close(servex.StatusNormalClosure, "")
+//		// use raw coder/websocket API
+//	}
+func (ctx *Context) UpgradeWebSocket(opts *websocket.AcceptOptions) (*websocket.Conn, error) {
+	return websocket.Accept(ctx.w, ctx.r, opts)
 }

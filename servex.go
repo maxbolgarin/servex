@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -63,6 +64,9 @@ type Server struct {
 
 	basePath string
 	cleanups []func()
+
+	wsHub  *WSHub
+	wsOnce sync.Once
 
 	isUniversalRouteRegistered atomic.Bool
 }
@@ -261,6 +265,13 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 
 	// Register static file middleware - should be registered after all other middleware
 	RegisterStaticFileMiddleware(s.router, opts.StaticFiles)
+
+	// Register WebSocket hub cleanup (hub is lazily initialized, so use nil guard)
+	s.cleanups = append(s.cleanups, func() {
+		if s.wsHub != nil {
+			s.wsHub.CloseAll(StatusGoingAway, "server shutting down")
+		}
+	})
 
 	return s, nil
 }

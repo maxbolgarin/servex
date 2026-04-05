@@ -138,6 +138,12 @@ func RegisterCacheControlMiddleware(router MiddlewareRouter, cfg CacheConfig) {
 
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip cache control for WebSocket upgrade requests
+			if isWebSocketUpgrade(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// Check if the path should have cache control headers applied
 			if !shouldApplyCacheHeaders(r, cfg) {
 				next.ServeHTTP(w, r)
@@ -624,6 +630,12 @@ func RegisterCompressionMiddleware(router MiddlewareRouter, cfg CompressionConfi
 
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Skip compression for WebSocket upgrade requests
+			if isWebSocketUpgrade(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
 			// Check if path should be compressed
 			if !shouldApplyCompression(r, cfg) {
 				next.ServeHTTP(w, r)
