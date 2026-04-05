@@ -1458,6 +1458,43 @@ type FilterConfig struct {
 	//   - Malicious clients can spoof X-Forwarded-For headers
 	//   - Ensure proxy properly validates and forwards real client IPs
 	TrustedProxies []string
+
+	// BlockedPathPrefixes blocks requests whose URL path starts with any of these prefixes.
+	// Uses strings.HasPrefix matching — efficient for blocking entire path trees.
+	// Set via WithBlockedPathPrefixes().
+	//
+	// Examples:
+	//   - "/." — block all dotfile access (.env, .git, .htaccess)
+	//   - "/wp-" — block WordPress probes (wp-admin, wp-login, wp-content)
+	//   - "/actuator" — block Spring Boot actuator endpoints
+	//   - "/debug" — block debug endpoints
+	//
+	// Use cases:
+	//   - Block vulnerability scanner probes
+	//   - Block access to sensitive paths
+	//   - Block CMS-specific attack paths
+	//
+	// Responds with the configured StatusCode (default 403) and Message.
+	// Path check runs before IP, User-Agent, header, and query param checks for efficiency.
+	BlockedPathPrefixes []string
+
+	// BlockedPathPatterns blocks requests whose URL path matches any of these regex patterns.
+	// Uses compiled regexp matching for flexible path blocking.
+	// Set via WithBlockedPathPatterns().
+	//
+	// Examples:
+	//   - `^/\..+` — block dotfile access
+	//   - `(?i)/phpmyadmin` — case-insensitive phpMyAdmin blocking
+	//   - `/api/v[0-9]+/internal/` — block internal API paths
+	//
+	// Use cases:
+	//   - Complex path matching rules
+	//   - Case-insensitive path blocking
+	//   - Pattern-based scanner detection
+	//
+	// Responds with the configured StatusCode (default 403) and Message.
+	// Path check runs before IP, User-Agent, header, and query param checks for efficiency.
+	BlockedPathPatterns []string
 }
 
 // SecurityConfig holds configuration for security headers middleware.

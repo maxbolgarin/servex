@@ -396,3 +396,56 @@ func StaticFilePreset(dir, prefix string) []Option {
 		WithCompressionExcludePaths("/metrics"),
 	}
 }
+
+// ScannerBlockPreset returns options that block common vulnerability scanners and probes.
+// This blocks dotfile access, WordPress probes, actuator endpoints, PHP/Java/ASP attack paths,
+// and known scanner User-Agents. Returns 404 with empty body to avoid revealing that filtering is active.
+//
+// Combine with other presets for production use:
+//
+//	server, _ := servex.NewServer(servex.MergePresets(
+//	    servex.ProductionPreset(),
+//	    servex.ScannerBlockPreset(),
+//	)...)
+//
+// If your application legitimately uses any of the blocked paths (e.g., /debug or /swagger),
+// remove them from the preset or add them to WithFilterExcludePaths().
+func ScannerBlockPreset() []Option {
+	return []Option{
+		WithBlockedPathPrefixes(
+			"/.",              // dotfiles (.env, .git, .htaccess, .DS_Store, etc.)
+			"/_all_dbs",       // CouchDB enumeration
+			"/actuator",       // Spring Boot actuator
+			"/api-docs",       // Swagger/OpenAPI probes
+			"/cgi-bin",        // CGI probes
+			"/debug",          // Debug endpoints
+			"/ecp",            // Microsoft Exchange probes
+			"/elmah",          // .NET error log viewer
+			"/info.php",       // PHP info disclosure
+			"/login.action",   // Apache Struts
+			"/owa",            // Outlook Web Access
+			"/server-status",  // Apache server-status
+			"/telescope",      // Laravel Telescope
+			"/v2/api-docs",    // Swagger v2
+			"/v3/api-docs",    // Swagger v3
+			"/webjars",        // WebJars
+			"/wp-",            // WordPress (wp-admin, wp-login, wp-content, etc.)
+			"/xmlrpc.php",     // WordPress XML-RPC
+			"/admin/config",   // Admin config probes
+		),
+		WithBlockedPathPatterns(
+			`(?i)/phpmyadmin`, // phpMyAdmin (any case)
+		),
+		WithBlockedUserAgentsRegex(
+			"(?i)nikto",     // Nikto scanner
+			"(?i)sqlmap",    // SQLMap
+			"(?i)nmap",      // Nmap scripting engine
+			"(?i)masscan",   // Masscan
+			"(?i)zgrab",     // ZGrab
+			"(?i)gobuster",  // Gobuster
+			"(?i)dirbuster", // DirBuster
+		),
+		WithFilterStatusCode(404), // Return 404, not 403 — don't reveal filtering
+		WithFilterMessage(""),     // Empty response body
+	}
+}

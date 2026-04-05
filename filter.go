@@ -59,6 +59,8 @@ type Filter struct {
 	allowedQueryRegex  map[string][]*regexp.Regexp
 	blockedQueryRegex  map[string][]*regexp.Regexp
 	trustedProxyNets   []*net.IPNet
+	blockedPathPrefixes []string
+	blockedPathRegex    []*regexp.Regexp
 
 	// Location-based compiled filters (map from config index to compiled filter)
 	locationFilters map[int]*Filter
@@ -284,7 +286,9 @@ func (cfg *FilterConfig) isEnabled() bool {
 		len(cfg.AllowedQueryParams) > 0 ||
 		len(cfg.AllowedQueryParamsRegex) > 0 ||
 		len(cfg.BlockedQueryParams) > 0 ||
-		len(cfg.BlockedQueryParamsRegex) > 0
+		len(cfg.BlockedQueryParamsRegex) > 0 ||
+		len(cfg.BlockedPathPrefixes) > 0 ||
+		len(cfg.BlockedPathPatterns) > 0
 }
 
 // newFilter creates a new Filter from the given configuration.
@@ -365,6 +369,15 @@ func (f *Filter) compile() error {
 	f.blockedQueryRegex, err = f.compileRegexHeaderPatterns(f.config.BlockedQueryParamsRegex)
 	if err != nil {
 		return fmt.Errorf("compile blocked query regex: %w", err)
+	}
+
+	// Compile blocked path patterns
+	f.blockedPathPrefixes = f.config.BlockedPathPrefixes
+	if len(f.config.BlockedPathPatterns) > 0 {
+		f.blockedPathRegex, err = f.compileRegexPatterns(f.config.BlockedPathPatterns)
+		if err != nil {
+			return fmt.Errorf("compile blocked path patterns: %w", err)
+		}
 	}
 
 	return nil
@@ -465,6 +478,12 @@ func (f *Filter) middleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Check path filtering (cheapest check — run first)
+		if allowed, reason := filter.checkPath(r); !allowed {
+			filter.blockRequestWithAudit(w, r, reason)
+			return
+		}
+
 		// Check IP filtering
 		if allowed, reason := filter.checkIP(r); !allowed {
 			filter.blockRequestWithAudit(w, r, reason)
@@ -553,7 +572,38 @@ func (f *Filter) getClientIP(r *http.Request) string {
 	return remoteAddr
 }
 
-// checkIP checks if the client IP is allowed.
+// checkPath checks if the request path is blocked.
+func (f *Filter) checkPath(r *http.Request) (bool, *FilterBlockReason) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	path := r.URL.Path
+
+	// Check blocked path prefixes (fast string prefix matching)
+	for _, prefix := range f.blockedPathPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return false, &FilterBlockReason{
+				Type:  AuditEventFilterPathBlocked,
+				Value: path,
+				Rule:  "blocked_path_prefix:" + prefix,
+			}
+		}
+	}
+
+	// Check blocked path patterns (regex matching)
+	for _, re := range f.blockedPathRegex {
+		if re.MatchString(path) {
+			return false, &FilterBlockReason{
+				Type:  AuditEventFilterPathBlocked,
+				Value: path,
+				Rule:  "blocked_path_pattern:" + re.String(),
+			}
+		}
+	}
+
+	return true, nil
+}
+
 func (f *Filter) checkIP(r *http.Request) (bool, *FilterBlockReason) {
 	f.mu.RLock()
 	defer f.mu.RUnlock()
@@ -851,6 +901,8 @@ func (f *Filter) blockRequestWithAudit(w http.ResponseWriter, r *http.Request, r
 			filterType = "Header"
 		case AuditEventFilterQueryBlocked:
 			filterType = "Query Parameter"
+		case AuditEventFilterPathBlocked:
+			filterType = "Path"
 		default:
 			filterType = "Unknown"
 		}
@@ -870,8 +922,15 @@ func (f *Filter) blockRequest(w http.ResponseWriter, r *http.Request, reason str
 	}
 
 	message := f.config.Message
-	if message == "" {
+	if message == "" && f.config.StatusCode == 0 {
+		// Both unset: use defaults
 		message = "Request blocked by security filter"
+	}
+
+	if message == "" {
+		// Intentionally empty body (e.g., ScannerBlockPreset returns 404 with no body)
+		w.WriteHeader(statusCode)
+		return
 	}
 
 	C(w, r).Error(fmt.Errorf("request blocked: %s", reason), statusCode, message)
@@ -1284,4 +1343,50 @@ func (f *Filter) ClearAllAllowedUserAgents() error {
 	f.allowedUAExact = make(map[string]bool)
 	f.allowedUARegex = nil
 	return nil
+}
+
+// AddBlockedPathPrefix adds a path prefix to the blocked list at runtime.
+func (f *Filter) AddBlockedPathPrefix(prefix string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.blockedPathPrefixes = append(f.blockedPathPrefixes, prefix)
+}
+
+// RemoveBlockedPathPrefix removes a path prefix from the blocked list at runtime.
+func (f *Filter) RemoveBlockedPathPrefix(prefix string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, p := range f.blockedPathPrefixes {
+		if p == prefix {
+			f.blockedPathPrefixes = append(f.blockedPathPrefixes[:i], f.blockedPathPrefixes[i+1:]...)
+			return
+		}
+	}
+}
+
+// GetBlockedPathPrefixes returns a copy of the blocked path prefixes list.
+func (f *Filter) GetBlockedPathPrefixes() []string {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	result := make([]string, len(f.blockedPathPrefixes))
+	copy(result, f.blockedPathPrefixes)
+	return result
+}
+
+// IsPathBlocked checks if a given path would be blocked by the current filter rules.
+func (f *Filter) IsPathBlocked(path string) bool {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+
+	for _, prefix := range f.blockedPathPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	for _, re := range f.blockedPathRegex {
+		if re.MatchString(path) {
+			return true
+		}
+	}
+	return false
 }

@@ -304,6 +304,8 @@ type FilterConfiguration struct {
 	StatusCode              int                 `yaml:"status_code" json:"status_code" env:"SERVEX_FILTER_STATUS_CODE"`
 	Message                 string              `yaml:"message" json:"message" env:"SERVEX_FILTER_MESSAGE"`
 	TrustedProxies          []string            `yaml:"trusted_proxies" json:"trusted_proxies" env:"SERVEX_FILTER_TRUSTED_PROXIES"`
+	BlockedPathPrefixes     []string            `yaml:"blocked_path_prefixes" json:"blocked_path_prefixes" env:"SERVEX_FILTER_BLOCKED_PATH_PREFIXES"`
+	BlockedPathPatterns     []string            `yaml:"blocked_path_patterns" json:"blocked_path_patterns" env:"SERVEX_FILTER_BLOCKED_PATH_PATTERNS"`
 }
 
 // SecurityConfiguration represents security headers configuration
@@ -802,11 +804,10 @@ func (c *Config) ToOptions() ([]Option, error) {
 		StatusCode:              c.Filter.StatusCode,
 		Message:                 c.Filter.Message,
 		TrustedProxies:          c.Filter.TrustedProxies,
+		BlockedPathPrefixes:    c.Filter.BlockedPathPrefixes,
+		BlockedPathPatterns:    c.Filter.BlockedPathPatterns,
 	}
-	if len(c.Filter.AllowedIPs) > 0 || len(c.Filter.BlockedIPs) > 0 || len(c.Filter.AllowedUserAgents) > 0 ||
-		len(c.Filter.BlockedUserAgents) > 0 || len(c.Filter.AllowedUserAgentsRegex) > 0 ||
-		len(c.Filter.BlockedUserAgentsRegex) > 0 || len(c.Filter.AllowedHeaders) > 0 ||
-		len(c.Filter.BlockedHeaders) > 0 {
+	if filterConfig.isEnabled() {
 		opts = append(opts, WithFilterConfig(filterConfig))
 	}
 

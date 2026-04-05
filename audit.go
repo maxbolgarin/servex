@@ -27,6 +27,7 @@ const (
 	AuditEventFilterUABlocked     AuditEventType = "filter.useragent.blocked"
 	AuditEventFilterHeaderBlocked AuditEventType = "filter.header.blocked"
 	AuditEventFilterQueryBlocked  AuditEventType = "filter.query.blocked"
+	AuditEventFilterPathBlocked   AuditEventType = "filter.path.blocked"
 
 	// CSRF Events
 	AuditEventCSRFTokenMissing   AuditEventType = "csrf.token.missing"
@@ -396,6 +397,8 @@ func (al *DefaultAuditLogger) formatFilterMessage(eventType AuditEventType, filt
 		return "Request blocked by header filter"
 	case AuditEventFilterQueryBlocked:
 		return "Request blocked by query parameter filter"
+	case AuditEventFilterPathBlocked:
+		return "Request blocked by path filter"
 	default:
 		return "Request blocked by " + filterType + " filter"
 	}

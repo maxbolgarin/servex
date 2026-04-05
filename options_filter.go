@@ -539,6 +539,44 @@ func WithBlockedQueryParamsRegex(params map[string][]string) Option {
 	}
 }
 
+// WithBlockedPathPrefixes sets path prefixes that will be blocked.
+// Requests whose URL path starts with any of these prefixes will be rejected.
+// Uses strings.HasPrefix for efficient matching.
+//
+// Example:
+//
+//	server := servex.New(
+//		servex.WithBlockedPathPrefixes("/.", "/wp-", "/actuator", "/debug"),
+//	)
+//
+// This is useful for blocking vulnerability scanners and access to sensitive paths.
+// Path checks run before all other filter checks for maximum efficiency.
+func WithBlockedPathPrefixes(prefixes ...string) Option {
+	return func(op *Options) {
+		op.Filter.BlockedPathPrefixes = append(op.Filter.BlockedPathPrefixes, prefixes...)
+	}
+}
+
+// WithBlockedPathPatterns sets regex patterns for blocking request paths.
+// Requests whose URL path matches any of these patterns will be rejected.
+//
+// Example:
+//
+//	server := servex.New(
+//		servex.WithBlockedPathPatterns(
+//			`(?i)/phpmyadmin`,  // case-insensitive
+//			`/api/v[0-9]+/internal/`,
+//		),
+//	)
+//
+// Patterns are compiled once at startup. Invalid patterns cause a startup error.
+// Path checks run before all other filter checks for maximum efficiency.
+func WithBlockedPathPatterns(patterns ...string) Option {
+	return func(op *Options) {
+		op.Filter.BlockedPathPatterns = append(op.Filter.BlockedPathPatterns, patterns...)
+	}
+}
+
 // WithFilterExcludePaths excludes specific paths from request filtering.
 // Requests to these paths will bypass all filtering rules.
 //
