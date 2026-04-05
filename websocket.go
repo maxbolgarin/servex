@@ -188,15 +188,25 @@ func (ws *WSConn) Context() context.Context {
 }
 
 // Close performs a graceful WebSocket close with the given status code and reason.
+// It routes through closeOnce to prevent double-close races with shutdown.
 func (ws *WSConn) Close(code StatusCode, reason string) error {
 	ws.cancel()
-	return ws.conn.Close(code, reason)
+	var err error
+	ws.closeOnce.Do(func() {
+		err = ws.conn.Close(code, reason)
+	})
+	return err
 }
 
 // CloseNow immediately closes the WebSocket connection without sending a close frame.
+// It routes through closeOnce to prevent double-close races with shutdown.
 func (ws *WSConn) CloseNow() error {
 	ws.cancel()
-	return ws.conn.CloseNow()
+	var err error
+	ws.closeOnce.Do(func() {
+		err = ws.conn.CloseNow()
+	})
+	return err
 }
 
 // shutdown cancels the context and force-closes the connection exactly once.

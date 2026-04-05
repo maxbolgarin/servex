@@ -117,7 +117,7 @@ func (sse *SSEConn) SendEventJSON(event string, v any) error {
 func (sse *SSEConn) SendComment(comment string) error {
 	sse.mu.Lock()
 	defer sse.mu.Unlock()
-	if _, err := fmt.Fprintf(sse.w, ": %s\n\n", comment); err != nil {
+	if _, err := fmt.Fprintf(sse.w, ": %s\n", comment); err != nil {
 		return err
 	}
 	sse.fl.Flush()
