@@ -170,7 +170,7 @@ server, err := servex.NewServer(
 ## Next Steps
 
 After trying these security examples:
-1. Check [Cache Examples](../cache/) for secure caching
-2. Explore [Proxy Examples](../proxy-simple/) for secure proxying
-3. Try [Quickstart Examples](../quickstart/) for preset configurations
-4. Read the [Configuration Guide](../configuration-guide/) for advanced setup 
+1. Check [Cache Examples](../04-cache-control/) for secure caching
+2. Explore [Proxy Examples](../09-simple-proxy/) for secure proxying
+3. Try [Quickstart Examples](../02-quickstart/) for preset configurations
+4. Read the [Configuration Guide](../08-configuration/) for advanced setup 

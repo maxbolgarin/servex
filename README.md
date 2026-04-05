@@ -4,6 +4,34 @@
 
 **Servex** eliminates HTTP server boilerplate in Go. Focus on business logic while getting production-ready features out of the box.
 
+## Table of Contents
+
+- [Quick Start](#quick-start)
+- [Presets](#presets)
+- [Features & Configuration](#features--configuration)
+- [Core Features](#core-features)
+  - [Authentication](#authentication)
+  - [Rate Limiting](#rate-limiting)
+  - [Request Filtering](#request-filtering)
+  - [Reverse Proxy / API Gateway](#reverse-proxy--api-gateway)
+  - [Security Headers](#security-headers)
+  - [CSRF Protection](#csrf-protection)
+  - [CORS](#cors)
+  - [Compression](#compression)
+  - [Caching](#caching)
+  - [Static Files & SPA](#static-files--spa)
+  - [HTTPS / TLS](#https--tls)
+  - [Logging & Monitoring](#logging--monitoring)
+  - [Health & Metrics](#health--metrics)
+  - [Server Timeouts & Size Limits](#server-timeouts--size-limits)
+  - [WebSocket](#websocket)
+- [Context Helpers](#context-helpers)
+- [Configuration Options](#configuration-options)
+- [HTTP Method Shortcuts](#http-method-shortcuts)
+- [Server Start Options](#server-start-options)
+- [Examples](#examples)
+- [License](#license)
+
 ## Features
 
 - 🚀 **Zero Boilerplate** - Configure once, code business logic
@@ -85,6 +113,7 @@ Quick configurations for common scenarios:
 | `MicroservicePreset()` | Fast timeouts, minimal security |
 | `HighSecurityPreset()` | Maximum security features |
 | `QuickTLSPreset(cert, key)` | Production + SSL |
+| `ScannerBlockPreset()` | Block vulnerability scanners and probes |
 
 ## Features & Configuration
 
@@ -95,7 +124,7 @@ Quick configurations for common scenarios:
 | **OAuth Providers** | `WithOAuthGoogle(cfg)` - Google login<br>`WithOAuthGitHub(cfg)` - GitHub login<br>`WithOAuthApple(cfg)` - Apple login<br>`WithOAuthTelegram(cfg)` - Telegram login<br>`WithOAuthYandex(cfg)` - Yandex login<br>`WithOAuth(providers...)` - Custom providers<br>`WithOAuthAutoLink(bool)` - Auto-link by email |
 | **Two-Factor Auth** | `WithTwoFactor(encKey)` - Enable TOTP 2FA<br>`WithTwoFactorIssuer(name)` - Authenticator app name<br>`WithTwoFactorEmailFallback(bool)` - Email code fallback<br>`WithTwoFactorEmailSender(s)` - Custom 2FA email sender<br>`WithTwoFactorEmailSMTP(cfg)` - SMTP for 2FA emails<br>`WithTwoFactorBackupCodes(count)` - Backup code count<br>`WithTwoFactorMaxAttempts(n)` - Max verify attempts |
 | **Rate Limiting** | `WithRPM(requests)` - Requests per minute<br>`WithRPS(requests)` - Requests per second<br>`WithRequestsPerInterval(requests, interval)` - Custom interval<br>`WithBurstSize(size)` - Burst allowance<br>`WithRateLimitConfig(config)` - Full configuration<br>`WithRateLimitExcludePaths(paths...)` - Exclude paths<br>`WithRateLimitIncludePaths(paths...)` - Include only paths |
-| **Request Filtering** | `WithBlockedIPs(ips...)` - Block IP ranges<br>`WithAllowedIPs(ips...)` - Allow only IPs<br>`WithBlockedUserAgents(agents...)` - Block user agents<br>`WithBlockedUserAgentsRegex(patterns...)` - Block by regex<br>`WithAllowedHeaders(headers)` - Allow headers<br>`WithBlockedHeaders(headers)` - Block headers<br>`WithAllowedQueryParams(params)` - Allow query params<br>`WithBlockedQueryParams(params)` - Block query params<br>`WithFilterConfig(config)` - Full configuration |
+| **Request Filtering** | `WithBlockedIPs(ips...)` - Block IP ranges<br>`WithAllowedIPs(ips...)` - Allow only IPs<br>`WithBlockedUserAgents(agents...)` - Block user agents<br>`WithBlockedUserAgentsRegex(patterns...)` - Block by regex<br>`WithAllowedHeaders(headers)` - Allow headers<br>`WithBlockedHeaders(headers)` - Block headers<br>`WithAllowedQueryParams(params)` - Allow query params<br>`WithBlockedQueryParams(params)` - Block query params<br>`WithBlockedPathPrefixes(prefixes...)` - Block by URL path prefix<br>`WithBlockedPathPatterns(patterns...)` - Block by URL path regex<br>`WithFilterStatusCode(code)` - Response status when blocked<br>`WithFilterMessage(msg)` - Response body when blocked<br>`WithFilterConfig(config)` - Full configuration |
 | **Security Headers** | `WithSecurityHeaders()` - Basic headers<br>`WithStrictSecurityHeaders()` - Strict CSP, HSTS<br>`WithContentSecurityPolicy(policy)` - Custom CSP<br>`WithHSTSHeader(maxAge, includeSubdomains, preload)` - HSTS config<br>`WithSecurityConfig(config)` - Full configuration |
 | **CSRF Protection** | `WithCSRFProtection()` - Enable CSRF<br>`WithCSRFTokenName(name)` - Token header name<br>`WithCSRFCookieName(name)` - Cookie name<br>`WithCSRFCookieHttpOnly(httpOnly)` - HttpOnly flag<br>`WithCSRFCookieSecure(secure)` - Secure flag<br>`WithCSRFTokenEndpoint(endpoint)` - Token endpoint |
 | **CORS** | `WithCORS()` - Enable with defaults<br>`WithCORSAllowOrigins(origins...)` - Allowed origins<br>`WithCORSAllowMethods(methods...)` - Allowed methods<br>`WithCORSAllowHeaders(headers...)` - Allowed headers<br>`WithCORSAllowCredentials()` - Allow credentials<br>`WithCORSMaxAge(seconds)` - Preflight cache<br>`WithCORSConfig(config)` - Full configuration |
@@ -760,6 +789,26 @@ server, _ := servex.New(
 )
 ```
 
+**Path-based blocking** — block requests by URL path prefix or regex pattern:
+
+```go
+// Block vulnerability scanner paths
+server, _ := servex.New(
+    servex.WithBlockedPathPrefixes("/.", "/wp-", "/actuator", "/debug"),
+    servex.WithBlockedPathPatterns(`(?i)/phpmyadmin`),
+    servex.WithFilterStatusCode(404), // return 404, not 403
+)
+
+// Or use the built-in scanner blocking preset
+server, _ := servex.New(servex.ScannerBlockPreset()...)
+
+// Combine with production preset
+server, _ := servex.New(servex.MergePresets(
+    servex.ProductionPreset(),
+    servex.ScannerBlockPreset(),
+)...)
+```
+
 **Location-based filters** — apply different filter rules to different paths:
 
 ```go
@@ -803,6 +852,10 @@ filter.AddBlockedUserAgent("EvilBot/1.0")
 | `WithAllowedQueryParams(map)` | Allow-list by query parameter name/value |
 | `WithBlockedQueryParams(map)` | Block-list by query parameter name/value |
 | `WithFilterTrustedProxies(ips...)` | Trusted proxies for IP detection |
+| `WithBlockedPathPrefixes(prefixes...)` | Block by URL path prefix |
+| `WithBlockedPathPatterns(patterns...)` | Block by URL path regex |
+| `WithFilterStatusCode(code)` | Response status when blocked (default 403) |
+| `WithFilterMessage(msg)` | Response body when blocked |
 | `WithFilterConfig(cfg)` | Full `FilterConfig` |
 
 ### Reverse Proxy / API Gateway
@@ -951,22 +1004,20 @@ server, _ := servex.New(
 |--------|-------|
 | `X-Content-Type-Options` | `nosniff` |
 | `X-Frame-Options` | `DENY` |
-| `X-XSS-Protection` | `1; mode=block` |
+| `X-XSS-Protection` | `0` |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 
 **Additional headers set by `WithStrictSecurityHeaders()`:**
 
 | Header | Value |
 |--------|-------|
-| `Content-Security-Policy` | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'` |
-| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains; preload` |
+| `Content-Security-Policy` | `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'` |
+| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains; preload` |
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` |
 | `X-Permitted-Cross-Domain-Policies` | `none` |
-| `Cross-Origin-Embedder-Policy` | `require-corp` |
 | `Cross-Origin-Opener-Policy` | `same-origin` |
-| `Cross-Origin-Resource-Policy` | `same-site` |
 
-> **Note:** Strict headers may break functionality that depends on external scripts, iframe embedding, or third-party integrations. Test thoroughly and adjust as needed.
+> **Note:** Strict headers may break functionality that depends on external scripts, iframe embedding, or third-party integrations. Test thoroughly and adjust as needed. For maximum isolation with `Cross-Origin-Embedder-Policy` and `Cross-Origin-Resource-Policy`, use `WithMaxSecurityHeaders()`.
 
 **Security header options:**
 
@@ -974,6 +1025,7 @@ server, _ := servex.New(
 |--------|-------------|
 | `WithSecurityHeaders()` | Basic security headers |
 | `WithStrictSecurityHeaders()` | Full set of strict headers |
+| `WithMaxSecurityHeaders()` | Maximum isolation (includes COEP/CORP) |
 | `WithContentSecurityPolicy(policy)` | Custom `Content-Security-Policy` |
 | `WithHSTSHeader(maxAge, subdomains, preload)` | `Strict-Transport-Security` |
 | `WithSecurityExcludePaths(paths...)` | Skip headers for these paths |
@@ -1799,11 +1851,16 @@ server.StartHTTPS(":8443")
 - `WithAllowedQueryParams(map)` - Allow only these query values
 - `WithBlockedQueryParams(map)` - Block these query values
 - `WithFilterTrustedProxies(ips...)` - Trusted proxy IPs
+- `WithBlockedPathPrefixes(prefixes...)` - Block by URL path prefix
+- `WithBlockedPathPatterns(patterns...)` - Block by URL path regex
+- `WithFilterStatusCode(code)` - Response status when blocked
+- `WithFilterMessage(msg)` - Response body when blocked
 - `WithFilterConfig(cfg)` - Full `FilterConfig`
 
 ### Security Headers
 - `WithSecurityHeaders()` - Basic security headers
 - `WithStrictSecurityHeaders()` - Strict CSP, HSTS
+- `WithMaxSecurityHeaders()` - Maximum isolation (includes COEP/CORP)
 - `WithContentSecurityPolicy(policy)` - Custom CSP
 - `WithHSTSHeader(maxAge, subdomains, preload)` - HSTS
 - `WithSecurityExcludePaths(paths...)` - Exempt paths
@@ -1930,12 +1987,26 @@ func handler(w http.ResponseWriter, r *http.Request) {
 
 ## Examples
 
-See [examples/](examples/) for complete working examples:
-- Basic server
-- Authentication (JWT, email verification, OAuth, 2FA)
-- Rate limiting
-- Reverse proxy
-- SPA serving
+See [examples/](examples/) for 14 progressive tutorials:
+
+| Example | What You'll Learn |
+|---------|-------------------|
+| [00-plain-http](examples/00-plain-http/) | Using servex context helpers with plain `net/http` |
+| [01-hello-world](examples/01-hello-world/) | Basic server setup and graceful shutdown |
+| [02-quickstart](examples/02-quickstart/) | Server presets (development, production, API) |
+| [03-security-headers](examples/03-security-headers/) | CSP, HSTS, X-Frame-Options, and more |
+| [04-cache-control](examples/04-cache-control/) | ETags, Last-Modified, cache strategies |
+| [05-static-files](examples/05-static-files/) | Static file serving with compression |
+| [06-rate-limiting](examples/06-rate-limiting/) | DoS protection with token bucket |
+| [07-request-filtering](examples/07-request-filtering/) | IP, User-Agent, header, and path filtering |
+| [08-configuration](examples/08-configuration/) | YAML config with environment overlays |
+| [09-simple-proxy](examples/09-simple-proxy/) | Basic reverse proxy with load balancing |
+| [10-advanced-proxy](examples/10-advanced-proxy/) | API gateway with health checks and routing |
+| [11-location-filtering](examples/11-location-filtering/) | Per-path security rules |
+| [12-dynamic-filtering](examples/12-dynamic-filtering/) | Runtime security with honeypots |
+| [standalone](examples/standalone/) | Running servex without Go code |
+
+See also: [Caddy Migration Guide](docs/CADDY_MIGRATION.md) for translating Caddy configs to servex.
 
 ## Contributing
 

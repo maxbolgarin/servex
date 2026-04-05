@@ -129,6 +129,7 @@ servex -preset production -port 8080
 | `security` | `secure` | Strict security, CSRF, bot filtering, aggressive rate limiting (20 rps, burst 5), full audit logging |
 | `spa` | | SPA mode (index.html fallback), compression, 1-year asset cache, security headers, rate limiting |
 | `static` | | Static file server, compression, 1-year asset cache, security headers |
+| `scanner` | | Block vulnerability scanners, dotfile probes, and common attack paths. Combine with other presets. |
 
 All presets include health endpoint (`/health`) and metrics (`/metrics`).
 
@@ -151,6 +152,25 @@ cors:
   enabled: true
   allow_origins:
     - "https://myapp.com"
+```
+
+### Scanner / Probe Blocking
+
+Block common vulnerability scanners and attack paths:
+
+```yaml
+# Scanner / probe blocking via YAML config
+filter:
+  blocked_path_prefixes:
+    - "/."
+    - "/wp-"
+    - "/actuator"
+    - "/cgi-bin"
+    - "/xmlrpc.php"
+  blocked_path_patterns:
+    - "(?i)/phpmyadmin"
+  status_code: 404
+  message: ""
 ```
 
 ### Docker with Presets
@@ -623,3 +643,5 @@ proxy:
 servex -validate -config production.yaml
 servex -dry-run -config production.yaml
 ```
+
+See [Caddy Migration Guide](CADDY_MIGRATION.md) for translating Caddy configs to servex.

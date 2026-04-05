@@ -559,6 +559,14 @@ filter:
   trusted_proxies:
     - "127.0.0.1"
 
+  # blocked_path_prefixes:          # Block requests by URL path prefix (strings.HasPrefix)
+  #   - "/."                        # dotfiles (.env, .git, .htaccess)
+  #   - "/wp-"                      # WordPress probes
+  #   - "/actuator"                 # Spring Boot actuator
+  #   - "/debug"                    # Debug endpoints
+  # blocked_path_patterns:          # Block requests by URL path regex
+  #   - "(?i)/phpmyadmin"           # case-insensitive phpMyAdmin
+
 
 # =============================================================================
 # SECURITY CONFIGURATION
