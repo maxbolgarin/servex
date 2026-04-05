@@ -1386,8 +1386,8 @@ func TestWithSecurityHeaders(t *testing.T) {
 	if options.Security.XFrameOptions != "DENY" {
 		t.Errorf("expected X-Frame-Options to be 'DENY', got %q", options.Security.XFrameOptions)
 	}
-	if options.Security.XXSSProtection != "1; mode=block" {
-		t.Errorf("expected X-XSS-Protection to be '1; mode=block', got %q", options.Security.XXSSProtection)
+	if options.Security.XXSSProtection != "0" {
+		t.Errorf("expected X-XSS-Protection to be '0', got %q", options.Security.XXSSProtection)
 	}
 	if options.Security.ReferrerPolicy != "strict-origin-when-cross-origin" {
 		t.Errorf("expected Referrer-Policy to be 'strict-origin-when-cross-origin', got %q", options.Security.ReferrerPolicy)
@@ -1401,17 +1401,15 @@ func TestWithStrictSecurityHeaders(t *testing.T) {
 	option(&options)
 
 	expectedHeaders := map[string]string{
-		"ContentSecurityPolicy":         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'",
+		"ContentSecurityPolicy":         "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'",
 		"XContentTypeOptions":           "nosniff",
 		"XFrameOptions":                 "DENY",
-		"XXSSProtection":                "1; mode=block",
-		"StrictTransportSecurity":       "max-age=31536000; includeSubDomains; preload",
+		"XXSSProtection":                "0",
+		"StrictTransportSecurity":       "max-age=63072000; includeSubDomains; preload",
 		"ReferrerPolicy":                "strict-origin-when-cross-origin",
 		"PermissionsPolicy":             "camera=(), microphone=(), geolocation=()",
 		"XPermittedCrossDomainPolicies": "none",
-		"CrossOriginEmbedderPolicy":     "require-corp",
 		"CrossOriginOpenerPolicy":       "same-origin",
-		"CrossOriginResourcePolicy":     "same-site",
 	}
 
 	if !options.Security.Enabled {

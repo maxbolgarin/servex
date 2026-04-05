@@ -40,7 +40,7 @@ func WithSecurityConfig(security SecurityConfig) Option {
 // Headers applied:
 //   - X-Content-Type-Options: nosniff
 //   - X-Frame-Options: DENY
-//   - X-XSS-Protection: 1; mode=block
+//   - X-XSS-Protection: 0
 //   - Referrer-Policy: strict-origin-when-cross-origin
 //
 // Use cases:
@@ -56,7 +56,7 @@ func WithSecurityHeaders() Option {
 		op.Security.Enabled = true
 		op.Security.XContentTypeOptions = "nosniff"
 		op.Security.XFrameOptions = "DENY"
-		op.Security.XXSSProtection = "1; mode=block"
+		op.Security.XXSSProtection = "0"
 		op.Security.ReferrerPolicy = "strict-origin-when-cross-origin"
 	}
 }
@@ -70,17 +70,15 @@ func WithSecurityHeaders() Option {
 //	server := servex.New(servex.WithStrictSecurityHeaders())
 //
 // Headers applied:
-//   - Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'
+//   - Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'
 //   - X-Content-Type-Options: nosniff
 //   - X-Frame-Options: DENY
-//   - X-XSS-Protection: 1; mode=block
-//   - Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+//   - X-XSS-Protection: 0
+//   - Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
 //   - Referrer-Policy: strict-origin-when-cross-origin
 //   - Permissions-Policy: camera=(), microphone=(), geolocation=()
 //   - X-Permitted-Cross-Domain-Policies: none
-//   - Cross-Origin-Embedder-Policy: require-corp
 //   - Cross-Origin-Opener-Policy: same-origin
-//   - Cross-Origin-Resource-Policy: same-site
 //
 // Use cases:
 //   - High-security applications
@@ -95,21 +93,67 @@ func WithSecurityHeaders() Option {
 //   - Cross-origin requests
 //   - Third-party integrations
 //
+// For maximum isolation (with Cross-Origin-Embedder-Policy and Cross-Origin-Resource-Policy),
+// use WithMaxSecurityHeaders() instead.
 // Test thoroughly and adjust headers as needed for your application.
 func WithStrictSecurityHeaders() Option {
+	return func(op *Options) {
+		op.Security.Enabled = true
+		op.Security.ContentSecurityPolicy = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'"
+		op.Security.XContentTypeOptions = "nosniff"
+		op.Security.XFrameOptions = "DENY"
+		op.Security.XXSSProtection = "0"
+		op.Security.StrictTransportSecurity = "max-age=63072000; includeSubDomains; preload"
+		op.Security.ReferrerPolicy = "strict-origin-when-cross-origin"
+		op.Security.PermissionsPolicy = "camera=(), microphone=(), geolocation=()"
+		op.Security.XPermittedCrossDomainPolicies = "none"
+		op.Security.CrossOriginOpenerPolicy = "same-origin"
+	}
+}
+
+// WithMaxSecurityHeaders enables maximum security headers for fully isolated applications.
+// This applies the strictest possible headers including Cross-Origin isolation policies.
+//
+// Example:
+//
+//	// Apply maximum security headers
+//	server := servex.New(servex.WithMaxSecurityHeaders())
+//
+// Headers applied:
+//   - Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'
+//   - X-Content-Type-Options: nosniff
+//   - X-Frame-Options: DENY
+//   - X-XSS-Protection: 0
+//   - Strict-Transport-Security: max-age=63072000; includeSubDomains; preload
+//   - Referrer-Policy: strict-origin-when-cross-origin
+//   - Permissions-Policy: camera=(), microphone=(), geolocation=()
+//   - X-Permitted-Cross-Domain-Policies: none
+//   - Cross-Origin-Embedder-Policy: require-corp
+//   - Cross-Origin-Opener-Policy: same-origin
+//   - Cross-Origin-Resource-Policy: same-origin
+//
+// Warning: These headers WILL break functionality that requires:
+//   - Loading external scripts, styles, fonts, or images (CDN, Google Fonts, etc.)
+//   - Iframe embedding from other origins
+//   - Cross-origin API requests without proper CORS headers
+//   - Third-party integrations (analytics, payment providers, etc.)
+//
+// Use WithStrictSecurityHeaders() for production sites that load external resources.
+// Use this preset only for fully self-contained applications with no external dependencies.
+func WithMaxSecurityHeaders() Option {
 	return func(op *Options) {
 		op.Security.Enabled = true
 		op.Security.ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
 		op.Security.XContentTypeOptions = "nosniff"
 		op.Security.XFrameOptions = "DENY"
-		op.Security.XXSSProtection = "1; mode=block"
-		op.Security.StrictTransportSecurity = "max-age=31536000; includeSubDomains; preload"
+		op.Security.XXSSProtection = "0"
+		op.Security.StrictTransportSecurity = "max-age=63072000; includeSubDomains; preload"
 		op.Security.ReferrerPolicy = "strict-origin-when-cross-origin"
 		op.Security.PermissionsPolicy = "camera=(), microphone=(), geolocation=()"
 		op.Security.XPermittedCrossDomainPolicies = "none"
 		op.Security.CrossOriginEmbedderPolicy = "require-corp"
 		op.Security.CrossOriginOpenerPolicy = "same-origin"
-		op.Security.CrossOriginResourcePolicy = "same-site"
+		op.Security.CrossOriginResourcePolicy = "same-origin"
 	}
 }
 
