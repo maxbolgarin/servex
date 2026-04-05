@@ -879,12 +879,21 @@ func (crw *compressionResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, err
 }
 
 // Flush implements http.Flusher so SSE streaming works through this wrapper.
+// If data is still buffered (below minSize threshold), it is flushed as uncompressed
+// to avoid delaying SSE events and keep-alive pings.
 func (crw *compressionResponseWriter) Flush() {
-	type flusher interface {
-		Flush() error
+	// Drain buffered data that hasn't reached the compression threshold.
+	// This is critical for SSE: small events must be sent immediately.
+	if len(crw.buf) > 0 && crw.writer == nil && !crw.compressed {
+		data := crw.buf
+		crw.buf = nil
+		crw.compressed = true // skip compression for this stream
+		_, _ = crw.ResponseWriter.Write(data)
 	}
-	if f, ok := crw.writer.(flusher); ok {
-		f.Flush()
+	// Flush the compressor if active.
+	type compFlusher interface{ Flush() error }
+	if f, ok := crw.writer.(compFlusher); ok {
+		_ = f.Flush()
 	}
 	if fl, ok := crw.ResponseWriter.(http.Flusher); ok {
 		fl.Flush()

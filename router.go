@@ -377,17 +377,18 @@ func (s *Server) Group(prefix string) *Group {
 // Create groups using [Server.Group]. Routes registered on a group inherit
 // the prefix and all middleware added via [Group.Use].
 type Group struct {
-	subrouter *mux.Router
-	auth      *AuthManager
-	opts      *Options
-	basePath  string
+	subrouter    *mux.Router
+	activeRouter *mux.Router // cached subrouter with basePath applied
+	auth         *AuthManager
+	opts         *Options
+	basePath     string
 }
 
 // Group creates a sub-group with an additional path prefix.
 // Middleware from the parent group applies to the sub-group.
 func (g *Group) Group(prefix string) *Group {
 	return &Group{
-		subrouter: g.subrouter.PathPrefix(prefix).Subrouter(),
+		subrouter: g.getRouter().PathPrefix(prefix).Subrouter(),
 		auth:      g.auth,
 		opts:      g.opts,
 	}
@@ -399,12 +400,14 @@ func (g *Group) WithBasePath(path string) *Group {
 		return g
 	}
 	g.basePath = path
+	g.activeRouter = g.subrouter.PathPrefix(path).Subrouter()
 	return g
 }
 
 // RemoveBasePath clears the base path for routes registered on this group.
 func (g *Group) RemoveBasePath() *Group {
 	g.basePath = ""
+	g.activeRouter = nil
 	return g
 }
 
@@ -424,10 +427,10 @@ func (g *Group) Router() *mux.Router {
 }
 
 func (g *Group) getRouter() *mux.Router {
-	if g.basePath == "" {
-		return g.subrouter
+	if g.activeRouter != nil {
+		return g.activeRouter
 	}
-	return g.subrouter.PathPrefix(g.basePath).Subrouter()
+	return g.subrouter
 }
 
 // Handle registers a new route with the provided path and [http.Handler].

@@ -2915,12 +2915,12 @@ func (opts *Options) Validate() error {
 	}
 
 	// Rate limit validation
-	if opts.RateLimit.Enabled {
+	if opts.RateLimit.Enabled || opts.RateLimit.RequestsPerInterval > 0 {
 		if opts.RateLimit.RequestsPerInterval <= 0 {
 			errors = append(errors, "requests per interval must be positive when rate limiting is enabled")
 		}
-		if opts.RateLimit.Interval <= 0 {
-			errors = append(errors, "rate limit interval must be positive")
+		if opts.RateLimit.Interval < 0 {
+			errors = append(errors, "rate limit interval must not be negative")
 		}
 	}
 
@@ -3003,5 +3003,5 @@ func (c HTTPSRedirectConfig) isActive() bool {
 // isActive returns true if CORS should be applied.
 // Active when Enabled is explicitly set or when allowed origins are configured.
 func (c CORSConfig) isActive() bool {
-	return c.Enabled || len(c.AllowOrigins) > 0 || c.AllowCredentials
+	return c.Enabled || len(c.AllowOrigins) > 0
 }

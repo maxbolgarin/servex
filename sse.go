@@ -2,7 +2,9 @@ package servex
 
 import (
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/mux"
@@ -25,12 +27,15 @@ type SSEConn struct {
 }
 
 // Send sends a data-only SSE event.
-// Multiple calls to Send will send multiple events.
+// Multi-line data is correctly split into separate data: fields per the SSE spec.
 // It is safe for concurrent use.
 func (sse *SSEConn) Send(data string) error {
 	sse.mu.Lock()
 	defer sse.mu.Unlock()
-	if _, err := fmt.Fprintf(sse.w, "data: %s\n\n", data); err != nil {
+	if err := writeSSEDataLines(sse.w, data); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprint(sse.w, "\n"); err != nil {
 		return err
 	}
 	sse.fl.Flush()
@@ -38,11 +43,18 @@ func (sse *SSEConn) Send(data string) error {
 }
 
 // SendEvent sends a named SSE event with the given event type and data.
+// Multi-line data is correctly split into separate data: fields per the SSE spec.
 // It is safe for concurrent use.
 func (sse *SSEConn) SendEvent(event, data string) error {
 	sse.mu.Lock()
 	defer sse.mu.Unlock()
-	if _, err := fmt.Fprintf(sse.w, "event: %s\ndata: %s\n\n", event, data); err != nil {
+	if _, err := fmt.Fprintf(sse.w, "event: %s\n", event); err != nil {
+		return err
+	}
+	if err := writeSSEDataLines(sse.w, data); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprint(sse.w, "\n"); err != nil {
 		return err
 	}
 	sse.fl.Flush()
@@ -55,10 +67,27 @@ func (sse *SSEConn) SendEvent(event, data string) error {
 func (sse *SSEConn) SendEventWithID(id, event, data string) error {
 	sse.mu.Lock()
 	defer sse.mu.Unlock()
-	if _, err := fmt.Fprintf(sse.w, "id: %s\nevent: %s\ndata: %s\n\n", id, event, data); err != nil {
+	if _, err := fmt.Fprintf(sse.w, "id: %s\nevent: %s\n", id, event); err != nil {
+		return err
+	}
+	if err := writeSSEDataLines(sse.w, data); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprint(sse.w, "\n"); err != nil {
 		return err
 	}
 	sse.fl.Flush()
+	return nil
+}
+
+// writeSSEDataLines writes one "data: " line per line in the input string.
+// Per the WHATWG EventSource spec, multi-line data must be split across multiple data: fields.
+func writeSSEDataLines(w io.Writer, data string) error {
+	for _, line := range strings.Split(data, "\n") {
+		if _, err := fmt.Fprintf(w, "data: %s\n", line); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
