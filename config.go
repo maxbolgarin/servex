@@ -1027,7 +1027,9 @@ func StartServerFromConfig(configFile string, handlerSetter func(*mux.Router)) (
 	}
 
 	return func() error {
-		return server.Shutdown(context.Background())
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return server.Shutdown(ctx)
 	}, nil
 }
 

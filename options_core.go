@@ -3088,6 +3088,12 @@ func (opts *Options) Validate() error {
 		if opts.Auth.AccessTokenDuration >= opts.Auth.RefreshTokenDuration {
 			errors = append(errors, "refresh token duration should be longer than access token duration")
 		}
+		if opts.Auth.JWTAccessSecret != "" && opts.Auth.JWTAccessSecret == opts.Auth.JWTRefreshSecret {
+			errors = append(errors, "JWT access and refresh secrets must be different")
+		}
+		if ev := opts.Auth.EmailVerification; ev.Enabled && ev.CodeDigits != 0 && (ev.CodeDigits < 1 || ev.CodeDigits > 32) {
+			errors = append(errors, "email verification code digits must be between 1 and 32")
+		}
 	}
 
 	// Rate limit validation
@@ -3097,6 +3103,9 @@ func (opts *Options) Validate() error {
 		}
 		if opts.RateLimit.Interval < 0 {
 			errors = append(errors, "rate limit interval must not be negative")
+		}
+		if opts.RateLimit.StatusCode != 0 && (opts.RateLimit.StatusCode < 100 || opts.RateLimit.StatusCode > 599) {
+			errors = append(errors, "rate limit status code must be a valid HTTP status code (100-599)")
 		}
 	}
 

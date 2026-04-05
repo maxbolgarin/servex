@@ -9,6 +9,9 @@ import (
 // WithBasePath sets the base path for the server's router.
 // It returns the server itself to allow method chaining.
 //
+// NOTE: basePath is not safe for concurrent use. Call WithBasePath (and RemoveBasePath)
+// only during route registration, before calling [Server.Start].
+//
 // Parameters:
 //   - path: The base path to set for the router
 //

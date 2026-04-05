@@ -178,6 +178,10 @@ func NewDefaultAuditLogger(logger Logger) *DefaultAuditLogger {
 
 // LogSecurityEvent logs a structured security event
 func (al *DefaultAuditLogger) LogSecurityEvent(event AuditEvent) {
+	if al.Logger == nil {
+		return
+	}
+
 	// Use log fields pool for efficient logging
 	fields := getLogFields()
 	defer putLogFields(fields)
@@ -247,6 +251,10 @@ func (al *DefaultAuditLogger) LogSecurityEvent(event AuditEvent) {
 
 // LogAuthenticationEvent logs authentication-related events
 func (al *DefaultAuditLogger) LogAuthenticationEvent(eventType AuditEventType, r *http.Request, userID string, success bool, details map[string]any) {
+	if al.Logger == nil {
+		return
+	}
+
 	severity := AuditSeverityMedium
 	if !success {
 		severity = AuditSeverityHigh
@@ -279,6 +287,10 @@ func (al *DefaultAuditLogger) LogAuthenticationEvent(eventType AuditEventType, r
 
 // LogRateLimitEvent logs rate limiting events
 func (al *DefaultAuditLogger) LogRateLimitEvent(r *http.Request, key string, details map[string]any) {
+	if al.Logger == nil {
+		return
+	}
+
 	event := AuditEvent{
 		EventType:    AuditEventRateLimitExceeded,
 		Severity:     AuditSeverityMedium,
@@ -301,6 +313,10 @@ func (al *DefaultAuditLogger) LogRateLimitEvent(r *http.Request, key string, det
 
 // LogFilterEvent logs request filtering events
 func (al *DefaultAuditLogger) LogFilterEvent(eventType AuditEventType, r *http.Request, filterType, filterValue, rule string) {
+	if al.Logger == nil {
+		return
+	}
+
 	event := AuditEvent{
 		EventType:   eventType,
 		Severity:    AuditSeverityHigh,
@@ -325,6 +341,10 @@ func (al *DefaultAuditLogger) LogFilterEvent(eventType AuditEventType, r *http.R
 
 // LogCSRFEvent logs CSRF protection events
 func (al *DefaultAuditLogger) LogCSRFEvent(eventType AuditEventType, r *http.Request, details map[string]any) {
+	if al.Logger == nil {
+		return
+	}
+
 	event := AuditEvent{
 		EventType:  eventType,
 		Severity:   AuditSeverityHigh,
@@ -347,6 +367,10 @@ func (al *DefaultAuditLogger) LogCSRFEvent(eventType AuditEventType, r *http.Req
 
 // LogSuspiciousActivity logs suspicious or anomalous activity
 func (al *DefaultAuditLogger) LogSuspiciousActivity(r *http.Request, activityType string, details map[string]any) {
+	if al.Logger == nil {
+		return
+	}
+
 	event := AuditEvent{
 		EventType: AuditEventAnomalousActivity,
 		Severity:  AuditSeverityHigh,

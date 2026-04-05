@@ -229,7 +229,6 @@ func HighSecurityPreset(cert ...tls.Certificate) []Option {
 		WithBlockedUserAgentsRegex(
 			".*[Bb]ot.*",     // Block bots
 			".*[Ss]craper.*", // Block scrapers
-			"curl.*",         // Block curl
 		),
 		WithBlockedQueryParams(map[string][]string{
 			"debug": {"true", "1", "on"},
