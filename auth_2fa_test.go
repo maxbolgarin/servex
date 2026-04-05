@@ -2,6 +2,8 @@ package servex_test
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"net/http"
@@ -87,10 +89,15 @@ func createTestUserFor2FA(t *testing.T, db *servex.MemoryAuthDatabase, cfg serve
 // generate2FAPendingToken creates a pending 2FA token for the given user.
 func generate2FAPendingToken(t *testing.T, cfg servex.AuthConfig, userID string) string {
 	t.Helper()
-	accessSecretBytes, err := hex.DecodeString(cfg.JWTAccessSecret)
+	refreshSecretBytes, err := hex.DecodeString(cfg.JWTRefreshSecret)
 	if err != nil {
-		t.Fatalf("Failed to decode access secret: %v", err)
+		t.Fatalf("Failed to decode refresh secret: %v", err)
 	}
+	// Derive the pending token secret the same way the production code does.
+	mac := hmac.New(sha256.New, refreshSecretBytes)
+	mac.Write([]byte("servex-2fa-pending"))
+	pendingKey := mac.Sum(nil)
+
 	claims := jwt.MapClaims{
 		"user_id": userID,
 		"purpose": "2fa_pending",
@@ -100,7 +107,7 @@ func generate2FAPendingToken(t *testing.T, cfg servex.AuthConfig, userID string)
 		"iat":     time.Now().Unix(),
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(accessSecretBytes)
+	tokenString, err := token.SignedString(pendingKey)
 	if err != nil {
 		t.Fatalf("Failed to sign 2FA pending token: %v", err)
 	}

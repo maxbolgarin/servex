@@ -491,10 +491,9 @@ func (h *AuthManager) ForgotPasswordHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// Enforce resend cooldown using existing token expiry to derive last sent time
-	if h.service.cfg.PasswordReset.ResendCooldown > 0 && !user.PasswordResetTokenExpiresAt.IsZero() {
-		lastSentAt := user.PasswordResetTokenExpiresAt.Add(-h.service.cfg.PasswordReset.TokenDuration)
-		if time.Since(lastSentAt) < h.service.cfg.PasswordReset.ResendCooldown {
+	// Enforce resend cooldown
+	if h.service.cfg.PasswordReset.ResendCooldown > 0 && !user.PasswordResetLastSentAt.IsZero() {
+		if time.Since(user.PasswordResetLastSentAt) < h.service.cfg.PasswordReset.ResendCooldown {
 			// Still within cooldown — return success to prevent enumeration
 			ctx.Response(http.StatusOK, map[string]string{"message": successMessage})
 			return
@@ -514,11 +513,13 @@ func (h *AuthManager) ForgotPasswordHandler(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	expiresAt := time.Now().Add(h.service.cfg.PasswordReset.TokenDuration)
+	now := time.Now()
+	expiresAt := now.Add(h.service.cfg.PasswordReset.TokenDuration)
 
 	if err := h.service.db.UpdateUser(r.Context(), user.ID, &UserDiff{
 		PasswordResetTokenHash:      lang.Ptr(tokenHash),
 		PasswordResetTokenExpiresAt: lang.Ptr(expiresAt),
+		PasswordResetLastSentAt:     lang.Ptr(now),
 	}); err != nil {
 		if h.auditLogger != nil {
 			h.auditLogger.LogAuthenticationEvent(AuditEventPasswordResetFailed, r, user.ID, false, map[string]any{

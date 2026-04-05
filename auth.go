@@ -2,7 +2,9 @@ package servex
 
 import (
 	"context"
+	"crypto/hmac"
 	crand "crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -45,30 +47,31 @@ type User struct {
 	ID                    string     `json:"id" bson:"_id" db:"id"`
 	Username              string     `json:"username" bson:"username" db:"username"`
 	Roles                 []UserRole `json:"roles" bson:"roles" db:"roles"`
-	PasswordHash          string     `json:"password_hash" bson:"password_hash" db:"password_hash"`
-	RefreshTokenHash      string     `json:"refresh_token_hash" bson:"refresh_token_hash" db:"refresh_token_hash"`
-	RefreshTokenExpiresAt time.Time  `json:"refresh_token_expires_at" bson:"refresh_token_expires_at" db:"refresh_token_expires_at"`
+	PasswordHash          string     `json:"-" bson:"password_hash" db:"password_hash"`
+	RefreshTokenHash      string     `json:"-" bson:"refresh_token_hash" db:"refresh_token_hash"`
+	RefreshTokenExpiresAt time.Time  `json:"-" bson:"refresh_token_expires_at" db:"refresh_token_expires_at"`
 
 	// Email
 	Email         string `json:"email,omitempty" bson:"email,omitempty" db:"email"`
 	EmailVerified bool   `json:"email_verified" bson:"email_verified" db:"email_verified"`
 
 	// Email verification
-	EmailVerifyTokenHash      string    `json:"email_verify_token_hash,omitempty" bson:"email_verify_token_hash,omitempty" db:"email_verify_token_hash"`
-	EmailVerifyTokenExpiresAt time.Time `json:"email_verify_token_expires_at,omitempty" bson:"email_verify_token_expires_at,omitempty" db:"email_verify_token_expires_at"`
-	EmailVerifyLastSentAt     time.Time `json:"email_verify_last_sent_at,omitempty" bson:"email_verify_last_sent_at,omitempty" db:"email_verify_last_sent_at"`
+	EmailVerifyTokenHash      string    `json:"-" bson:"email_verify_token_hash,omitempty" db:"email_verify_token_hash"`
+	EmailVerifyTokenExpiresAt time.Time `json:"-" bson:"email_verify_token_expires_at,omitempty" db:"email_verify_token_expires_at"`
+	EmailVerifyLastSentAt     time.Time `json:"-" bson:"email_verify_last_sent_at,omitempty" db:"email_verify_last_sent_at"`
 
 	// Password reset
-	PasswordResetTokenHash      string    `json:"password_reset_token_hash,omitempty" bson:"password_reset_token_hash,omitempty" db:"password_reset_token_hash"`
-	PasswordResetTokenExpiresAt time.Time `json:"password_reset_token_expires_at,omitempty" bson:"password_reset_token_expires_at,omitempty" db:"password_reset_token_expires_at"`
+	PasswordResetTokenHash      string    `json:"-" bson:"password_reset_token_hash,omitempty" db:"password_reset_token_hash"`
+	PasswordResetTokenExpiresAt time.Time `json:"-" bson:"password_reset_token_expires_at,omitempty" db:"password_reset_token_expires_at"`
+	PasswordResetLastSentAt     time.Time `json:"-" bson:"password_reset_last_sent_at,omitempty" db:"password_reset_last_sent_at"`
 
 	// OAuth
 	OAuthProviders []OAuthLink `json:"oauth_providers,omitempty" bson:"oauth_providers,omitempty" db:"oauth_providers"`
 
 	// 2FA
 	TwoFactorEnabled     bool     `json:"two_factor_enabled" bson:"two_factor_enabled" db:"two_factor_enabled"`
-	TwoFactorSecret      string   `json:"two_factor_secret,omitempty" bson:"two_factor_secret,omitempty" db:"two_factor_secret"`
-	TwoFactorBackupCodes []string `json:"two_factor_backup_codes,omitempty" bson:"two_factor_backup_codes,omitempty" db:"two_factor_backup_codes"`
+	TwoFactorSecret      string   `json:"-" bson:"two_factor_secret,omitempty" db:"two_factor_secret"`
+	TwoFactorBackupCodes []string `json:"-" bson:"two_factor_backup_codes,omitempty" db:"two_factor_backup_codes"`
 }
 
 // OAuthLink represents a linked OAuth provider for a user.
@@ -81,30 +84,31 @@ type OAuthLink struct {
 type UserDiff struct {
 	Username              *string     `json:"username,omitempty" bson:"username,omitempty" db:"username,omitempty"`
 	Roles                 *[]UserRole `json:"roles,omitempty" bson:"roles,omitempty" db:"roles,omitempty"`
-	PasswordHash          *string     `json:"password_hash,omitempty" bson:"password_hash,omitempty" db:"password_hash,omitempty"`
-	RefreshTokenHash      *string     `json:"refresh_token_hash,omitempty" bson:"refresh_token_hash,omitempty" db:"refresh_token_hash,omitempty"`
-	RefreshTokenExpiresAt *time.Time  `json:"refresh_token_expires_at,omitempty" bson:"refresh_token_expires_at,omitempty" db:"refresh_token_expires_at,omitempty"`
+	PasswordHash          *string     `json:"-" bson:"password_hash,omitempty" db:"password_hash,omitempty"`
+	RefreshTokenHash      *string     `json:"-" bson:"refresh_token_hash,omitempty" db:"refresh_token_hash,omitempty"`
+	RefreshTokenExpiresAt *time.Time  `json:"-" bson:"refresh_token_expires_at,omitempty" db:"refresh_token_expires_at,omitempty"`
 
 	// Email
 	Email         *string `json:"email,omitempty" bson:"email,omitempty" db:"email,omitempty"`
 	EmailVerified *bool   `json:"email_verified,omitempty" bson:"email_verified,omitempty" db:"email_verified,omitempty"`
 
 	// Email verification
-	EmailVerifyTokenHash      *string    `json:"email_verify_token_hash,omitempty" bson:"email_verify_token_hash,omitempty" db:"email_verify_token_hash,omitempty"`
-	EmailVerifyTokenExpiresAt *time.Time `json:"email_verify_token_expires_at,omitempty" bson:"email_verify_token_expires_at,omitempty" db:"email_verify_token_expires_at,omitempty"`
-	EmailVerifyLastSentAt     *time.Time `json:"email_verify_last_sent_at,omitempty" bson:"email_verify_last_sent_at,omitempty" db:"email_verify_last_sent_at,omitempty"`
+	EmailVerifyTokenHash      *string    `json:"-" bson:"email_verify_token_hash,omitempty" db:"email_verify_token_hash,omitempty"`
+	EmailVerifyTokenExpiresAt *time.Time `json:"-" bson:"email_verify_token_expires_at,omitempty" db:"email_verify_token_expires_at,omitempty"`
+	EmailVerifyLastSentAt     *time.Time `json:"-" bson:"email_verify_last_sent_at,omitempty" db:"email_verify_last_sent_at,omitempty"`
 
 	// Password reset
-	PasswordResetTokenHash      *string    `json:"password_reset_token_hash,omitempty" bson:"password_reset_token_hash,omitempty" db:"password_reset_token_hash,omitempty"`
-	PasswordResetTokenExpiresAt *time.Time `json:"password_reset_token_expires_at,omitempty" bson:"password_reset_token_expires_at,omitempty" db:"password_reset_token_expires_at,omitempty"`
+	PasswordResetTokenHash      *string    `json:"-" bson:"password_reset_token_hash,omitempty" db:"password_reset_token_hash,omitempty"`
+	PasswordResetTokenExpiresAt *time.Time `json:"-" bson:"password_reset_token_expires_at,omitempty" db:"password_reset_token_expires_at,omitempty"`
+	PasswordResetLastSentAt     *time.Time `json:"-" bson:"password_reset_last_sent_at,omitempty" db:"password_reset_last_sent_at,omitempty"`
 
 	// OAuth
 	OAuthProviders *[]OAuthLink `json:"oauth_providers,omitempty" bson:"oauth_providers,omitempty" db:"oauth_providers,omitempty"`
 
 	// 2FA
 	TwoFactorEnabled     *bool     `json:"two_factor_enabled,omitempty" bson:"two_factor_enabled,omitempty" db:"two_factor_enabled,omitempty"`
-	TwoFactorSecret      *string   `json:"two_factor_secret,omitempty" bson:"two_factor_secret,omitempty" db:"two_factor_secret,omitempty"`
-	TwoFactorBackupCodes *[]string `json:"two_factor_backup_codes,omitempty" bson:"two_factor_backup_codes,omitempty" db:"two_factor_backup_codes,omitempty"`
+	TwoFactorSecret      *string   `json:"-" bson:"two_factor_secret,omitempty" db:"two_factor_secret,omitempty"`
+	TwoFactorBackupCodes *[]string `json:"-" bson:"two_factor_backup_codes,omitempty" db:"two_factor_backup_codes,omitempty"`
 }
 
 const (
@@ -123,6 +127,7 @@ const (
 	EmailVerifyLastSentAtDBField      = "email_verify_last_sent_at"
 	PasswordResetTokenHashDBField     = "password_reset_token_hash"
 	PasswordResetTokenExpiresAtDBField = "password_reset_token_expires_at"
+	PasswordResetLastSentAtDBField    = "password_reset_last_sent_at"
 	OAuthProvidersDBField             = "oauth_providers"
 	TwoFactorEnabledDBField           = "two_factor_enabled"
 	TwoFactorSecretDBField            = "two_factor_secret"
@@ -823,15 +828,22 @@ type loginResult struct {
 
 // service provides auth operations
 type service struct {
-	db  AuthDatabase
-	cfg AuthConfig
+	db                 AuthDatabase
+	cfg                AuthConfig
+	pendingTokenSecret []byte
 }
 
 // newService creates a new auth service
 func newService(cfg AuthConfig) *service {
+	// Derive a separate key for 2FA pending tokens to avoid reusing the access secret.
+	mac := hmac.New(sha256.New, cfg.refreshSecret)
+	mac.Write([]byte("servex-2fa-pending"))
+	pendingKey := mac.Sum(nil)
+
 	return &service{
-		cfg: cfg,
-		db:  cfg.Database,
+		cfg:                cfg,
+		db:                 cfg.Database,
+		pendingTokenSecret: pendingKey,
 	}
 }
 
@@ -1166,7 +1178,7 @@ func (s *service) generate2FAPendingToken(userID string) (string, time.Time, err
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(s.cfg.accessSecret)
+	tokenString, err := token.SignedString(s.pendingTokenSecret)
 	if err != nil {
 		return "", time.Time{}, fmt.Errorf("signing 2FA pending token: %w", err)
 	}
@@ -1174,7 +1186,7 @@ func (s *service) generate2FAPendingToken(userID string) (string, time.Time, err
 }
 
 func (s *service) validate2FAPendingToken(tokenString string) (*jwtClaims, error) {
-	claims, err := s.parseToken(tokenString, s.cfg.accessSecret)
+	claims, err := s.parseToken(tokenString, s.pendingTokenSecret)
 	if err != nil {
 		return nil, fmt.Errorf("parsing 2FA pending token: %w", err)
 	}
@@ -1418,6 +1430,9 @@ func (db *MemoryAuthDatabase) UpdateUser(ctx context.Context, id string, diff *U
 	}
 	if diff.PasswordResetTokenExpiresAt != nil {
 		user.PasswordResetTokenExpiresAt = *diff.PasswordResetTokenExpiresAt
+	}
+	if diff.PasswordResetLastSentAt != nil {
+		user.PasswordResetLastSentAt = *diff.PasswordResetLastSentAt
 	}
 
 	// OAuth
