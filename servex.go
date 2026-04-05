@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -58,6 +59,7 @@ import (
 type Server struct {
 	http   *http.Server
 	https  *http.Server
+	srvMu  sync.RWMutex
 	router *mux.Router
 	auth   *AuthManager
 	filter *Filter
@@ -438,7 +440,7 @@ func (s *Server) StartHTTP(address string) error {
 	// Reset the ready channel for fresh startup
 	httpReady := make(chan error, 1)
 
-	s.http = &http.Server{
+	srv := &http.Server{
 		Addr:              address,
 		Handler:           s.router,
 		ReadHeaderTimeout: lang.Check(s.opts.ReadHeaderTimeout, defaultReadHeaderTimeout),
@@ -447,15 +449,28 @@ func (s *Server) StartHTTP(address string) error {
 		MaxHeaderBytes:    lang.Check(s.opts.MaxHeaderBytes, defaultMaxHeaderBytes),
 		ErrorLog:          log.New(newStdLogAdapter(s.opts.Logger), "", 0),
 	}
-	if err := s.start(address, s.http.Serve, net.Listen, httpReady); err != nil {
+
+	s.srvMu.Lock()
+	s.http = srv
+	s.srvMu.Unlock()
+
+	if err := s.start(address, srv.Serve, net.Listen, httpReady); err != nil {
+		s.srvMu.Lock()
 		s.http = nil
+		s.srvMu.Unlock()
 		return err
 	}
 
 	// Wait for server to be ready
 	if err := <-httpReady; err != nil {
+		s.srvMu.Lock()
 		s.http = nil
+		s.srvMu.Unlock()
 		return fmt.Errorf("HTTP server failed to start: %w", err)
+	}
+
+	if s.opts.IsDebug && !isLoopbackAddress(address) {
+		s.opts.Logger.Error("WARNING: debug mode is enabled on a non-loopback address; this is not recommended for production", "address", address)
 	}
 
 	s.opts.Logger.Info("http server started", "address", address)
@@ -496,7 +511,7 @@ func (s *Server) StartHTTPS(address string) error {
 	// Reset the ready channel for fresh startup
 	httpsReady := make(chan error, 1)
 
-	s.https = &http.Server{
+	srv := &http.Server{
 		Addr:              address,
 		Handler:           s.router,
 		ReadHeaderTimeout: lang.Check(s.opts.ReadHeaderTimeout, defaultReadHeaderTimeout),
@@ -507,17 +522,29 @@ func (s *Server) StartHTTPS(address string) error {
 		TLSConfig:         GetTLSConfig(s.opts.Certificate),
 	}
 
-	if err := s.start(address, s.https.Serve, func(netType, addr string) (net.Listener, error) {
-		return tls.Listen(netType, addr, s.https.TLSConfig)
+	s.srvMu.Lock()
+	s.https = srv
+	s.srvMu.Unlock()
+
+	if err := s.start(address, srv.Serve, func(netType, addr string) (net.Listener, error) {
+		return tls.Listen(netType, addr, srv.TLSConfig)
 	}, httpsReady); err != nil {
+		s.srvMu.Lock()
 		s.https = nil
+		s.srvMu.Unlock()
 		return err
 	}
 
 	// Wait for server to be ready
 	if err := <-httpsReady; err != nil {
+		s.srvMu.Lock()
 		s.https = nil
+		s.srvMu.Unlock()
 		return fmt.Errorf("HTTPS server failed to start: %w", err)
+	}
+
+	if s.opts.IsDebug && !isLoopbackAddress(address) {
+		s.opts.Logger.Error("WARNING: debug mode is enabled on a non-loopback address; this is not recommended for production", "address", address)
 	}
 
 	s.opts.Logger.Info("https server started", "address", address)
@@ -781,6 +808,11 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 	// Phase 3: Stop accepting new HTTP connections and drain in-flight requests.
 	// Run HTTP and HTTPS shutdown concurrently so one doesn't starve the other's timeout.
+	s.srvMu.RLock()
+	httpSrv := s.http
+	httpsSrv := s.https
+	s.srvMu.RUnlock()
+
 	var shutdownWg sync.WaitGroup
 	var shutdownMu sync.Mutex
 	shutdownServer := func(srv *http.Server, name string) {
@@ -791,13 +823,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 			shutdownMu.Unlock()
 		}
 	}
-	if s.http != nil {
+	if httpSrv != nil {
 		shutdownWg.Add(1)
-		go shutdownServer(s.http, "HTTP")
+		go shutdownServer(httpSrv, "HTTP")
 	}
-	if s.https != nil {
+	if httpsSrv != nil {
 		shutdownWg.Add(1)
-		go shutdownServer(s.https, "HTTPS")
+		go shutdownServer(httpsSrv, "HTTPS")
 	}
 	shutdownWg.Wait()
 
@@ -812,16 +844,17 @@ func (s *Server) Shutdown(ctx context.Context) error {
 
 // waitForWSConnsDrained polls until all WebSocket connections have closed or the context is done.
 func (s *Server) waitForWSConnsDrained(ctx context.Context) {
+	hub := s.WSHub()
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
-		if s.wsHub.ConnCount() == 0 {
+		if hub.ConnCount() == 0 {
 			return
 		}
 		select {
 		case <-ctx.Done():
 			s.opts.Logger.Error("shutdown: WebSocket drain timeout reached",
-				"remaining", s.wsHub.ConnCount())
+				"remaining", hub.ConnCount())
 			return
 		case <-ticker.C:
 		}
@@ -831,19 +864,25 @@ func (s *Server) waitForWSConnsDrained(ctx context.Context) {
 // HTTPAddress returns the address the HTTP server is listening on.
 // Returns an empty string if the HTTP server is not running or not configured.
 func (s *Server) HTTPAddress() string {
-	if s.http == nil {
+	s.srvMu.RLock()
+	srv := s.http
+	s.srvMu.RUnlock()
+	if srv == nil {
 		return ""
 	}
-	return s.http.Addr
+	return srv.Addr
 }
 
 // HTTPSAddress returns the address the HTTPS server is listening on.
 // Returns an empty string if the HTTPS server is not running or not configured.
 func (s *Server) HTTPSAddress() string {
-	if s.https == nil {
+	s.srvMu.RLock()
+	srv := s.https
+	s.srvMu.RUnlock()
+	if srv == nil {
 		return ""
 	}
-	return s.https.Addr
+	return srv.Addr
 }
 
 // AuthManager returns the server's authentication manager for manual auth operations.
@@ -922,7 +961,10 @@ func (s *Server) IsAuthEnabled() bool {
 // This indicates that the server has a TLS certificate configured
 // and the HTTPS server has been started successfully.
 func (s *Server) IsTLS() bool {
-	return s.https != nil && s.https.Addr != ""
+	s.srvMu.RLock()
+	srv := s.https
+	s.srvMu.RUnlock()
+	return srv != nil && srv.Addr != ""
 }
 
 // IsHTTP returns true if the HTTP server is running.
@@ -930,7 +972,10 @@ func (s *Server) IsTLS() bool {
 // This indicates that the HTTP server has been started successfully
 // and is accepting connections.
 func (s *Server) IsHTTP() bool {
-	return s.http != nil && s.http.Addr != ""
+	s.srvMu.RLock()
+	srv := s.http
+	s.srvMu.RUnlock()
+	return srv != nil && srv.Addr != ""
 }
 
 // registerBuiltinEndpoints registers health and metrics endpoints if enabled in options.
@@ -1098,6 +1143,19 @@ func (s *Server) start(address string, serve func(net.Listener) error, getListen
 		l = keepAliveListener{Listener: l, cfg: s.opts.TCPKeepAlive}
 	}
 
+	// Register the universal catch-all route before spawning the goroutine
+	// to avoid concurrent router mutation.
+	if s.isUniversalRouteRegistered.CompareAndSwap(false, true) {
+		// Add catch-all route - this must be registered AFTER all application routes
+		s.router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if s.router.NotFoundHandler != nil {
+				s.router.NotFoundHandler.ServeHTTP(w, r)
+			} else {
+				http.NotFound(w, r)
+			}
+		}).Name("universal-catch-all")
+	}
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -1109,17 +1167,6 @@ func (s *Server) start(address string, serve func(net.Listener) error, getListen
 				}
 			}
 		}()
-
-		if s.isUniversalRouteRegistered.CompareAndSwap(false, true) {
-			// Add catch-all route - this must be registered AFTER all application routes
-			s.router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if s.router.NotFoundHandler != nil {
-					s.router.NotFoundHandler.ServeHTTP(w, r)
-				} else {
-					http.NotFound(w, r)
-				}
-			}).Name("universal-catch-all")
-		}
 
 		// Signal that server is ready to accept connections
 		select {
@@ -1157,4 +1204,17 @@ func prepareServer(cfg BaseConfig, handlerSetter func(*mux.Router), opts ...Opti
 	handlerSetter(s.router)
 
 	return s, nil
+}
+
+// isLoopbackAddress returns true if the given address refers to a loopback interface.
+func isLoopbackAddress(address string) bool {
+	host := address
+	if h, _, err := net.SplitHostPort(address); err == nil {
+		host = h
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return false
+	}
+	return host == "localhost" || host == "127.0.0.1" || host == "::1" ||
+		strings.HasPrefix(host, "127.")
 }
