@@ -613,15 +613,23 @@ func (s *Server) wsUpgradeHandler(handler WSHandler) http.HandlerFunc {
 		}()
 
 		// Start ping/pong if configured (default is enabled)
+		var pingWg sync.WaitGroup
 		pingInterval := cfg.PingInterval
 		if pingInterval == 0 {
 			pingInterval = defaultWSPingInterval
 		}
 		if pingInterval > 0 {
-			go ws.pingLoop()
+			pingWg.Add(1)
+			go func() {
+				defer pingWg.Done()
+				ws.pingLoop()
+			}()
 		}
 
 		// Call user handler (blocks until connection done)
 		handler(ws)
+
+		// Wait for ping goroutine to exit before cleanup runs
+		pingWg.Wait()
 	}
 }

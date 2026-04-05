@@ -824,7 +824,10 @@ func loadEnvFile(filename string) error {
 					(strings.HasPrefix(value, "'") && strings.HasSuffix(value, "'"))) {
 				value = value[1 : len(value)-1]
 			}
-			os.Setenv(key, value)
+			// Only set if not already defined in the environment
+			if os.Getenv(key) == "" {
+				os.Setenv(key, value)
+			}
 		}
 	}
 

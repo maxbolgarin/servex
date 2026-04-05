@@ -1,7 +1,9 @@
 package servex
 
 import (
+	"bufio"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -403,7 +405,7 @@ func (h *staticFileHandler) serveIndexFile(w http.ResponseWriter, r *http.Reques
 
 	// Serve the content
 	w.WriteHeader(http.StatusOK)
-	w.Write(content)
+	_, _ = w.Write(content)
 }
 
 // applyCacheHeaders applies caching headers based on configuration
@@ -422,12 +424,7 @@ func (h *staticFileHandler) applyCacheHeaders(w http.ResponseWriter, r *http.Req
 		expires := time.Now().Add(time.Duration(cacheAge) * time.Second)
 		w.Header().Set("Expires", expires.Format(http.TimeFormat))
 
-		// Add ETag if not already set by other middleware
-		if w.Header().Get("ETag") == "" {
-			// Simple ETag based on file path (you might want to improve this)
-			etag := fmt.Sprintf(`"%x"`, time.Now().Unix()) // Simplified ETag
-			w.Header().Set("ETag", etag)
-		}
+		// ETag is handled by http.ServeContent based on file modification time
 	} else {
 		w.Header().Set("Cache-Control", "no-cache")
 	}
@@ -474,6 +471,19 @@ type staticResponseWriter struct {
 	http.ResponseWriter
 	statusCode   int
 	bytesWritten int
+}
+
+func (w *staticResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, fmt.Errorf("upstream ResponseWriter does not implement http.Hijacker")
+}
+
+func (w *staticResponseWriter) Flush() {
+	if fl, ok := w.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
 }
 
 func (w *staticResponseWriter) WriteHeader(code int) {
