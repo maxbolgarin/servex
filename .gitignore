@@ -6,3 +6,18 @@ coverage.html
 *.coverprofile
 .serena
 /servex
+
+# Example build artifacts
+examples/00-plain-http/plain-http
+examples/01-hello-world/hello-world
+examples/02-quickstart/quickstart
+examples/13-websocket-chat/websocket-chat
+examples/14-rest-api/rest-api
+examples/15-bff-proxy/bff-proxy
+examples/16-spa-fullstack/spa-fullstack
+examples/17-microservice/microservice
+/websocket-chat
+/rest-api
+/bff-proxy
+/spa-fullstack
+/microservice
