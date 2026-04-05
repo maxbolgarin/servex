@@ -119,7 +119,8 @@ func swaggerUIHTML(title string) string {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>` + html.EscapeString(title) + `</title>
-    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.18.2/swagger-ui.css" crossorigin="anonymous">
+    <!-- TODO: Add integrity="sha384-..." SRI hashes when pinning a specific swagger-ui-dist version -->
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.18.2/swagger-ui.css" crossorigin="anonymous" referrerpolicy="no-referrer">
     <style>
         html { box-sizing: border-box; overflow-y: scroll; }
         *, *:before, *:after { box-sizing: inherit; }
@@ -128,7 +129,8 @@ func swaggerUIHTML(title string) string {
 </head>
 <body>
     <div id="swagger-ui"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@5.18.2/swagger-ui-bundle.js" crossorigin="anonymous"></script>
+    <!-- TODO: Add integrity="sha384-..." SRI hash when pinning a specific swagger-ui-dist version -->
+    <script src="https://unpkg.com/swagger-ui-dist@5.18.2/swagger-ui-bundle.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script>
         SwaggerUIBundle({
             url: "./spec",

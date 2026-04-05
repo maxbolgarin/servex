@@ -1,6 +1,7 @@
 package servex
 
 import (
+	"bufio"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
@@ -156,11 +157,14 @@ func setCSRFCookie(w http.ResponseWriter, cookieName, cookiePath string, cfg Sec
 	token := generateCSRFToken()
 
 	// Create cookie
+	// CSRF cookies must always be HttpOnly to prevent token theft via XSS.
+	// Clients should use the X-CSRF-Token header (from a /csrf-token endpoint) instead
+	// of reading the cookie directly from JavaScript.
 	cookie := &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
 		Path:     cookiePath,
-		HttpOnly: cfg.CSRFCookieHttpOnly,
+		HttpOnly: true,
 		Secure:   cfg.CSRFCookieSecure,
 		SameSite: parseSameSite(cfg.CSRFCookieSameSite),
 	}
@@ -336,8 +340,8 @@ func RegisterCustomHeadersMiddleware(router MiddlewareRouter, customHeaders map[
 }
 
 // RegisterHeaderRemovalMiddleware removes specified headers from HTTP responses.
-// Headers are removed after the handler executes to ensure proper removal
-// of headers that might be set by the handler.
+// It wraps the ResponseWriter so that headers are deleted just before they are
+// flushed, which is the only reliable way to suppress headers set by handlers.
 func RegisterHeaderRemovalMiddleware(router MiddlewareRouter, headersToRemove []string) {
 	if len(headersToRemove) == 0 {
 		return // No headers to remove
@@ -345,15 +349,44 @@ func RegisterHeaderRemovalMiddleware(router MiddlewareRouter, headersToRemove []
 
 	router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Execute the handler first
-			next.ServeHTTP(w, r)
-
-			// Remove headers after handler execution
-			for _, headerName := range headersToRemove {
-				w.Header().Del(headerName)
-			}
+			next.ServeHTTP(&headerRemovalWriter{ResponseWriter: w, headers: headersToRemove}, r)
 		})
 	})
+}
+
+// headerRemovalWriter is a ResponseWriter wrapper that strips configured headers
+// just before they are flushed to the client.
+type headerRemovalWriter struct {
+	http.ResponseWriter
+	headers []string
+}
+
+func (w *headerRemovalWriter) WriteHeader(code int) {
+	for _, h := range w.headers {
+		w.ResponseWriter.Header().Del(h)
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *headerRemovalWriter) Write(b []byte) (int, error) {
+	// Ensure headers are stripped even when WriteHeader is called implicitly.
+	for _, h := range w.headers {
+		w.ResponseWriter.Header().Del(h)
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *headerRemovalWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if hj, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return hj.Hijack()
+	}
+	return nil, nil, fmt.Errorf("upstream ResponseWriter does not implement http.Hijacker")
+}
+
+func (w *headerRemovalWriter) Flush() {
+	if fl, ok := w.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
 }
 
 // RegisterHTTPSRedirectMiddleware adds HTTP to HTTPS redirection middleware to the router.

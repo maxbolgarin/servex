@@ -138,9 +138,8 @@ func RegisterStaticFileMiddleware(router MiddlewareRouter, cfg StaticFileConfig)
 
 // staticFileHandler handles static file serving with optional SPA support
 type staticFileHandler struct {
-	config     StaticFileConfig
-	fileServer http.Handler
-	indexPath  string
+	config    StaticFileConfig
+	indexPath string
 }
 
 // createStaticFileHandler creates a new static file handler based on configuration
@@ -149,21 +148,6 @@ func createStaticFileHandler(cfg StaticFileConfig) *staticFileHandler {
 	absDir, err := filepath.Abs(cfg.Dir)
 	if err != nil {
 		absDir = cfg.Dir
-	}
-
-	// Create the basic file server
-	fileSystem := http.Dir(absDir)
-	var fileServer http.Handler
-
-	if cfg.URLPrefix != "" && cfg.StripPrefix != "" {
-		// Use StripPrefix to handle URL prefix removal
-		fileServer = http.StripPrefix(cfg.StripPrefix, http.FileServer(fileSystem))
-	} else if cfg.URLPrefix != "" {
-		// Simple prefix handling
-		fileServer = http.StripPrefix(cfg.URLPrefix, http.FileServer(fileSystem))
-	} else {
-		// No prefix, serve from root
-		fileServer = http.FileServer(fileSystem)
 	}
 
 	// Set default index file for SPA mode
@@ -178,9 +162,8 @@ func createStaticFileHandler(cfg StaticFileConfig) *staticFileHandler {
 	}
 
 	return &staticFileHandler{
-		config:     cfg,
-		fileServer: fileServer,
-		indexPath:  indexPath,
+		config:    cfg,
+		indexPath: indexPath,
 	}
 }
 
@@ -298,7 +281,7 @@ func getContentType(ext string) string {
 	case ".txt":
 		return "text/plain; charset=utf-8"
 	default:
-		return ""
+		return "application/octet-stream"
 	}
 }
 

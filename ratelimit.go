@@ -519,7 +519,7 @@ func (m *rateLimiterMiddleware) getConfigForPath(path string) *RateLimitConfig {
 
 // shouldRateLimit determines if the request should be rate limited based on the path.
 func (m *rateLimiterMiddleware) shouldRateLimit(r *http.Request, cfg RateLimitConfig) bool {
-	return matchPath(r.URL.Path, cfg.ExcludePaths, cfg.IncludePaths, false)
+	return matchPath(r.URL.Path, cfg.ExcludePaths, cfg.IncludePaths, true)
 }
 
 // getLimiter retrieves or creates a rate limiter for a visitor.
