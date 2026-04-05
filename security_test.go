@@ -70,13 +70,9 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	}
 }
 
-// TestSecurityHeadersDisabled tests that no headers are applied when security is disabled.
+// TestSecurityHeadersDisabled tests that no headers are applied when security config is empty.
 func TestSecurityHeadersDisabled(t *testing.T) {
-	config := servex.SecurityConfig{
-		Enabled:               false, // Disabled
-		ContentSecurityPolicy: "default-src 'self'",
-		XContentTypeOptions:   "nosniff",
-	}
+	config := servex.SecurityConfig{}
 
 	router := mux.NewRouter()
 	servex.RegisterSecurityHeadersMiddleware(router, config)

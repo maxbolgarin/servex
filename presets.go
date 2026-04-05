@@ -27,25 +27,24 @@ func MergePresets(presets ...[]Option) []Option {
 func DevelopmentPreset() []Option {
 	return []Option{
 		WithHealthEndpoint(),
-		WithDefaultMetrics(),    // Enable metrics for development monitoring
-		WithDebug(), // Enable debug mode: send errors to client, verbose logging
+		WithDefaultMetrics(), // Enable metrics for development monitoring
+		WithDebug(),          // Enable debug mode: send errors to client, verbose logging
 	}
 }
 
 // ProductionPreset returns options suitable for production environment.
 // Features: security headers, CSRF protection, rate limiting, request logging, health endpoints, metrics, compression.
-func ProductionPreset(cert tls.Certificate) []Option {
-	return []Option{
+// TLS certificate is optional — omit it when running behind a reverse proxy (nginx, Cloudflare, AWS ALB).
+func ProductionPreset(cert ...tls.Certificate) []Option {
+	opts := []Option{
 		WithReadTimeout(10 * time.Second),
 		WithReadHeaderTimeout(5 * time.Second),
 		WithIdleTimeout(120 * time.Second),
-		WithCertificate(cert),
 
 		// Security with CSRF protection
 		WithStrictSecurityHeaders(),
 		WithCSRFProtection(),
 		WithRemoveHeaders("Server", "X-Powered-By"),
-		WithHTTPSRedirect(),
 
 		// Request size limits for production security
 		WithRequestSizeLimits(),
@@ -69,10 +68,19 @@ func ProductionPreset(cert tls.Certificate) []Option {
 		WithRateLimitExcludePaths("/health", "/metrics"),
 		WithCompressionExcludePaths("/metrics"), // Exclude metrics from compression for clarity
 	}
+
+	if len(cert) > 0 {
+		opts = append(opts,
+			WithCertificate(cert[0]),
+			WithHTTPSRedirect(),
+		)
+	}
+
+	return opts
 }
 
 // APIServerPreset returns options for a typical REST API server.
-// Features: JWT auth support, API rate limiting, security headers, CORS-friendly, request size limits, compression.
+// Features: security headers, CORS, API rate limiting, request size limits, compression, caching.
 func APIServerPreset() []Option {
 	return []Option{
 		WithReadTimeout(15 * time.Second),
@@ -81,6 +89,9 @@ func APIServerPreset() []Option {
 		// Security headers with API-friendly settings
 		WithSecurityHeaders(),
 		WithContentSecurityPolicy("default-src 'none'"), // APIs don't need CSP typically
+
+		// CORS with permissive defaults for API usage
+		WithCORS(),
 
 		// Request size limits appropriate for APIs
 		WithMaxRequestBodySize(10 << 20), // 10 MB
@@ -114,11 +125,11 @@ func APIServerPreset() []Option {
 
 // WebAppPreset returns options for serving web applications.
 // Features: web security headers, CSRF protection, content protection, static file friendly, size limits, compression.
-func WebAppPreset(cert tls.Certificate) []Option {
-	return []Option{
+// TLS certificate is optional — omit it when running behind a reverse proxy (nginx, Cloudflare, AWS ALB).
+func WebAppPreset(cert ...tls.Certificate) []Option {
+	opts := []Option{
 		WithReadTimeout(30 * time.Second),
 		WithIdleTimeout(180 * time.Second),
-		WithCertificate(cert),
 
 		// Web security headers with CSRF protection
 		WithStrictSecurityHeaders(),
@@ -155,6 +166,15 @@ func WebAppPreset(cert tls.Certificate) []Option {
 		WithRateLimitExcludePaths("/health", "/favicon.ico", "/robots.txt", "/static/", "/csrf-token", "/metrics"),
 		WithCompressionExcludePaths("/metrics"), // Keep metrics uncompressed for monitoring tools
 	}
+
+	if len(cert) > 0 {
+		opts = append(opts,
+			WithCertificate(cert[0]),
+			WithHTTPSRedirect(),
+		)
+	}
+
+	return opts
 }
 
 // MicroservicePreset returns options for microservice environments.
@@ -188,19 +208,18 @@ func MicroservicePreset() []Option {
 
 // HighSecurityPreset returns options for high-security applications.
 // Features: strict security headers, CSRF protection, request filtering, comprehensive rate limiting, audit logging.
-func HighSecurityPreset(cert tls.Certificate) []Option {
-	return []Option{
+// TLS certificate is optional — omit it when running behind a reverse proxy (nginx, Cloudflare, AWS ALB).
+func HighSecurityPreset(cert ...tls.Certificate) []Option {
+	opts := []Option{
 		WithReadTimeout(10 * time.Second),
 		WithReadHeaderTimeout(3 * time.Second),
 		WithIdleTimeout(60 * time.Second),
-		WithCertificate(cert),
 
 		// Strict security with CSRF protection
 		WithStrictSecurityHeaders(),
 		WithCSRFProtection(),
-		WithCSRFCookieHttpOnly(true),         // Maximum security for CSRF cookies
-		WithCSRFCookieSameSite("Strict"),     // Strictest SameSite policy
-		WithHSTSHeader(31536000, true, true), // 1 year HSTS with preload
+		WithCSRFCookieHttpOnly(true),     // Maximum security for CSRF cookies
+		WithCSRFCookieSameSite("Strict"), // Strictest SameSite policy
 		WithRemoveHeaders("Server", "X-Powered-By"),
 
 		// Strict request size limits
@@ -232,6 +251,15 @@ func HighSecurityPreset(cert tls.Certificate) []Option {
 		WithRateLimitExcludePaths("/health"),
 		WithFilterExcludePaths("/health"),
 	}
+
+	if len(cert) > 0 {
+		opts = append(opts,
+			WithCertificate(cert[0]),
+			WithHTTPSRedirect(),
+		)
+	}
+
+	return opts
 }
 
 // TLSPreset returns options for quick SSL/TLS setup.
@@ -248,4 +276,123 @@ func TLSPreset(certFile, keyFile string, cert ...tls.Certificate) []Option {
 		options = append(options, WithCertificateFromFile(certFile, keyFile))
 	}
 	return options
+}
+
+// SPAPreset returns options for serving a Single Page Application (React, Vue, Angular).
+// Features: SPA mode with index.html fallback, compression, static asset caching, security headers, rate limiting.
+// TLS certificate is optional — omit it when running behind a reverse proxy.
+//
+// Example:
+//
+//	// Serve React build directory
+//	server, _ := servex.NewServer(servex.SPAPreset("build")...)
+//
+//	// With TLS
+//	server, _ := servex.NewServer(servex.SPAPreset("dist", cert)...)
+//
+//	// With custom options
+//	server, _ := servex.NewServer(servex.MergeWithPreset(
+//	    servex.SPAPreset("build"),
+//	    servex.WithCORSAllowOrigins("https://myapp.com"),
+//	)...)
+func SPAPreset(dir string, cert ...tls.Certificate) []Option {
+	opts := []Option{
+		WithReadTimeout(30 * time.Second),
+		WithIdleTimeout(180 * time.Second),
+
+		// SPA mode: serve static files with index.html fallback for client-side routing
+		WithSPAMode(dir, "index.html"),
+
+		// Compression for web assets
+		WithCompression(),
+		WithCompressionLevel(6),
+
+		// Long cache for static assets (hashed filenames)
+		WithCacheStaticAssets(31536000), // 1 year
+
+		// Basic security headers
+		WithSecurityHeaders(),
+
+		// Rate limiting
+		WithRPS(50),
+
+		// Health and monitoring
+		WithHealthEndpoint(),
+		WithDefaultMetrics(),
+
+		// Exclude paths from restrictions
+		WithRateLimitExcludePaths("/health", "/metrics"),
+		WithSecurityExcludePaths("/health", "/metrics"),
+		WithCompressionExcludePaths("/metrics"),
+	}
+
+	if len(cert) > 0 {
+		opts = append(opts,
+			WithCertificate(cert[0]),
+			WithHTTPSRedirect(),
+			WithHSTSHeader(31536000, true, true),
+		)
+	}
+
+	return opts
+}
+
+// AuthAPIPreset returns options for a quick-start authenticated REST API.
+// Features: everything from APIServerPreset plus in-memory auth database for rapid prototyping.
+//
+// This preset is designed for development and prototyping. For production, use APIServerPreset
+// with WithAuth(db) and WithAuthKey() to provide your own database and signing keys.
+//
+// Example:
+//
+//	// Quick authenticated API for prototyping
+//	server, _ := servex.NewServer(servex.AuthAPIPreset()...)
+//
+//	// With custom options
+//	server, _ := servex.NewServer(servex.MergeWithPreset(
+//	    servex.AuthAPIPreset(),
+//	    servex.WithAuthInitialUsers(servex.InitialUser{
+//	        Username: "admin", Password: "admin123",
+//	        Roles: []servex.UserRole{"admin"},
+//	    }),
+//	)...)
+func AuthAPIPreset() []Option {
+	return append(APIServerPreset(),
+		WithAuthMemoryDatabase(),
+	)
+}
+
+// StaticFilePreset returns options for serving static files from a directory.
+// Features: static file serving, compression, asset caching, security headers, health endpoint.
+//
+// Example:
+//
+//	// Serve files from "public/" at "/static" path
+//	server, _ := servex.NewServer(servex.StaticFilePreset("public", "/static")...)
+//
+//	// Serve files from "assets/" at root
+//	server, _ := servex.NewServer(servex.StaticFilePreset("assets", "")...)
+func StaticFilePreset(dir, prefix string) []Option {
+	return []Option{
+		// Serve static files from directory at URL prefix
+		WithStaticFiles(dir, prefix),
+
+		// Compression for static assets
+		WithCompression(),
+		WithCompressionLevel(6),
+
+		// Long cache for static assets
+		WithCacheStaticAssets(31536000), // 1 year
+
+		// Basic security headers
+		WithSecurityHeaders(),
+
+		// Health and monitoring
+		WithHealthEndpoint(),
+		WithDefaultMetrics(),
+
+		// Exclude paths from restrictions
+		WithSecurityExcludePaths("/health", "/metrics"),
+		WithCompressionExcludePaths("/metrics"),
+	}
 }

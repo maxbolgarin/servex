@@ -211,6 +211,13 @@ type Options struct {
 	//   - File system errors
 	SendErrorToClient bool
 
+	// ErrorHandler is a custom function for formatting error responses.
+	// When set, it replaces the default JSON error response format.
+	// The handler receives the response writer, request, error, status code, message,
+	// and optional key-value fields. It is responsible for writing the full response.
+	// Set via WithErrorHandler().
+	ErrorHandler func(w http.ResponseWriter, r *http.Request, err error, code int, msg string, fields ...any)
+
 	// Auth is the JWT-based authentication configuration with user management, roles, and JWT tokens.
 	// Set via WithAuth(), WithAuthMemoryDatabase(), or WithAuthConfig().
 	//
@@ -2892,7 +2899,7 @@ func (opts *Options) Validate() error {
 	}
 
 	// Auth validation
-	if opts.Auth.Enabled {
+	if opts.Auth.isActive() {
 		if opts.Auth.Database == nil {
 			errors = append(errors, "auth database is required when auth is enabled")
 		}
@@ -2952,4 +2959,49 @@ func (opts *Options) Validate() error {
 	}
 
 	return nil
+}
+
+// isActive returns true if compression should be applied.
+// Active when Enabled is explicitly set or when meaningful config values are present.
+func (c CompressionConfig) isActive() bool {
+	return c.Enabled || c.Level > 0 || len(c.Types) > 0 || c.MinSize > 0
+}
+
+// isActive returns true if auth should be initialized.
+// Active when Enabled is explicitly set or when a database is provided.
+func (c AuthConfig) isActive() bool {
+	return c.Enabled || c.Database != nil
+}
+
+// isActive returns true if security headers should be applied.
+// Active when Enabled is explicitly set or when any header value is configured.
+func (c SecurityConfig) isActive() bool {
+	return c.Enabled || c.ContentSecurityPolicy != "" || c.XFrameOptions != "" ||
+		c.XContentTypeOptions != "" || c.StrictTransportSecurity != "" ||
+		c.ReferrerPolicy != "" || c.PermissionsPolicy != "" || c.CSRFEnabled
+}
+
+// isActive returns true if cache control should be applied.
+// Active when Enabled is explicitly set or when any cache directive is configured.
+func (c CacheConfig) isActive() bool {
+	return c.Enabled || c.CacheControl != "" || c.ETag != "" || c.ETagFunc != nil ||
+		c.LastModified != "" || c.LastModifiedFunc != nil || c.Expires != ""
+}
+
+// isActive returns true if static file serving should be applied.
+// Active when Enabled is explicitly set or when a directory is configured.
+func (c StaticFileConfig) isActive() bool {
+	return c.Enabled || c.Dir != ""
+}
+
+// isActive returns true if HTTPS redirect should be applied.
+// Active when Enabled is explicitly set.
+func (c HTTPSRedirectConfig) isActive() bool {
+	return c.Enabled
+}
+
+// isActive returns true if CORS should be applied.
+// Active when Enabled is explicitly set or when allowed origins are configured.
+func (c CORSConfig) isActive() bool {
+	return c.Enabled || len(c.AllowOrigins) > 0 || c.AllowCredentials
 }

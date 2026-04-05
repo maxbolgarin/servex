@@ -16,7 +16,7 @@ import (
 // This should be called after all API routes are registered but before starting the server.
 // It returns a cleanup function that should be called when shutting down.
 func RegisterStaticFileMiddleware(router MiddlewareRouter, cfg StaticFileConfig) {
-	if !cfg.Enabled || cfg.Dir == "" {
+	if !cfg.isActive() {
 		return
 	}
 

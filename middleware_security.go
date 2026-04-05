@@ -17,8 +17,8 @@ import (
 // It implements common security headers to protect against various attacks.
 // If the config is empty or disabled, no middleware will be registered.
 func RegisterSecurityHeadersMiddleware(router MiddlewareRouter, cfg SecurityConfig) {
-	if !cfg.Enabled {
-		return // Don't register security headers middleware if disabled
+	if !cfg.isActive() {
+		return
 	}
 
 	router.Use(func(next http.Handler) http.Handler {
@@ -361,8 +361,8 @@ func RegisterHeaderRemovalMiddleware(router MiddlewareRouter, headersToRemove []
 // to enforce secure connections across the entire application.
 // If the config is disabled, no middleware will be registered.
 func RegisterHTTPSRedirectMiddleware(router MiddlewareRouter, cfg HTTPSRedirectConfig) {
-	if !cfg.Enabled {
-		return // Don't register HTTPS redirect middleware if disabled
+	if !cfg.isActive() {
+		return
 	}
 
 	router.Use(func(next http.Handler) http.Handler {

@@ -66,6 +66,13 @@ func (lrw *loggingResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) 
 	return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
 }
 
+// Flush implements http.Flusher so SSE streaming works through this wrapper.
+func (lrw *loggingResponseWriter) Flush() {
+	if fl, ok := lrw.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
+}
+
 func registerOptsMiddleware(router MiddlewareRouter, opts Options) {
 	// When not in debug mode, automatically suppress client error logging at error level.
 	noLogClientErrors := opts.NoLogClientErrors || !opts.IsDebug
@@ -117,6 +124,13 @@ func (w *enhancedUniversalResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter,
 		return hj.Hijack()
 	}
 	return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
+}
+
+// Flush implements http.Flusher so SSE streaming works through this wrapper.
+func (w *enhancedUniversalResponseWriter) Flush() {
+	if fl, ok := w.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
 }
 
 // registerUniversalMiddleware provides more sophisticated universal middleware

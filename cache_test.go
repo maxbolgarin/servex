@@ -407,13 +407,9 @@ func TestCacheControlMiddlewareWithLastModifiedValidation(t *testing.T) {
 	}
 }
 
-// TestCacheControlDisabled tests that no headers are applied when caching is disabled.
+// TestCacheControlDisabled tests that no headers are applied when cache config is empty.
 func TestCacheControlDisabled(t *testing.T) {
-	config := servex.CacheConfig{
-		Enabled:      false,
-		CacheControl: "public, max-age=3600",
-		ETag:         `"v1.2.3"`,
-	}
+	config := servex.CacheConfig{}
 
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

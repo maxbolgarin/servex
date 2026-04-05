@@ -159,7 +159,7 @@ func (s *Server) HF(path string, f http.HandlerFunc, methods ...string) *mux.Rou
 // Returns:
 //   - http.HandlerFunc: The created handler to register the route for
 func (s *Server) WithAuth(next http.HandlerFunc, roles ...UserRole) http.HandlerFunc {
-	if !s.opts.Auth.Enabled {
+	if s.auth == nil {
 		s.opts.Logger.Error("auth is not enabled, skipping auth middleware")
 		return next
 	}
@@ -350,4 +350,216 @@ func (s *Server) CONNECT(path string, h http.HandlerFunc) *mux.Route {
 // It returns a pointer to the created [mux.Route] to set additional settings to the route.
 func (s *Server) ConnectWithAuth(path string, h http.HandlerFunc, roles ...UserRole) *mux.Route {
 	return s.Connect(path, s.WithAuth(h, roles...))
+}
+
+// Group creates a route group with the given path prefix.
+// Routes registered on the group inherit the prefix and any middleware added via [Group.Use].
+// Global middleware (rate limiting, security, logging, etc.) still applies to grouped routes.
+//
+// Example:
+//
+//	api := server.Group("/api/v1")
+//	api.Use(rateLimitMiddleware)
+//	api.Get("/users", listUsers)     // matches /api/v1/users
+//	api.Post("/users", createUser)   // matches /api/v1/users
+//
+//	admin := server.Group("/admin")
+//	admin.Get("/stats", statsHandler) // matches /admin/stats
+func (s *Server) Group(prefix string) *Group {
+	return &Group{
+		subrouter: s.router.PathPrefix(prefix).Subrouter(),
+		auth:      s.auth,
+		opts:      &s.opts,
+	}
+}
+
+// Group represents a route group with a shared path prefix and middleware.
+// Create groups using [Server.Group]. Routes registered on a group inherit
+// the prefix and all middleware added via [Group.Use].
+type Group struct {
+	subrouter *mux.Router
+	auth      *AuthManager
+	opts      *Options
+	basePath  string
+}
+
+// Group creates a sub-group with an additional path prefix.
+// Middleware from the parent group applies to the sub-group.
+func (g *Group) Group(prefix string) *Group {
+	return &Group{
+		subrouter: g.subrouter.PathPrefix(prefix).Subrouter(),
+		auth:      g.auth,
+		opts:      g.opts,
+	}
+}
+
+// WithBasePath sets the base path for routes registered on this group.
+func (g *Group) WithBasePath(path string) *Group {
+	if len(path) == 0 {
+		return g
+	}
+	g.basePath = path
+	return g
+}
+
+// RemoveBasePath clears the base path for routes registered on this group.
+func (g *Group) RemoveBasePath() *Group {
+	g.basePath = ""
+	return g
+}
+
+// Use adds middleware that runs only for routes registered on this group.
+func (g *Group) Use(middleware ...func(http.Handler) http.Handler) {
+	for _, m := range middleware {
+		if m == nil {
+			continue
+		}
+		g.subrouter.Use(m)
+	}
+}
+
+// Router returns the underlying [mux.Router] for this group.
+func (g *Group) Router() *mux.Router {
+	return g.subrouter
+}
+
+func (g *Group) getRouter() *mux.Router {
+	if g.basePath == "" {
+		return g.subrouter
+	}
+	return g.subrouter.PathPrefix(g.basePath).Subrouter()
+}
+
+// Handle registers a new route with the provided path and [http.Handler].
+func (g *Group) Handle(path string, h http.Handler, methods ...string) *mux.Route {
+	r := g.getRouter().Handle(path, h)
+	if len(methods) == 0 {
+		return r
+	}
+	return r.Methods(methods...)
+}
+
+// HandleFunc registers a new route with the provided path and [http.HandlerFunc].
+func (g *Group) HandleFunc(path string, f http.HandlerFunc, methods ...string) *mux.Route {
+	r := g.getRouter().HandleFunc(path, f)
+	if len(methods) == 0 {
+		return r
+	}
+	return r.Methods(methods...)
+}
+
+// WithAuth wraps a handler with auth middleware.
+func (g *Group) WithAuth(next http.HandlerFunc, roles ...UserRole) http.HandlerFunc {
+	if g.auth == nil {
+		if g.opts != nil && g.opts.Logger != nil {
+			g.opts.Logger.Error("auth is not enabled, skipping auth middleware")
+		}
+		return next
+	}
+	return g.auth.WithAuth(next, roles...)
+}
+
+// HandleWithAuth registers a route with auth middleware.
+func (g *Group) HandleWithAuth(path string, h http.Handler, roles ...UserRole) *mux.Route {
+	return g.getRouter().Handle(path, g.WithAuth(h.ServeHTTP, roles...))
+}
+
+// HandleFuncWithAuth registers a route with auth middleware.
+func (g *Group) HandleFuncWithAuth(path string, f http.HandlerFunc, roles ...UserRole) *mux.Route {
+	return g.getRouter().HandleFunc(path, g.WithAuth(f, roles...))
+}
+
+// Get registers a new GET route.
+func (g *Group) Get(path string, h http.HandlerFunc) *mux.Route {
+	return g.HandleFunc(path, h, GET)
+}
+
+// GET is an alias for [Group.Get].
+func (g *Group) GET(path string, h http.HandlerFunc) *mux.Route {
+	return g.Get(path, h)
+}
+
+// GetWithAuth registers a new GET route with auth middleware.
+func (g *Group) GetWithAuth(path string, h http.HandlerFunc, roles ...UserRole) *mux.Route {
+	return g.Get(path, g.WithAuth(h, roles...))
+}
+
+// Post registers a new POST route.
+func (g *Group) Post(path string, h http.HandlerFunc) *mux.Route {
+	return g.HandleFunc(path, h, POST)
+}
+
+// POST is an alias for [Group.Post].
+func (g *Group) POST(path string, h http.HandlerFunc) *mux.Route {
+	return g.Post(path, h)
+}
+
+// PostWithAuth registers a new POST route with auth middleware.
+func (g *Group) PostWithAuth(path string, h http.HandlerFunc, roles ...UserRole) *mux.Route {
+	return g.Post(path, g.WithAuth(h, roles...))
+}
+
+// Put registers a new PUT route.
+func (g *Group) Put(path string, h http.HandlerFunc) *mux.Route {
+	return g.HandleFunc(path, h, PUT)
+}
+
+// PUT is an alias for [Group.Put].
+func (g *Group) PUT(path string, h http.HandlerFunc) *mux.Route {
+	return g.Put(path, h)
+}
+
+// PutWithAuth registers a new PUT route with auth middleware.
+func (g *Group) PutWithAuth(path string, h http.HandlerFunc, roles ...UserRole) *mux.Route {
+	return g.Put(path, g.WithAuth(h, roles...))
+}
+
+// Patch registers a new PATCH route.
+func (g *Group) Patch(path string, h http.HandlerFunc) *mux.Route {
+	return g.HandleFunc(path, h, PATCH)
+}
+
+// PATCH is an alias for [Group.Patch].
+func (g *Group) PATCH(path string, h http.HandlerFunc) *mux.Route {
+	return g.Patch(path, h)
+}
+
+// PatchWithAuth registers a new PATCH route with auth middleware.
+func (g *Group) PatchWithAuth(path string, h http.HandlerFunc, roles ...UserRole) *mux.Route {
+	return g.Patch(path, g.WithAuth(h, roles...))
+}
+
+// Delete registers a new DELETE route.
+func (g *Group) Delete(path string, h http.HandlerFunc) *mux.Route {
+	return g.HandleFunc(path, h, DELETE)
+}
+
+// DELETE is an alias for [Group.Delete].
+func (g *Group) DELETE(path string, h http.HandlerFunc) *mux.Route {
+	return g.Delete(path, h)
+}
+
+// DeleteWithAuth registers a new DELETE route with auth middleware.
+func (g *Group) DeleteWithAuth(path string, h http.HandlerFunc, roles ...UserRole) *mux.Route {
+	return g.Delete(path, g.WithAuth(h, roles...))
+}
+
+// Options registers a new OPTIONS route.
+func (g *Group) Options(path string, h http.HandlerFunc) *mux.Route {
+	return g.HandleFunc(path, h, OPTIONS)
+}
+
+// OPTIONS is an alias for [Group.Options].
+func (g *Group) OPTIONS(path string, h http.HandlerFunc) *mux.Route {
+	return g.Options(path, h)
+}
+
+// Head registers a new HEAD route.
+func (g *Group) Head(path string, h http.HandlerFunc) *mux.Route {
+	return g.HandleFunc(path, h, HEAD)
+}
+
+// HEAD is an alias for [Group.Head].
+func (g *Group) HEAD(path string, h http.HandlerFunc) *mux.Route {
+	return g.Head(path, h)
 }

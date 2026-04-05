@@ -78,6 +78,12 @@ func WithSwaggerUIConfig(cfg SwaggerAutoConfig) Option {
 	}
 }
 
+// isActive returns true if Swagger UI should be registered.
+// Active when Enabled is explicitly set or when spec data/file is provided.
+func (cfg SwaggerAutoConfig) isActive() bool {
+	return cfg.Enabled || len(cfg.SpecData) > 0 || cfg.SpecFile != ""
+}
+
 // loadSwaggerSpec reads the spec file into SpecData if SpecFile is set.
 func (cfg *SwaggerAutoConfig) loadSwaggerSpec() error {
 	if cfg.SpecFile != "" && len(cfg.SpecData) == 0 {

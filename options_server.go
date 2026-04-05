@@ -250,6 +250,31 @@ func WithSendErrorToClient() Option {
 	}
 }
 
+// WithErrorHandler sets a custom error response handler that replaces the default JSON format.
+// Use this to customize how errors are sent to clients (e.g., add error codes, change structure).
+//
+// The handler is called by [Context.Error] and all status-specific helpers (BadRequest, NotFound, etc.).
+// It receives the response writer, request, error, status code, message, and optional key-value fields.
+// The handler is responsible for writing the complete HTTP response including status code and body.
+//
+// Example:
+//
+//	servex.WithErrorHandler(func(w http.ResponseWriter, r *http.Request, err error, code int, msg string, fields ...any) {
+//	    w.Header().Set("Content-Type", "application/json")
+//	    w.WriteHeader(code)
+//	    json.NewEncoder(w).Encode(map[string]any{
+//	        "error": map[string]any{
+//	            "code":    code,
+//	            "message": msg,
+//	        },
+//	    })
+//	})
+func WithErrorHandler(handler func(w http.ResponseWriter, r *http.Request, err error, code int, msg string, fields ...any)) Option {
+	return func(op *Options) {
+		op.ErrorHandler = handler
+	}
+}
+
 // WithDebug enables debug mode for development.
 // When enabled, it sends detailed error information to clients and keeps all logging verbose,
 // including client errors (4xx) at error level.

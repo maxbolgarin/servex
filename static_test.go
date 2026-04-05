@@ -75,8 +75,7 @@ func TestStaticFileMiddleware(t *testing.T) {
 		{
 			name: "Disabled static files",
 			config: StaticFileConfig{
-				Enabled: false,
-				Dir:     tempDir,
+				Dir: "", // Empty dir = disabled
 			},
 			requestPath:    "/index.html",
 			expectedStatus: http.StatusNotFound, // Should pass through to next handler
@@ -1009,12 +1008,11 @@ func TestStaticMiddlewareComprehensive(t *testing.T) {
 			requestMethod:  GET,
 			expectedStatus: http.StatusNotFound, // No handler for excluded path
 		},
-		// Disabled static files
+		// Disabled static files (empty dir = disabled)
 		{
 			name: "Disabled static files don't serve content",
 			config: StaticFileConfig{
-				Enabled: false,
-				Dir:     tempDir,
+				Dir: "",
 			},
 			requestPath:    "/index.html",
 			requestMethod:  GET,

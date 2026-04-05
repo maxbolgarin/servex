@@ -132,8 +132,8 @@ func RegisterRecoverMiddleware(router MiddlewareRouter, logger ErrorLogger) {
 // It implements common HTTP caching headers to control browser and proxy caching behavior.
 // If the config is empty or disabled, no middleware will be registered.
 func RegisterCacheControlMiddleware(router MiddlewareRouter, cfg CacheConfig) {
-	if !cfg.Enabled {
-		return // Don't register cache control middleware if disabled
+	if !cfg.isActive() {
+		return
 	}
 
 	router.Use(func(next http.Handler) http.Handler {
@@ -316,8 +316,8 @@ func matchPath(path string, excludePaths, includePaths []string, useWildcards bo
 // If CORS is not enabled in the configuration, no middleware is registered.
 func RegisterCORSMiddleware(router MiddlewareRouter, opts Options) {
 	cfg := opts.CORS
-	if !cfg.Enabled {
-		return // Don't register CORS middleware if disabled
+	if !cfg.isActive() {
+		return
 	}
 
 	// Set defaults if not configured
@@ -592,8 +592,8 @@ func headersAllowedCORS(headers []string, allowHeaders []string) bool {
 // It compresses response bodies using gzip or deflate encoding based on client Accept-Encoding headers.
 // This can significantly reduce bandwidth usage and improve response times for text-based content.
 func RegisterCompressionMiddleware(router MiddlewareRouter, cfg CompressionConfig) {
-	if !cfg.Enabled {
-		return // Don't register compression middleware if disabled
+	if !cfg.isActive() {
+		return
 	}
 
 	// Set defaults if not configured
@@ -876,4 +876,17 @@ func (crw *compressionResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, err
 		return hj.Hijack()
 	}
 	return nil, nil, fmt.Errorf("underlying ResponseWriter does not implement http.Hijacker")
+}
+
+// Flush implements http.Flusher so SSE streaming works through this wrapper.
+func (crw *compressionResponseWriter) Flush() {
+	type flusher interface {
+		Flush() error
+	}
+	if f, ok := crw.writer.(flusher); ok {
+		f.Flush()
+	}
+	if fl, ok := crw.ResponseWriter.(http.Flusher); ok {
+		fl.Flush()
+	}
 }

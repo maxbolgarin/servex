@@ -66,19 +66,41 @@ func TestDevelopmentPreset(t *testing.T) {
 }
 
 func TestProductionPreset(t *testing.T) {
-	// Create a dummy certificate for testing
-	cert, err := ReadCertificateFromFile("testdata/server.crt", "testdata/server.key")
-	if err != nil {
-		// Create a self-signed certificate for testing
-		cert = tls.Certificate{}
-	}
-	preset := ProductionPreset(cert)
+	t.Run("with certificate", func(t *testing.T) {
+		cert := tls.Certificate{}
+		preset := ProductionPreset(cert)
 
-	if len(preset) == 0 {
-		t.Error("production preset should not be empty")
-	}
+		if len(preset) == 0 {
+			t.Error("production preset should not be empty")
+		}
 
-	opts := parseOptions(preset)
+		opts := parseOptions(preset)
+
+		if opts.Certificate == nil {
+			t.Error("expected TLS certificate to be set when cert provided")
+		}
+	})
+
+	t.Run("without certificate", func(t *testing.T) {
+		preset := ProductionPreset()
+
+		if len(preset) == 0 {
+			t.Error("production preset should not be empty")
+		}
+
+		opts := parseOptions(preset)
+
+		if opts.Certificate != nil {
+			t.Error("expected no TLS certificate when cert not provided")
+		}
+
+		if opts.HTTPSRedirect.Enabled {
+			t.Error("expected HTTPS redirect to be disabled without cert")
+		}
+	})
+
+	// Test common options present regardless of cert
+	opts := parseOptions(ProductionPreset())
 
 	if opts.ReadTimeout != 10*time.Second {
 		t.Errorf("expected read timeout 10s, got %v", opts.ReadTimeout)
@@ -161,6 +183,10 @@ func TestAPIServerPreset(t *testing.T) {
 		t.Error("expected security to be enabled")
 	}
 
+	if !opts.CORS.Enabled {
+		t.Error("expected CORS to be enabled")
+	}
+
 	if opts.RateLimit.RequestsPerInterval != 1000 {
 		t.Errorf("expected RPM 1000, got %d", opts.RateLimit.RequestsPerInterval)
 	}
@@ -199,15 +225,41 @@ func TestAPIServerPreset(t *testing.T) {
 }
 
 func TestWebAppPreset(t *testing.T) {
-	// Create a dummy certificate for testing
-	cert := tls.Certificate{}
-	preset := WebAppPreset(cert)
+	t.Run("with certificate", func(t *testing.T) {
+		cert := tls.Certificate{}
+		preset := WebAppPreset(cert)
 
-	if len(preset) == 0 {
-		t.Error("web app preset should not be empty")
-	}
+		if len(preset) == 0 {
+			t.Error("web app preset should not be empty")
+		}
 
-	opts := parseOptions(preset)
+		opts := parseOptions(preset)
+
+		if opts.Certificate == nil {
+			t.Error("expected TLS certificate to be set when cert provided")
+		}
+	})
+
+	t.Run("without certificate", func(t *testing.T) {
+		preset := WebAppPreset()
+
+		if len(preset) == 0 {
+			t.Error("web app preset should not be empty")
+		}
+
+		opts := parseOptions(preset)
+
+		if opts.Certificate != nil {
+			t.Error("expected no TLS certificate when cert not provided")
+		}
+
+		if opts.HTTPSRedirect.Enabled {
+			t.Error("expected HTTPS redirect to be disabled without cert")
+		}
+	})
+
+	// Test common options
+	opts := parseOptions(WebAppPreset())
 
 	if opts.ReadTimeout != 30*time.Second {
 		t.Errorf("expected read timeout 30s, got %v", opts.ReadTimeout)
@@ -303,15 +355,41 @@ func TestMicroservicePreset(t *testing.T) {
 }
 
 func TestHighSecurityPreset(t *testing.T) {
-	// Create a dummy certificate for testing
-	cert := tls.Certificate{}
-	preset := HighSecurityPreset(cert)
+	t.Run("with certificate", func(t *testing.T) {
+		cert := tls.Certificate{}
+		preset := HighSecurityPreset(cert)
 
-	if len(preset) == 0 {
-		t.Error("high security preset should not be empty")
-	}
+		if len(preset) == 0 {
+			t.Error("high security preset should not be empty")
+		}
 
-	opts := parseOptions(preset)
+		opts := parseOptions(preset)
+
+		if opts.Certificate == nil {
+			t.Error("expected TLS certificate to be set when cert provided")
+		}
+	})
+
+	t.Run("without certificate", func(t *testing.T) {
+		preset := HighSecurityPreset()
+
+		if len(preset) == 0 {
+			t.Error("high security preset should not be empty")
+		}
+
+		opts := parseOptions(preset)
+
+		if opts.Certificate != nil {
+			t.Error("expected no TLS certificate when cert not provided")
+		}
+
+		if opts.HTTPSRedirect.Enabled {
+			t.Error("expected HTTPS redirect to be disabled without cert")
+		}
+	})
+
+	// Test common options
+	opts := parseOptions(HighSecurityPreset())
 
 	if opts.ReadTimeout != 10*time.Second {
 		t.Errorf("expected read timeout 10s, got %v", opts.ReadTimeout)
@@ -377,6 +455,151 @@ func TestHighSecurityPreset(t *testing.T) {
 	}
 }
 
+func TestSPAPreset(t *testing.T) {
+	t.Run("without certificate", func(t *testing.T) {
+		preset := SPAPreset("build")
+
+		if len(preset) == 0 {
+			t.Error("SPA preset should not be empty")
+		}
+
+		opts := parseOptions(preset)
+
+		if !opts.StaticFiles.Enabled {
+			t.Error("expected static files to be enabled")
+		}
+
+		if !opts.StaticFiles.SPAMode {
+			t.Error("expected SPA mode to be enabled")
+		}
+
+		if opts.StaticFiles.Dir != "build" {
+			t.Errorf("expected static dir 'build', got '%s'", opts.StaticFiles.Dir)
+		}
+
+		if opts.StaticFiles.IndexFile != "index.html" {
+			t.Errorf("expected index file 'index.html', got '%s'", opts.StaticFiles.IndexFile)
+		}
+
+		if opts.Certificate != nil {
+			t.Error("expected no TLS certificate when cert not provided")
+		}
+
+		if opts.ReadTimeout != 30*time.Second {
+			t.Errorf("expected read timeout 30s, got %v", opts.ReadTimeout)
+		}
+
+		if opts.RateLimit.RequestsPerInterval != 50 {
+			t.Errorf("expected RPS 50, got %d", opts.RateLimit.RequestsPerInterval)
+		}
+
+		if !opts.Security.Enabled {
+			t.Error("expected security to be enabled")
+		}
+
+		if !opts.EnableHealthEndpoint {
+			t.Error("expected health endpoint to be enabled")
+		}
+
+		if !opts.EnableDefaultMetrics {
+			t.Error("expected default metrics to be enabled")
+		}
+
+		if !opts.Cache.Enabled {
+			t.Error("expected cache to be enabled for static assets")
+		}
+	})
+
+	t.Run("with certificate", func(t *testing.T) {
+		cert := tls.Certificate{}
+		preset := SPAPreset("dist", cert)
+
+		opts := parseOptions(preset)
+
+		if opts.Certificate == nil {
+			t.Error("expected TLS certificate to be set when cert provided")
+		}
+
+		if opts.StaticFiles.Dir != "dist" {
+			t.Errorf("expected static dir 'dist', got '%s'", opts.StaticFiles.Dir)
+		}
+	})
+}
+
+func TestAuthAPIPreset(t *testing.T) {
+	preset := AuthAPIPreset()
+
+	if len(preset) == 0 {
+		t.Error("auth API preset should not be empty")
+	}
+
+	opts := parseOptions(preset)
+
+	// Should include all APIServerPreset options
+	if opts.ReadTimeout != 15*time.Second {
+		t.Errorf("expected read timeout 15s, got %v", opts.ReadTimeout)
+	}
+
+	if !opts.CORS.Enabled {
+		t.Error("expected CORS to be enabled")
+	}
+
+	if !opts.EnableDefaultMetrics {
+		t.Error("expected default metrics to be enabled")
+	}
+
+	// Should have auth enabled with memory database
+	if !opts.Auth.Enabled {
+		t.Error("expected auth to be enabled")
+	}
+
+	if opts.Auth.Database == nil {
+		t.Error("expected auth database to be set")
+	}
+}
+
+func TestStaticFilePreset(t *testing.T) {
+	preset := StaticFilePreset("public", "/static")
+
+	if len(preset) == 0 {
+		t.Error("static file preset should not be empty")
+	}
+
+	opts := parseOptions(preset)
+
+	if !opts.StaticFiles.Enabled {
+		t.Error("expected static files to be enabled")
+	}
+
+	if opts.StaticFiles.Dir != "public" {
+		t.Errorf("expected static dir 'public', got '%s'", opts.StaticFiles.Dir)
+	}
+
+	if opts.StaticFiles.URLPrefix != "/static" {
+		t.Errorf("expected URL prefix '/static', got '%s'", opts.StaticFiles.URLPrefix)
+	}
+
+	if opts.StaticFiles.SPAMode {
+		t.Error("expected SPA mode to be disabled for static file preset")
+	}
+
+	if !opts.Security.Enabled {
+		t.Error("expected security to be enabled")
+	}
+
+	if !opts.EnableHealthEndpoint {
+		t.Error("expected health endpoint to be enabled")
+	}
+
+	if !opts.EnableDefaultMetrics {
+		t.Error("expected default metrics to be enabled")
+	}
+
+	if !opts.Cache.Enabled {
+		t.Error("expected cache to be enabled for static assets")
+	}
+}
+
 func TestPresetCombinations(t *testing.T) {
 	// Test combining presets
 	combined := MergeWithPreset(
@@ -405,12 +628,19 @@ func TestPresetValidation(t *testing.T) {
 		preset []Option
 	}{
 		{"Development", DevelopmentPreset()},
-		{"Production", ProductionPreset(cert)},
+		{"Production", ProductionPreset()},
+		{"ProductionWithCert", ProductionPreset(cert)},
 		{"APIServer", APIServerPreset()},
-		{"WebApp", WebAppPreset(cert)},
+		{"WebApp", WebAppPreset()},
+		{"WebAppWithCert", WebAppPreset(cert)},
 		{"Microservice", MicroservicePreset()},
-		{"HighSecurity", HighSecurityPreset(cert)},
+		{"HighSecurity", HighSecurityPreset()},
+		{"HighSecurityWithCert", HighSecurityPreset(cert)},
 		{"TLS", TLSPreset("cert.pem", "key.pem")},
+		{"SPA", SPAPreset("build")},
+		{"SPAWithCert", SPAPreset("build", cert)},
+		{"AuthAPI", AuthAPIPreset()},
+		{"StaticFile", StaticFilePreset("public", "/static")},
 	}
 
 	for _, preset := range presets {
@@ -439,8 +669,7 @@ func TestPresetDocumentation(t *testing.T) {
 	})
 
 	t.Run("production is secure", func(t *testing.T) {
-		cert := tls.Certificate{}
-		opts := parseOptions(ProductionPreset(cert))
+		opts := parseOptions(ProductionPreset())
 		if !opts.Security.Enabled {
 			t.Error("production should enable security")
 		}
@@ -450,8 +679,7 @@ func TestPresetDocumentation(t *testing.T) {
 	})
 
 	t.Run("high security is restrictive", func(t *testing.T) {
-		cert := tls.Certificate{}
-		opts := parseOptions(HighSecurityPreset(cert))
+		opts := parseOptions(HighSecurityPreset())
 		if opts.RateLimit.RequestsPerInterval >= 100 {
 			t.Error("high security should have aggressive rate limiting")
 		}
@@ -464,6 +692,27 @@ func TestPresetDocumentation(t *testing.T) {
 		opts := parseOptions(MicroservicePreset())
 		if opts.ReadTimeout >= 10*time.Second {
 			t.Error("microservice should have fast timeouts")
+		}
+	})
+
+	t.Run("API server has CORS", func(t *testing.T) {
+		opts := parseOptions(APIServerPreset())
+		if !opts.CORS.Enabled {
+			t.Error("API server should have CORS enabled")
+		}
+	})
+
+	t.Run("SPA has SPA mode", func(t *testing.T) {
+		opts := parseOptions(SPAPreset("build"))
+		if !opts.StaticFiles.SPAMode {
+			t.Error("SPA preset should have SPA mode enabled")
+		}
+	})
+
+	t.Run("auth API has auth", func(t *testing.T) {
+		opts := parseOptions(AuthAPIPreset())
+		if !opts.Auth.Enabled {
+			t.Error("auth API should have auth enabled")
 		}
 	})
 }

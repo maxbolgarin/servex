@@ -197,9 +197,7 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 	}
 	s.filter = filter
 
-	if opts.HTTPSRedirect.Enabled {
-		RegisterHTTPSRedirectMiddleware(s.router, opts.HTTPSRedirect)
-	}
+	RegisterHTTPSRedirectMiddleware(s.router, opts.HTTPSRedirect)
 
 	RegisterSecurityHeadersMiddleware(s.router, opts.Security)
 	RegisterCORSMiddleware(s.router, opts)
@@ -223,10 +221,7 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 	}
 	s.cleanups = append(s.cleanups, proxyCleanup)
 
-	if s.opts.Auth.Enabled {
-		if s.opts.Auth.Database == nil {
-			return nil, errors.New("auth database is required")
-		}
+	if s.opts.Auth.isActive() {
 		authManager, err := NewAuthManager(s.opts.Auth, opts.AuditLogger)
 		if err != nil {
 			return nil, fmt.Errorf("cannot create auth manager: %w", err)
@@ -247,7 +242,7 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 	}
 
 	// Load swagger spec from file if configured
-	if s.opts.Swagger.Enabled {
+	if s.opts.Swagger.isActive() {
 		if err := s.opts.Swagger.loadSwaggerSpec(); err != nil {
 			return nil, fmt.Errorf("load swagger spec file: %w", err)
 		}
@@ -259,7 +254,7 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 	// Register health, metrics, swagger
 	s.registerBuiltinEndpoints()
 
-	if opts.StaticFiles.Enabled && opts.Security.Enabled {
+	if opts.StaticFiles.isActive() && opts.Security.isActive() {
 		opts.StaticFiles.securityHeadersForStaticFiles = opts.Security
 	}
 
@@ -781,7 +776,7 @@ func (s *Server) HTTPSAddress() string {
 //		}
 //	}
 func (s *Server) AuthManager() *AuthManager {
-	if !s.opts.Auth.Enabled {
+	if s.auth == nil {
 		s.opts.Logger.Error("auth is not enabled, cannot return auth manager")
 		return nil
 	}
@@ -816,7 +811,7 @@ func (s *Server) Filter() DynamicFilterMethods {
 // Authentication is enabled when a database is configured through
 // WithAuth() or WithAuthMemoryDatabase() options.
 func (s *Server) IsAuthEnabled() bool {
-	return s.opts.Auth.Enabled
+	return s.auth != nil
 }
 
 // IsTLS returns true if the HTTPS server is running.
@@ -869,7 +864,7 @@ func (s *Server) registerBuiltinEndpoints() {
 	}
 
 	// Register swagger endpoint if enabled
-	if s.opts.Swagger.Enabled {
+	if s.opts.Swagger.isActive() {
 		registerSwaggerEndpoints(s)
 	}
 }

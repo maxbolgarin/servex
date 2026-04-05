@@ -118,7 +118,7 @@ type rateLimiterMiddleware struct {
 // Returns:
 //   - func(): The function to stop the cleanup routine
 func RegisterRateLimitMiddleware(router MiddlewareRouter, cfg RateLimitConfig, auditLogger ...AuditLogger) func() {
-	if !cfg.Enabled || cfg.RequestsPerInterval <= 0 {
+	if cfg.RequestsPerInterval <= 0 {
 		return func() {} // Return no-op function for consistency
 	}
 	cfg.BurstSize = lang.Check(cfg.BurstSize, cfg.RequestsPerInterval)
