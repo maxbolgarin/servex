@@ -28,6 +28,9 @@ func ReadWithLimit(r *http.Request, maxSize int64) ([]byte, error) {
 	if maxSize <= 0 {
 		maxSize = defaultMaxRequestBodySize
 	}
+	if r.Body == nil {
+		return nil, errors.New("request body is nil")
+	}
 
 	bytes, err := io.ReadAll(io.LimitReader(r.Body, maxSize+1))
 	if err != nil {
@@ -52,6 +55,9 @@ func ReadJSONWithLimit[T any](r *http.Request, maxSize int64) (T, error) {
 	var req T
 	if maxSize <= 0 {
 		maxSize = defaultMaxJSONBodySize
+	}
+	if r.Body == nil {
+		return req, errors.New("request body is nil")
 	}
 
 	bytes, err := io.ReadAll(io.LimitReader(r.Body, maxSize+1))
@@ -318,6 +324,9 @@ func (ctx *Context) ReadWithLimit(maxSize int64) ([]byte, error) {
 	if maxSize <= 0 {
 		maxSize = ctx.maxRequestBodySize
 	}
+	if ctx.r.Body == nil {
+		return nil, errors.New("request body is nil")
+	}
 
 	bytes, err := io.ReadAll(io.LimitReader(ctx.r.Body, maxSize+1))
 	if err != nil {
@@ -405,6 +414,9 @@ func (ctx *Context) ReadJSON(body any) error {
 func (ctx *Context) ReadJSONWithLimit(body any, maxSize int64) error {
 	if maxSize <= 0 {
 		maxSize = ctx.maxJSONBodySize
+	}
+	if ctx.r.Body == nil {
+		return errors.New("request body is nil")
 	}
 
 	bytes, err := io.ReadAll(io.LimitReader(ctx.r.Body, maxSize+1))

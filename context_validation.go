@@ -1,6 +1,7 @@
 package servex
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,9 @@ func ReadAndValidateWithLimit[T interface{ Validate() error }](r *http.Request, 
 	var req T
 	if maxSize <= 0 {
 		maxSize = defaultMaxJSONBodySize
+	}
+	if r.Body == nil {
+		return req, errors.New("request body is nil")
 	}
 
 	bytes, err := io.ReadAll(io.LimitReader(r.Body, maxSize+1))

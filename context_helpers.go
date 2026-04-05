@@ -1,7 +1,6 @@
 package servex
 
 import (
-	"context"
 	"crypto/rand"
 	"math"
 	mr "math/rand"
@@ -69,17 +68,10 @@ func getOrSetRequestID(r *http.Request) string {
 
 	requestID := getValueFromContext[string](r, requestIDKey{})
 	if requestID == "" {
-		return generateAndSetRequestID(r)
+		requestID = string(getRandomBytes(12))
+		r.Header.Set("X-Request-ID", requestID)
 	}
 
-	return requestID
-}
-
-func generateAndSetRequestID(r *http.Request) string {
-	ctx := r.Context()
-	requestID := string(getRandomBytes(12))
-	ctx = context.WithValue(ctx, requestIDKey{}, requestID)
-	*r = *r.WithContext(ctx)
 	return requestID
 }
 

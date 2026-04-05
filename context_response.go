@@ -47,8 +47,10 @@ func (ctx *Context) SetCookie(name, value string, maxAge int, secure, httpOnly b
 		Name:     name,
 		Value:    value,
 		MaxAge:   maxAge,
+		Path:     "/",
 		Secure:   secure,
 		HttpOnly: httpOnly,
+		SameSite: http.SameSiteLaxMode,
 	})
 }
 
@@ -123,12 +125,10 @@ func (ctx *Context) Response(code int, bodyRaw ...any) {
 	default:
 		jsonBytes, err := json.Marshal(body)
 		if err != nil {
-			// Log the marshalling error if possible (though Context doesn't have logger)
-			// For now, write a plain 500 response directly, avoiding recursive ctx.Error call.
-			// Note: This error hides the original intended response code.
-			msg := `{"message":"Internal Server Error: Failed to marshal response JSON"}`
-			http.Error(ctx.w, msg, http.StatusInternalServerError)
-			// Set error context for logging middleware, even though we short-circuited
+			msg := `{"message":"internal server error"}`
+			ctx.SetContentType(MIMETypeJSON)
+			ctx.w.WriteHeader(http.StatusInternalServerError)
+			_, _ = ctx.w.Write([]byte(msg))
 			ctx.setError(fmt.Errorf("marshal response: %w", err), http.StatusInternalServerError, msg)
 			return
 		}
@@ -196,8 +196,10 @@ func (ctx *Context) JSON(bodyRaw any) {
 func (ctx *Context) XML(code int, v any) {
 	xmlBytes, err := xml.Marshal(v)
 	if err != nil {
-		msg := `{"message":"Internal Server Error: Failed to marshal response XML"}`
-		http.Error(ctx.w, msg, http.StatusInternalServerError)
+		msg := `<?xml version="1.0" encoding="UTF-8"?><error><message>internal server error</message></error>`
+		ctx.SetContentType(MIMETypeXML, "utf-8")
+		ctx.w.WriteHeader(http.StatusInternalServerError)
+		_, _ = ctx.w.Write([]byte(msg))
 		ctx.setError(fmt.Errorf("marshal xml response: %w", err), http.StatusInternalServerError, msg)
 		return
 	}
@@ -214,8 +216,10 @@ func (ctx *Context) XML(code int, v any) {
 func (ctx *Context) XMLIndent(code int, v any, indent string) {
 	xmlBytes, err := xml.MarshalIndent(v, "", indent)
 	if err != nil {
-		msg := `{"message":"Internal Server Error: Failed to marshal response XML"}`
-		http.Error(ctx.w, msg, http.StatusInternalServerError)
+		msg := `<?xml version="1.0" encoding="UTF-8"?><error><message>internal server error</message></error>`
+		ctx.SetContentType(MIMETypeXML, "utf-8")
+		ctx.w.WriteHeader(http.StatusInternalServerError)
+		_, _ = ctx.w.Write([]byte(msg))
 		ctx.setError(fmt.Errorf("marshal xml indent response: %w", err), http.StatusInternalServerError, msg)
 		return
 	}
@@ -316,7 +320,7 @@ func (ctx *Context) Negotiate(code int, v any) {
 				text = string(jsonBytes)
 			}
 		}
-		ctx.SetContentType(MIMETypePlain)
+		ctx.SetContentType("text/plain; charset=utf-8")
 		ctx.SetHeader("Content-Length", strconv.Itoa(len(text)))
 		ctx.w.WriteHeader(code)
 		_, err := ctx.w.Write([]byte(text))
@@ -338,6 +342,10 @@ type acceptEntry struct {
 func parseAcceptHeader(accept string) []acceptEntry {
 	if accept == "" {
 		return nil
+	}
+	const maxAcceptLen = 4096
+	if len(accept) > maxAcceptLen {
+		accept = accept[:maxAcceptLen]
 	}
 	parts := strings.Split(accept, ",")
 	if len(parts) > 50 {
@@ -604,8 +612,7 @@ func (ctx *Context) ServiceUnavailable(err error, msg string, fields ...any) {
 //	// Permanent redirect
 //	ctx.Redirect("https://example.com/new-path", 301)
 func (ctx *Context) Redirect(url string, code int) {
-	ctx.SetHeader("Location", url)
-	ctx.w.WriteHeader(code)
+	http.Redirect(ctx.w, ctx.r, url, code)
 }
 
 // RedirectPermanent performs a permanent redirect (HTTP 301) to the specified URL.
