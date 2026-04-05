@@ -1,7 +1,9 @@
 package servex
 
 import (
+	"encoding/xml"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -188,6 +190,181 @@ func (ctx *Context) ResponseFile(filename string, mimeType string, body []byte) 
 // JSON is an alias for [Context.Response] with 200 code.
 func (ctx *Context) JSON(bodyRaw any) {
 	ctx.Response(http.StatusOK, bodyRaw)
+}
+
+// XML marshals v to XML and writes it with the given status code.
+func (ctx *Context) XML(code int, v any) {
+	xmlBytes, err := xml.Marshal(v)
+	if err != nil {
+		msg := `{"message":"Internal Server Error: Failed to marshal response XML"}`
+		http.Error(ctx.w, msg, http.StatusInternalServerError)
+		ctx.setError(fmt.Errorf("marshal xml response: %w", err), http.StatusInternalServerError, msg)
+		return
+	}
+	ctx.SetContentType(MIMETypeXML, "utf-8")
+	ctx.SetHeader("Content-Length", strconv.Itoa(len(xmlBytes)))
+	ctx.w.WriteHeader(code)
+	_, err = ctx.w.Write(xmlBytes)
+	if err != nil {
+		ctx.setError(fmt.Errorf("write xml response: %w", err), http.StatusInternalServerError, "failed to write xml response body")
+	}
+}
+
+// XMLIndent marshals v to indented XML and writes it with the given status code.
+func (ctx *Context) XMLIndent(code int, v any, indent string) {
+	xmlBytes, err := xml.MarshalIndent(v, "", indent)
+	if err != nil {
+		msg := `{"message":"Internal Server Error: Failed to marshal response XML"}`
+		http.Error(ctx.w, msg, http.StatusInternalServerError)
+		ctx.setError(fmt.Errorf("marshal xml indent response: %w", err), http.StatusInternalServerError, msg)
+		return
+	}
+	ctx.SetContentType(MIMETypeXML, "utf-8")
+	ctx.SetHeader("Content-Length", strconv.Itoa(len(xmlBytes)))
+	ctx.w.WriteHeader(code)
+	_, err = ctx.w.Write(xmlBytes)
+	if err != nil {
+		ctx.setError(fmt.Errorf("write xml indent response: %w", err), http.StatusInternalServerError, "failed to write xml response body")
+	}
+}
+
+// Stream streams data from reader to the response with the given status code and content type.
+// The caller is responsible for closing the reader.
+func (ctx *Context) Stream(code int, contentType string, reader io.Reader) {
+	ctx.SetContentType(contentType)
+	ctx.w.WriteHeader(code)
+	if reader == nil {
+		return
+	}
+	_, err := io.Copy(ctx.w, reader)
+	if err != nil {
+		ctx.setError(fmt.Errorf("stream response: %w", err), http.StatusInternalServerError, "failed to stream response body")
+		return
+	}
+	if f, ok := ctx.w.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Negotiate selects a response format based on the Accept header and writes the response.
+// Supported types: application/json, application/xml, text/plain. Defaults to JSON.
+// Returns 406 if the Accept header explicitly excludes all supported types.
+func (ctx *Context) Negotiate(code int, v any) {
+	accept := ctx.r.Header.Get("Accept")
+	entries := parseAcceptHeader(accept)
+
+	// Find best match among supported types
+	type candidate struct {
+		mime    string
+		quality float64
+	}
+	supported := []string{MIMETypeJSON, MIMETypeXML, MIMETypePlain}
+	best := candidate{mime: "", quality: -1}
+
+	for _, entry := range entries {
+		mt := entry.mediaType
+		if mt == "*/*" {
+			// wildcard matches JSON with its own quality
+			if entry.quality > best.quality {
+				best = candidate{MIMETypeJSON, entry.quality}
+			}
+			continue
+		}
+		for _, s := range supported {
+			if mt == s && entry.quality > best.quality {
+				best = candidate{s, entry.quality}
+			}
+		}
+	}
+
+	// If no Accept header or empty, default to JSON
+	if len(entries) == 0 || accept == "" {
+		ctx.Response(code, v)
+		return
+	}
+
+	// If best quality is 0, all supported types were explicitly excluded
+	if best.quality == 0 {
+		ctx.NotAcceptable(nil, "not acceptable")
+		return
+	}
+
+	// If no supported type matched, return 406
+	if best.mime == "" {
+		ctx.NotAcceptable(nil, "not acceptable")
+		return
+	}
+
+	switch best.mime {
+	case MIMETypeXML:
+		ctx.XML(code, v)
+	case MIMETypePlain:
+		var text string
+		switch val := v.(type) {
+		case string:
+			text = val
+		case []byte:
+			text = string(val)
+		case fmt.Stringer:
+			text = val.String()
+		default:
+			// Fall back to JSON string representation for complex types
+			jsonBytes, err := json.Marshal(v)
+			if err != nil {
+				text = fmt.Sprint(v)
+			} else {
+				text = string(jsonBytes)
+			}
+		}
+		ctx.SetContentType(MIMETypePlain)
+		ctx.SetHeader("Content-Length", strconv.Itoa(len(text)))
+		ctx.w.WriteHeader(code)
+		_, err := ctx.w.Write([]byte(text))
+		if err != nil {
+			ctx.setError(fmt.Errorf("write negotiate plain response: %w", err), http.StatusInternalServerError, "failed to write response body")
+		}
+	default:
+		ctx.Response(code, v)
+	}
+}
+
+// acceptEntry holds a parsed media type and its quality value.
+type acceptEntry struct {
+	mediaType string
+	quality   float64
+}
+
+// parseAcceptHeader parses an Accept header into a slice of acceptEntry values.
+func parseAcceptHeader(accept string) []acceptEntry {
+	if accept == "" {
+		return nil
+	}
+	parts := strings.Split(accept, ",")
+	if len(parts) > 50 {
+		parts = parts[:50]
+	}
+	entries := make([]acceptEntry, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		segments := strings.Split(part, ";")
+		mediaType := strings.TrimSpace(segments[0])
+		quality := 1.0
+		for _, seg := range segments[1:] {
+			seg = strings.TrimSpace(seg)
+			if strings.HasPrefix(seg, "q=") {
+				qStr := strings.TrimPrefix(seg, "q=")
+				q, err := strconv.ParseFloat(qStr, 64)
+				if err == nil {
+					quality = q
+				}
+			}
+		}
+		entries = append(entries, acceptEntry{mediaType: mediaType, quality: quality})
+	}
+	return entries
 }
 
 // BadRequest handles an error by returning an HTTP error response with status code 400.
