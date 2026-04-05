@@ -15,7 +15,8 @@ var (
 	// ListenAddressRegexp is used to match "ip:port" or ":port" strings or kuber domains with port.
 	ListenAddressRegexp = regexp.MustCompile(`^[\w\-\/:@\.]*:[0-9]{1,5}$`)
 
-	defaultReadTimeout    = 60 * time.Second
+	defaultReadTimeout       = 60 * time.Second
+	defaultReadHeaderTimeout = 10 * time.Second
 	defaultIdleTimeout    = 180 * time.Second
 	defaultMaxHeaderBytes = 1 << 20 // 1 MB
 )

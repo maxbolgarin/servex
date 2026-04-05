@@ -242,7 +242,11 @@ func (m *AuthManager) WithAPIKey(next http.HandlerFunc, scopes ...string) http.H
 		}
 
 		// Update last used asynchronously to avoid blocking the request
-		go m.service.cfg.APIKey.Database.UpdateAPIKeyLastUsed(context.Background(), keyRecord.ID, time.Now()) //nolint:errcheck
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = m.service.cfg.APIKey.Database.UpdateAPIKeyLastUsed(ctx, keyRecord.ID, time.Now())
+		}()
 
 		reqCtx := context.WithValue(r.Context(), UserContextKey{}, keyRecord.UserID)
 		reqCtx = context.WithValue(reqCtx, APIKeyScopesContextKey{}, keyRecord.Scopes)

@@ -22,9 +22,9 @@ func TestMakeRawRequest(t *testing.T) {
 			host:    "example.com",
 			headers: map[string]string{"Authorization": "Bearer token"},
 			body:    nil,
-			expected: "GET /test HTTP/1.1\n" +
-				"Host: example.com\n" +
-				"Authorization: Bearer token\n\n",
+			expected: "GET /test HTTP/1.1\r\n" +
+				"Host: example.com\r\n" +
+				"Authorization: Bearer token\r\n\r\n",
 		},
 		{
 			name:    "GET request with body",
@@ -32,9 +32,9 @@ func TestMakeRawRequest(t *testing.T) {
 			host:    "example.com",
 			headers: nil,
 			body:    []string{"data=example"},
-			expected: "GET /submit HTTP/1.1\n" +
-				"Host: example.com\n" +
-				"Content-Length: 12\n\n" +
+			expected: "GET /submit HTTP/1.1\r\n" +
+				"Host: example.com\r\n" +
+				"Content-Length: 12\r\n\r\n" +
 				"data=example",
 		},
 		{
@@ -43,9 +43,9 @@ func TestMakeRawRequest(t *testing.T) {
 			host:    "example.com",
 			headers: map[string]string{"Content-Length": "10"},
 			body:    []string{"somebody"},
-			expected: "GET /data HTTP/1.1\n" +
-				"Host: example.com\n" +
-				"Content-Length: 10\n\n" +
+			expected: "GET /data HTTP/1.1\r\n" +
+				"Host: example.com\r\n" +
+				"Content-Length: 10\r\n\r\n" +
 				"somebody",
 		},
 	}
@@ -74,17 +74,17 @@ func TestMakeRawResponse(t *testing.T) {
 			code:    http.StatusOK,
 			headers: map[string]string{"Content-Type": "application/json"},
 			body:    nil,
-			expected: "HTTP/1.1 200 OK\n" +
-				"Content-Type: application/json\n\n",
+			expected: "HTTP/1.1 200 OK\r\n" +
+				"Content-Type: application/json\r\n\r\n",
 		},
 		{
 			name:    "200 response with body",
 			code:    http.StatusOK,
 			headers: map[string]string{"Content-Type": "text/plain"},
 			body:    []string{"Hello World"},
-			expected: "HTTP/1.1 200 OK\n" +
-				"Content-Type: text/plain\n" +
-				"Content-Length: 11\n\n" +
+			expected: "HTTP/1.1 200 OK\r\n" +
+				"Content-Type: text/plain\r\n" +
+				"Content-Length: 11\r\n\r\n" +
 				"Hello World",
 		},
 		{
@@ -92,8 +92,8 @@ func TestMakeRawResponse(t *testing.T) {
 			code:    404,
 			headers: nil,
 			body:    []string{"Not Found"},
-			expected: "HTTP/1.1 404 Not Found\n" +
-				"Content-Length: 9\n\n" +
+			expected: "HTTP/1.1 404 Not Found\r\n" +
+				"Content-Length: 9\r\n\r\n" +
 				"Not Found",
 		},
 	}

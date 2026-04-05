@@ -62,7 +62,7 @@ func WithReadTimeout(tm time.Duration) Option {
 // Protects against slow header attacks where clients send headers very slowly.
 func WithReadHeaderTimeout(tm time.Duration) Option {
 	return func(op *Options) {
-		op.ReadHeaderTimeout = lang.If(tm <= 0, defaultReadTimeout, tm)
+		op.ReadHeaderTimeout = lang.If(tm <= 0, defaultReadHeaderTimeout, tm)
 	}
 }
 

@@ -24,7 +24,7 @@ func MakeRawRequest(path, host string, headers map[string]string, body ...string
 	req := make([]byte, 0, 1024)
 
 	req = append(req, ("GET " + lang.Check(path, "/") + " HTTP/1.1")...)
-	req = append(req, '\n')
+	req = append(req, '\r', '\n')
 	req = append(req, ("Host: " + lang.Check(host, "example.com:80"))...)
 
 	return append(req, headersAndBody(headers, body)...)
@@ -55,7 +55,7 @@ func headersAndBody(headers map[string]string, body []string) []byte {
 
 	var seenCL bool
 	for k, v := range headers {
-		req = append(req, '\n')
+		req = append(req, '\r', '\n')
 		req = append(req, (k + ": " + v)...)
 		if strings.ToLower(k) == "content-length" {
 			seenCL = true
@@ -68,16 +68,16 @@ func headersAndBody(headers map[string]string, body []string) []byte {
 			for _, b := range body {
 				l += len(b)
 			}
-			req = append(req, '\n')
+			req = append(req, '\r', '\n')
 			req = append(req, "Content-Length: "+strconv.Itoa(l)...)
 		}
-		req = append(req, '\n', '\n')
+		req = append(req, '\r', '\n', '\r', '\n')
 		for _, b := range body {
 			req = append(req, b...)
 		}
 
 	} else {
-		req = append(req, '\n', '\n')
+		req = append(req, '\r', '\n', '\r', '\n')
 	}
 
 	return req

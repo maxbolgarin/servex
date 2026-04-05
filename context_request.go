@@ -29,13 +29,13 @@ func ReadWithLimit(r *http.Request, maxSize int64) ([]byte, error) {
 		maxSize = defaultMaxRequestBodySize
 	}
 
-	bytes, err := io.ReadAll(io.LimitReader(r.Body, maxSize))
+	bytes, err := io.ReadAll(io.LimitReader(r.Body, maxSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("read: %w", err)
 	}
 
 	// Check if we hit the size limit
-	if int64(len(bytes)) >= maxSize {
+	if int64(len(bytes)) > maxSize {
 		return nil, fmt.Errorf("request body too large (max: %d bytes)", maxSize)
 	}
 
@@ -54,13 +54,13 @@ func ReadJSONWithLimit[T any](r *http.Request, maxSize int64) (T, error) {
 		maxSize = defaultMaxJSONBodySize
 	}
 
-	bytes, err := io.ReadAll(io.LimitReader(r.Body, maxSize))
+	bytes, err := io.ReadAll(io.LimitReader(r.Body, maxSize+1))
 	if err != nil {
 		return req, fmt.Errorf("read: %w", err)
 	}
 
 	// Check if we hit the size limit
-	if int64(len(bytes)) >= maxSize {
+	if int64(len(bytes)) > maxSize {
 		return req, fmt.Errorf("request body too large (max: %d bytes)", maxSize)
 	}
 
