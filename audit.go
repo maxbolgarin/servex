@@ -1,6 +1,7 @@
 package servex
 
 import (
+	"encoding/hex"
 	"net/http"
 	"time"
 )
@@ -425,7 +426,7 @@ func (al *DefaultAuditLogger) sanitizeHeaders(headers http.Header) map[string]st
 		// Check if this is a sensitive header
 		isSensitive := false
 		for _, sensitive := range al.SensitiveHeaders {
-			if name == sensitive {
+			if http.CanonicalHeaderKey(name) == http.CanonicalHeaderKey(sensitive) {
 				isSensitive = true
 				break
 			}
@@ -446,7 +447,7 @@ func (al *DefaultAuditLogger) sanitizeHeaders(headers http.Header) map[string]st
 
 // generateEventID generates a unique event ID for audit logging
 func generateEventID() string {
-	return string(getRandomBytes(16))
+	return hex.EncodeToString(getRandomBytes(16))
 }
 
 // NoopAuditLogger is a no-op implementation of AuditLogger
