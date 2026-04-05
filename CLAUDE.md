@@ -37,34 +37,43 @@ Servex is a production-ready HTTP(S) server library built on `net/http` and `gor
 | Router (method shortcuts, base path) | `router.go` |
 | Configuration loading (YAML + env vars) | `config.go` |
 | Options (100+ `With*` builder functions) | `options_core.go`, `options_*.go` |
-| Context helpers (`C(w,r)`) | `context_core.go`, `context_request.go`, `context_response.go`, `context_validation.go` |
-| JWT authentication | `auth.go`, `middleware_auth.go` |
+| Context helpers (`C(w,r)`) | `context_core.go`, `context_request.go`, `context_response.go`, `context_validation.go`, `context_helpers.go` |
+| Middleware core & other | `middleware_core.go`, `middleware_other.go` |
+| JWT authentication | `auth.go`, `middleware_auth.go`, `options_auth.go` |
 | Email verification & password reset | `auth_email.go`, `options_email.go` |
 | OAuth providers | `auth_oauth.go`, `auth_oauth_providers.go`, `options_oauth.go` |
 | Two-factor authentication | `auth_2fa.go`, `options_2fa.go` |
+| API key authentication | `apikey.go`, `options_apikey.go` |
+| SQL auth databases (Postgres/MySQL/SQLite) | `auth_sql.go` |
 | Rate limiting | `ratelimit.go` |
 | Request filtering (IP/UA/header/query) | `filter.go` |
-| Reverse proxy with load balancing | `proxy.go` |
+| Reverse proxy with load balancing | `proxy.go`, `proxy_dns.go` |
 | Security headers, CSRF | `middleware_security.go` |
 | Static files & SPA | `static.go` |
 | Metrics & audit logging | `metrics.go`, `audit.go`, `logging.go` |
 | Swagger UI & OpenAPI spec serving | `swagger.go`, `options_swagger.go` |
 | WebSocket support | `websocket.go`, `options_websocket.go` |
+| Server-Sent Events (SSE) | `sse.go` |
+| W3C Trace Context propagation | `trace.go` |
+| Raw HTTP utilities | `rawhttp.go` |
+| Testing utilities | `testing.go` |
 | Presets (Development, Production, etc.) | `presets.go` |
 | CLI entry point | `cmd/servex/main.go` |
+| Examples (17 demos) | `examples/` |
 
 ### Core Design Patterns
 
 - **Options pattern**: Configuration via `With*()` functions passed to `NewServer()`. Options are split across `options_*.go` files by domain.
 - **Middleware chain**: Registered in a fixed order in `servex.go` — rate limiting → size limits → filtering → security → CORS → cache → compression → logging → recovery → auth → proxy → static.
 - **Context helpers**: `servex.C(w, r)` wraps the standard `http.ResponseWriter` and `*http.Request` to provide convenient JSON reading/writing, parameter extraction, and error responses.
-- **Interface-based extensibility**: Provide custom implementations of `Logger`, `RequestLogger`, `AuditLogger`, `Metrics`, `AuthDatabase`, `VerificationEmailSender`, `PasswordResetEmailSender`, `TwoFactorEmailSender`, and `OAuthProvider` interfaces.
+- **Interface-based extensibility**: Provide custom implementations of `Logger`, `RequestLogger`, `AuditLogger`, `Metrics`, `AuthDatabase`, `APIKeyDatabase`, `VerificationEmailSender`, `PasswordResetEmailSender`, `TwoFactorEmailSender`, and `OAuthProvider` interfaces.
 
 ### Key Interfaces
 
 - `AuthDatabase` — user storage backend (see `auth.go`)
 - `EmailAuthDatabase` — email lookup (optional sub-interface, see `auth_email.go`)
 - `OAuthAuthDatabase` — OAuth provider lookup (optional sub-interface, see `auth_oauth.go`)
+- `APIKeyDatabase` — API key storage backend (see `apikey.go`)
 - `VerificationEmailSender` — sends email verification codes or tokens (see `options_email.go`)
 - `PasswordResetEmailSender` — sends password reset tokens (see `options_email.go`)
 - `TwoFactorEmailSender` — sends 2FA verification codes via email (see `options_2fa.go`)
@@ -333,6 +342,9 @@ func profileHandler(w http.ResponseWriter, r *http.Request) {
     ctx := servex.C(w, r)
     userID := ctx.UserID()        // string from UserContextKey
     roles := ctx.UserRoles()      // []UserRole from RoleContextKey
+    scopes := ctx.APIKeyScopes()  // []string from APIKeyScopesContextKey
+    traceID := ctx.TraceID()      // W3C trace ID (requires WithTracePropagation)
+    spanID := ctx.SpanID()        // W3C span ID (requires WithTracePropagation)
 }
 ```
 
@@ -635,6 +647,223 @@ func handler(w http.ResponseWriter, r *http.Request) {
 - **Graceful cleanup**: `sync.Once` ensures cleanup runs exactly once, even on panic.
 - **Middleware compatible**: All response writer wrappers (`loggingResponseWriter`, `enhancedUniversalResponseWriter`, `compressionResponseWriter`) implement `http.Hijacker`.
 - **Auth integration**: `WSWithAuth` validates the upgrade request with the same auth middleware used for HTTP routes.
+
+## Server-Sent Events (SSE)
+
+Servex includes SSE support for real-time streaming. SSE activates lazily like WebSocket. Core code is in `sse.go`.
+
+### Key Types
+
+- **`SSEHandler`** — `func(sse *SSEConn)`, called after successful upgrade; runs for the connection lifetime.
+- **`SSEConn`** — wraps `http.ResponseWriter` for SSE streaming with thread-safe writes. Provides `Send`, `SendEvent`, `SendEventWithID`, `SendJSON`, `SendEventJSON`, `SendComment`, `SetRetry`. Metadata: `Path`, `Query`, `Header`, `LastEventID`, `UserID`, `UserRoles`, `ClientIP`, `Done`.
+
+### Server Methods
+
+```go
+server.SSE(path, handler)                       // Register SSE route
+server.SSEWithAuth(path, handler, roles...)      // Register SSE route with auth
+```
+
+### Quick Example
+
+```go
+server.SSE("/events/{topic}", func(sse *servex.SSEConn) {
+    topic := sse.Path("topic")
+    for {
+        select {
+        case <-sse.Done():
+            return
+        case msg := <-getMessages(topic):
+            sse.SendEvent("message", msg)
+        }
+    }
+})
+```
+
+## API Key Authentication
+
+Servex supports API key authentication alongside JWT. API keys are SHA-256 hashed, scope-based, and support expiration. Core code is in `apikey.go`, options in `options_apikey.go`.
+
+### Setup
+
+```go
+server, _ := servex.NewServer(
+    servex.WithAuth(myDB),
+    servex.WithAuthKey(accessKey, refreshKey),
+    servex.WithAPIKeys(myAPIKeyDB),          // implements APIKeyDatabase
+    servex.WithAPIKeyPrefix("myapp_"),
+    servex.WithAPIKeyScopes("read", "write", "admin"),
+    servex.WithAPIKeyMaxPerUser(10),
+)
+
+// Or with in-memory database (dev/testing)
+servex.WithAPIKeysMemoryDatabase()
+```
+
+### APIKeyDatabase Interface
+
+```go
+type APIKeyDatabase interface {
+    CreateAPIKey(ctx context.Context, key *APIKey) error
+    FindAPIKeyByHash(ctx context.Context, keyHash string) (APIKey, bool, error)
+    RevokeAPIKey(ctx context.Context, keyID string) error
+    ListAPIKeysByUser(ctx context.Context, userID string) ([]APIKey, error)
+    UpdateAPIKeyLastUsed(ctx context.Context, keyID string, t time.Time) error
+}
+```
+
+### Protecting Routes with API Keys
+
+```go
+auth := server.AuthManager()
+server.GET("/api/data", auth.WithAPIKey(dataHandler, "read"))         // requires "read" scope
+server.POST("/api/data", auth.WithAPIKey(createHandler, "write"))     // requires "write" scope
+server.DELETE("/api/data/{id}", auth.WithAPIKey(deleteHandler, "admin"))
+```
+
+Clients send: `X-API-Key: myapp_...` or `Authorization: ApiKey myapp_...`
+
+### Auto-Registered Endpoints (under auth base path)
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/api-keys` | Bearer (JWT) | Create new API key (returns full key once) |
+| GET | `/api-keys` | Bearer (JWT) | List user's API keys (prefix only) |
+| DELETE | `/api-keys/{id}` | Bearer (JWT) | Revoke an API key |
+
+### YAML Config
+
+```yaml
+api_key:
+  prefix: "myapp_"
+  valid_scopes: ["read", "write", "admin"]
+  max_per_user: 10
+  key_length: 16
+  use_memory_database: false
+```
+
+## SQL Auth Database
+
+Servex provides a built-in SQL-backed `AuthDatabase` that supports PostgreSQL, MySQL, and SQLite. It implements `AuthDatabase`, `EmailAuthDatabase`, and `OAuthAuthDatabase`. Code is in `auth_sql.go`.
+
+### Setup
+
+```go
+// From existing *sql.DB
+sqlDB, _ := sql.Open("pgx", "postgres://user:pass@localhost/mydb")
+authDB, _ := servex.NewSQLAuthDatabase(sqlDB, "pgx")
+
+server, _ := servex.NewServer(
+    servex.WithAuth(authDB),
+    servex.WithAuthKey(accessKey, refreshKey),
+)
+
+// Or via option (manages connection internally)
+server, _ := servex.NewServer(
+    servex.WithAuthSQL(sqlDB, "pgx"),
+    servex.WithAuthKey(accessKey, refreshKey),
+)
+
+// Or from DSN
+server, _ := servex.NewServer(
+    servex.WithAuthSQLDSN("pgx", "postgres://user:pass@localhost/mydb"),
+    servex.WithAuthKey(accessKey, refreshKey),
+)
+```
+
+### Supported Drivers
+
+| Driver strings | Database |
+|---------------|----------|
+| `postgres`, `pgx`, `postgresql` | PostgreSQL |
+| `mysql` | MySQL |
+| `sqlite3`, `sqlite` | SQLite |
+
+### Options
+
+- `SQLTablePrefix(prefix)` — prefix for table names (e.g. `"myapp_"` → `myapp_users`)
+- `SQLAutoMigrate(bool)` — auto-create tables on init (default: `true`)
+
+Auto-migration creates `users` and `user_oauth_providers` tables with proper indexes.
+
+## W3C Trace Context
+
+Servex supports W3C Trace Context (RFC 9531) propagation for distributed tracing. Code is in `trace.go`.
+
+### Setup
+
+```go
+server, _ := servex.NewServer(
+    servex.WithTracePropagation(),
+)
+```
+
+### Behavior
+
+- Parses incoming `traceparent` header, generates new trace ID if absent
+- Generates a new span ID per request
+- Sets `traceparent` and `tracestate` response headers
+- Stores trace/span IDs in request context
+- Adds `trace_id` and `span_id` to request logs
+
+### Accessing in Handlers
+
+```go
+func handler(w http.ResponseWriter, r *http.Request) {
+    ctx := servex.C(w, r)
+    traceID := ctx.TraceID()  // 32 hex chars
+    spanID := ctx.SpanID()    // 16 hex chars
+}
+```
+
+## Testing Utilities
+
+Servex provides `TestServer`, `TestRequest`, and `TestResponse` types in `testing.go` for convenient integration testing.
+
+### Quick Example
+
+```go
+func TestMyAPI(t *testing.T) {
+    ts := servex.NewTestServer(t,
+        servex.WithAuthMemoryDatabase(),
+        servex.WithAuthKey(accessKey, refreshKey),
+    )
+    // ts.Server is the *servex.Server — register routes on it
+    ts.Server.GET("/items", listItems)
+
+    // Fluent request API
+    resp := ts.Get("/items").Do()
+    if resp.Code != 200 { t.Fatal("expected 200") }
+
+    var items []Item
+    resp.JSON(&items)
+
+    // POST with JSON body and auth
+    resp = ts.Post("/items").
+        WithJSON(map[string]string{"name": "test"}).
+        WithAuth("bearer-token").
+        Do()
+
+    // Cleanup is automatic via t.Cleanup
+}
+```
+
+### TestRequest Methods
+
+`WithBody(io.Reader)`, `WithJSON(any)`, `WithHeader(k, v)`, `WithAuth(token)`, `WithCookie(name, value)`, `Do() *TestResponse`
+
+### TestResponse Fields/Methods
+
+`Code int`, `Header http.Header`, `Body []byte`, `JSON(v any) error`, `BodyString() string`
+
+## Raw HTTP Utilities
+
+Package-level functions in `rawhttp.go` for constructing raw HTTP bytes (useful for testing or low-level proxy work):
+
+```go
+raw := servex.MakeRawRequest("/path", "example.com:80", headers, body)
+raw := servex.MakeRawResponse(200, headers, body)
+```
 
 ## Testing Conventions
 
