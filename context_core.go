@@ -129,6 +129,8 @@ func NewContext(w http.ResponseWriter, r *http.Request, optsRaw ...Options) *Con
 
 	if r != nil {
 		ctx.Context = r.Context()
+	} else {
+		ctx.Context = context.Background()
 	}
 
 	return ctx

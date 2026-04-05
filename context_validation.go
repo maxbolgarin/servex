@@ -18,13 +18,13 @@ func ReadAndValidateWithLimit[T interface{ Validate() error }](r *http.Request, 
 		maxSize = defaultMaxJSONBodySize
 	}
 
-	bytes, err := io.ReadAll(io.LimitReader(r.Body, maxSize))
+	bytes, err := io.ReadAll(io.LimitReader(r.Body, maxSize+1))
 	if err != nil {
 		return req, fmt.Errorf("read: %w", err)
 	}
 
 	// Check if we hit the size limit
-	if int64(len(bytes)) >= maxSize {
+	if int64(len(bytes)) > maxSize {
 		return req, fmt.Errorf("request body too large (max: %d bytes)", maxSize)
 	}
 

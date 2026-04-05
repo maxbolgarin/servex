@@ -118,7 +118,7 @@ func (ctx *Context) Response(code int, bodyRaw ...any) {
 
 	case string:
 		toWrite = []byte(b)
-		ctx.SetContentType(http.DetectContentType(toWrite))
+		ctx.SetContentType("text/plain; charset=utf-8")
 
 	default:
 		jsonBytes, err := json.Marshal(body)
