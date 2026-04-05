@@ -265,9 +265,8 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 
 		for _, user := range s.opts.Auth.InitialUsers {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
 			err := s.auth.CreateUser(ctx, user.Username, user.Password, user.Roles...)
+			cancel()
 			if err != nil {
 				return nil, fmt.Errorf("cannot create initial user with name=%s: %w", user.Username, err)
 			}
@@ -447,7 +446,7 @@ func (s *Server) StartHTTP(address string) error {
 	s.http = &http.Server{
 		Addr:              address,
 		Handler:           s.router,
-		ReadHeaderTimeout: lang.Check(s.opts.ReadHeaderTimeout, defaultReadTimeout),
+		ReadHeaderTimeout: lang.Check(s.opts.ReadHeaderTimeout, defaultReadHeaderTimeout),
 		ReadTimeout:       lang.Check(s.opts.ReadTimeout, defaultReadTimeout),
 		IdleTimeout:       lang.Check(s.opts.IdleTimeout, defaultIdleTimeout),
 		MaxHeaderBytes:    lang.Check(s.opts.MaxHeaderBytes, defaultMaxHeaderBytes),
@@ -505,7 +504,7 @@ func (s *Server) StartHTTPS(address string) error {
 	s.https = &http.Server{
 		Addr:              address,
 		Handler:           s.router,
-		ReadHeaderTimeout: lang.Check(s.opts.ReadHeaderTimeout, defaultReadTimeout),
+		ReadHeaderTimeout: lang.Check(s.opts.ReadHeaderTimeout, defaultReadHeaderTimeout),
 		ReadTimeout:       lang.Check(s.opts.ReadTimeout, defaultReadTimeout),
 		IdleTimeout:       lang.Check(s.opts.IdleTimeout, defaultIdleTimeout),
 		MaxHeaderBytes:    lang.Check(s.opts.MaxHeaderBytes, defaultMaxHeaderBytes),
@@ -774,10 +773,12 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	// Phase 2: Signal WebSocket connections and wait for them to drain
-	if s.wsHub != nil && s.opts.DrainTimeout > 0 {
+	// Phase 2: Signal WebSocket connections and wait for them to drain.
+	// Use WSHub() which goes through sync.Once to avoid a data race with lazy init.
+	hub := s.WSHub()
+	if hub.ConnCount() > 0 && s.opts.DrainTimeout > 0 {
 		s.opts.Logger.Info("shutdown: draining WebSocket connections", "timeout", s.opts.DrainTimeout)
-		s.wsHub.CloseAll(StatusGoingAway, "server shutting down")
+		hub.CloseAll(StatusGoingAway, "server shutting down")
 		drainCtx, drainCancel := context.WithTimeout(context.Background(), s.opts.DrainTimeout)
 		defer drainCancel()
 		s.waitForWSConnsDrained(drainCtx)

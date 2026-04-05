@@ -11,6 +11,7 @@ import (
 	"io"
 	"log/slog"
 	"math/rand"
+	"regexp"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -113,6 +114,7 @@ type ProxyRule struct {
 	counter      atomic.Uint64 // for round robin
 	backends     []*Backend
 	healthyCount atomic.Int32
+	pathRegex    *regexp.Regexp
 }
 
 // ProxyConfiguration represents the complete proxy configuration
@@ -377,6 +379,9 @@ func RegisterProxyMiddleware(router MiddlewareRouter, config ProxyConfiguration,
 // shutdown cancels the shutdown context to stop health check goroutines.
 func (pm *proxyManager) shutdown() {
 	pm.shutdownCancel()
+	if pm.dumpWriter != nil {
+		pm.dumpWriter.Close()
+	}
 }
 
 // newProxyManager creates a new proxy manager
@@ -503,6 +508,13 @@ func (pm *proxyManager) initializeRule(rule *ProxyRule) error {
 	}
 	if rule.Timeout == 0 {
 		rule.Timeout = pm.config.GlobalTimeout
+	}
+	if rule.PathRegex != "" {
+		var err error
+		rule.pathRegex, err = regexp.Compile(rule.PathRegex)
+		if err != nil {
+			return fmt.Errorf("compile path regex %s: %w", rule.PathRegex, err)
+		}
 	}
 
 	// Initialize backends
@@ -635,6 +647,11 @@ func (pm *proxyManager) findMatchingRule(r *http.Request) *ProxyRule {
 func (pm *proxyManager) ruleMatches(rule *ProxyRule, r *http.Request) bool {
 	// Check path prefix
 	if rule.PathPrefix != "" && !strings.HasPrefix(r.URL.Path, rule.PathPrefix) {
+		return false
+	}
+
+	// Check path regex
+	if rule.pathRegex != nil && !rule.pathRegex.MatchString(r.URL.Path) {
 		return false
 	}
 
