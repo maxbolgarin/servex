@@ -305,12 +305,7 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 	// Register static file middleware - should be registered after all other middleware
 	RegisterStaticFileMiddleware(s.router, opts.StaticFiles)
 
-	// Register WebSocket hub cleanup (hub is lazily initialized, so use nil guard)
-	s.cleanups = append(s.cleanups, func() {
-		if s.wsHub != nil {
-			s.wsHub.CloseAll(StatusGoingAway, "server shutting down")
-		}
-	})
+	// WebSocket hub cleanup is handled in Shutdown() Phase 2 — no need to duplicate here
 
 	return s, nil
 }
@@ -784,17 +779,27 @@ func (s *Server) Shutdown(ctx context.Context) error {
 		s.waitForWSConnsDrained(drainCtx)
 	}
 
-	// Phase 3: Stop accepting new HTTP connections and drain in-flight requests
-	if s.http != nil {
-		if err := s.http.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("shutdown HTTP: %w", err))
+	// Phase 3: Stop accepting new HTTP connections and drain in-flight requests.
+	// Run HTTP and HTTPS shutdown concurrently so one doesn't starve the other's timeout.
+	var shutdownWg sync.WaitGroup
+	var shutdownMu sync.Mutex
+	shutdownServer := func(srv *http.Server, name string) {
+		defer shutdownWg.Done()
+		if err := srv.Shutdown(ctx); err != nil {
+			shutdownMu.Lock()
+			errs = append(errs, fmt.Errorf("shutdown %s: %w", name, err))
+			shutdownMu.Unlock()
 		}
+	}
+	if s.http != nil {
+		shutdownWg.Add(1)
+		go shutdownServer(s.http, "HTTP")
 	}
 	if s.https != nil {
-		if err := s.https.Shutdown(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("shutdown HTTPS: %w", err))
-		}
+		shutdownWg.Add(1)
+		go shutdownServer(s.https, "HTTPS")
 	}
+	shutdownWg.Wait()
 
 	// Phase 4: Run all cleanup functions
 	for _, cleanup := range s.cleanups {
