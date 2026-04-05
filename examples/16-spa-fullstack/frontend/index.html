@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Servex Notes</title>
+    <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Login Form -->
+        <div id="login-view">
+            <h1>Servex Notes</h1>
+            <form id="login-form">
+                <input type="text" id="username" placeholder="Username" value="demo" required>
+                <input type="password" id="password" placeholder="Password" value="demo1234" required>
+                <button type="submit">Login</button>
+                <p id="login-error" class="error"></p>
+            </form>
+        </div>
+
+        <!-- Notes View -->
+        <div id="notes-view" style="display:none">
+            <header>
+                <h1>My Notes</h1>
+                <div>
+                    <span id="ws-status" class="status disconnected">Disconnected</span>
+                    <button id="logout-btn">Logout</button>
+                </div>
+            </header>
+
+            <form id="note-form">
+                <input type="text" id="note-title" placeholder="Note title" required>
+                <textarea id="note-content" placeholder="Content (optional)" rows="2"></textarea>
+                <button type="submit">Add Note</button>
+            </form>
+
+            <div id="notifications"></div>
+            <div id="notes-list"></div>
+        </div>
+    </div>
+    <script src="/app.js"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-go 1.24
+go 1.24.1
 
 use (
 	.
@@ -15,4 +15,9 @@ use (
 	./examples/10-advanced-proxy
 	./examples/11-location-filtering
 	./examples/12-dynamic-filtering
+	./examples/13-websocket-chat
+	./examples/14-rest-api
+	./examples/15-bff-proxy
+	./examples/16-spa-fullstack
+	./examples/17-microservice
 )
