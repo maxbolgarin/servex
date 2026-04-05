@@ -137,6 +137,11 @@ type ProxyConfiguration struct {
 	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker" json:"circuit_breaker"`
 	// InsecureSkipVerify skips certificate verification
 	InsecureSkipVerify bool `yaml:"insecure_skip_verify" json:"insecure_skip_verify"`
+	// TrustedProxies is a list of trusted proxy IP addresses or CIDR ranges.
+	// When set, proxy headers (X-Forwarded-For, X-Real-IP) are only trusted
+	// if the request comes from one of these addresses. When empty, only
+	// r.RemoteAddr is used for client IP detection.
+	TrustedProxies []string `yaml:"trusted_proxies" json:"trusted_proxies"`
 }
 
 // TrafficDumpConfig configures traffic dumping
@@ -319,18 +324,20 @@ func (t *backendFailureTracker) reset() {
 
 // proxyManager manages the reverse proxy functionality
 type proxyManager struct {
-	config       ProxyConfiguration
-	rules        []*ProxyRule
-	client       *http.Client
-	healthClient *http.Client
-	dumpWriter   *trafficDumpWriter
-	logger       Logger
-	mu           sync.RWMutex
+	config           ProxyConfiguration
+	rules            []*ProxyRule
+	client           *http.Client
+	healthClient     *http.Client
+	dumpWriter       *trafficDumpWriter
+	logger           Logger
+	mu               sync.RWMutex
+	trustedProxyNets []*net.IPNet
 
 	// Lifecycle management
 	shutdownCtx    context.Context
 	shutdownCancel context.CancelFunc
-	resolvers []*upstreamResolver
+	recoveryWg     sync.WaitGroup
+	resolvers      []*upstreamResolver
 }
 
 // trafficDumpWriter handles writing traffic dumps to files
@@ -378,6 +385,7 @@ func RegisterProxyMiddleware(router MiddlewareRouter, config ProxyConfiguration,
 // shutdown cancels the shutdown context to stop health check goroutines.
 func (pm *proxyManager) shutdown() {
 	pm.shutdownCancel()
+	pm.recoveryWg.Wait()
 	if pm.dumpWriter != nil {
 		pm.dumpWriter.Close()
 	}
@@ -456,19 +464,37 @@ func newProxyManager(config ProxyConfiguration, logger Logger) (*proxyManager, e
 	healthClient := &http.Client{
 		Timeout: config.HealthCheck.Timeout,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: config.InsecureSkipVerify},
 			MaxIdleConns:    10,
 			IdleConnTimeout: 30 * time.Second,
 		},
 	}
 
+	// Parse trusted proxy networks once
+	var trustedProxyNets []*net.IPNet
+	for _, proxy := range config.TrustedProxies {
+		if !strings.Contains(proxy, "/") {
+			if ip := net.ParseIP(proxy); ip != nil {
+				if ip.To4() != nil {
+					proxy += "/32"
+				} else {
+					proxy += "/128"
+				}
+			}
+		}
+		if _, network, err := net.ParseCIDR(proxy); err == nil {
+			trustedProxyNets = append(trustedProxyNets, network)
+		}
+	}
+
 	pm := &proxyManager{
-		config:         config,
-		client:         client,
-		healthClient:   healthClient,
-		logger:         logger,
-		shutdownCtx:    shutdownCtx,
-		shutdownCancel: shutdownCancel,
+		config:           config,
+		client:           client,
+		healthClient:     healthClient,
+		logger:           logger,
+		shutdownCtx:      shutdownCtx,
+		shutdownCancel:   shutdownCancel,
+		trustedProxyNets: trustedProxyNets,
 	}
 
 	// Initialize traffic dump writer if enabled
@@ -774,6 +800,7 @@ func (pm *proxyManager) handleProxyRequestEnhanced(w http.ResponseWriter, r *htt
 					"rule", rule.Name, "backend", backend.URL,
 					"status", recorder.statusCode)
 				// Start recovery goroutine
+				pm.recoveryWg.Add(1)
 				go pm.recoverBackend(backend, rule.PassiveHealth.RecoveryInterval)
 			}
 		}
@@ -851,6 +878,7 @@ func isUnhealthyStatus(code int, unhealthyCodes []int) bool {
 
 // recoverBackend waits for the recovery interval, then re-enables the backend and resets its failure tracker.
 func (pm *proxyManager) recoverBackend(backend *Backend, interval time.Duration) {
+	defer pm.recoveryWg.Done()
 	select {
 	case <-time.After(interval):
 		backend.healthy.Store(true)
@@ -1019,27 +1047,21 @@ func (pm *proxyManager) selectIPHash(r *http.Request, backends []*Backend) *Back
 	return backends[hash%uint32(len(backends))]
 }
 
-// getClientIP extracts the real client IP from the request
+// getClientIP extracts the real client IP from the request.
+// Proxy headers (X-Real-IP, X-Forwarded-For) are only trusted when the
+// request originates from a configured trusted proxy. Otherwise, only
+// r.RemoteAddr is used.
 func (pm *proxyManager) getClientIP(r *http.Request) string {
-	// Check X-Real-IP header
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		return ip
-	}
+	remoteAddr := getRemoteAddr(r)
 
-	// Check X-Forwarded-For header
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		// Take the first IP in the chain
-		if ips := strings.Split(xff, ","); len(ips) > 0 {
-			return strings.TrimSpace(ips[0])
+	// Only trust proxy headers if the request is from a trusted proxy
+	if len(pm.trustedProxyNets) > 0 && isFromTrustedProxy(remoteAddr, pm.trustedProxyNets) {
+		if ip := extractIPFromHeaders(r); ip != "" && isValidIP(ip) {
+			return ip
 		}
 	}
 
-	// Fall back to RemoteAddr
-	if ip, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
-		return ip
-	}
-
-	return r.RemoteAddr
+	return remoteAddr
 }
 
 // shouldSampleRequest determines if this request should be sampled for traffic dumping

@@ -177,10 +177,22 @@ func (r *upstreamResolver) updateBackends(resolved []resolvedBackend) {
 	r.pm.mu.Lock()
 	defer r.pm.mu.Unlock()
 
+	// Validate scheme — only allow http and https to prevent SSRF via exotic schemes.
+	scheme := r.config.Scheme
+	if scheme != "http" && scheme != "https" {
+		r.logger.Error("dynamic upstream: rejecting invalid scheme", "scheme", scheme, "rule", r.rule.Name)
+		return
+	}
+
 	// Build set of desired backend URLs.
 	desired := make(map[string]resolvedBackend, len(resolved))
 	for _, rb := range resolved {
-		backendURL := fmt.Sprintf("%s://%s:%d", r.config.Scheme, rb.host, rb.port)
+		// Warn about loopback addresses which may indicate misconfiguration.
+		if ip := net.ParseIP(rb.host); ip != nil && ip.IsLoopback() {
+			r.logger.Info("dynamic upstream: resolved loopback address, may indicate misconfiguration",
+				"rule", r.rule.Name, "host", rb.host)
+		}
+		backendURL := fmt.Sprintf("%s://%s:%d", scheme, rb.host, rb.port)
 		desired[backendURL] = rb
 	}
 
