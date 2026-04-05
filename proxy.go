@@ -92,8 +92,6 @@ type ProxyRule struct {
 	Timeout time.Duration `yaml:"timeout" json:"timeout"`
 	// EnableTrafficDump enables traffic dumping for this rule
 	EnableTrafficDump bool `yaml:"enable_traffic_dump" json:"enable_traffic_dump"`
-	// DumpDirectory specifies where to dump traffic (uses global if empty)
-	DumpDirectory string `yaml:"dump_directory" json:"dump_directory"`
 
 	// PassiveHealth configures passive health checking based on live traffic responses.
 	// When enabled, backends are marked unhealthy immediately when failure threshold is exceeded.
@@ -321,12 +319,13 @@ func (t *backendFailureTracker) reset() {
 
 // proxyManager manages the reverse proxy functionality
 type proxyManager struct {
-	config     ProxyConfiguration
-	rules      []*ProxyRule
-	client     *http.Client
-	dumpWriter *trafficDumpWriter
-	logger     Logger
-	mu         sync.RWMutex
+	config       ProxyConfiguration
+	rules        []*ProxyRule
+	client       *http.Client
+	healthClient *http.Client
+	dumpWriter   *trafficDumpWriter
+	logger       Logger
+	mu           sync.RWMutex
 
 	// Lifecycle management
 	shutdownCtx    context.Context
@@ -453,9 +452,20 @@ func newProxyManager(config ProxyConfiguration, logger Logger) (*proxyManager, e
 	// Create shutdown context for lifecycle management
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 
+	// Create a shared HTTP client for health checks (avoids creating new transports per check)
+	healthClient := &http.Client{
+		Timeout: config.HealthCheck.Timeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			MaxIdleConns:    10,
+			IdleConnTimeout: 30 * time.Second,
+		},
+	}
+
 	pm := &proxyManager{
 		config:         config,
 		client:         client,
+		healthClient:   healthClient,
 		logger:         logger,
 		shutdownCtx:    shutdownCtx,
 		shutdownCancel: shutdownCancel,
@@ -715,19 +725,20 @@ func (pm *proxyManager) handleProxyRequestEnhanced(w http.ResponseWriter, r *htt
 		pm.dumpTrafficEnhanced(r, rule, backend)
 	}
 
-	// Modify request path if needed
-	originalPath := r.URL.Path
+	// Clone the URL to avoid mutating the shared request object
+	clonedURL := *r.URL
 	if rule.StripPrefix != "" {
-		r.URL.Path = strings.TrimPrefix(r.URL.Path, rule.StripPrefix)
+		clonedURL.Path = strings.TrimPrefix(clonedURL.Path, rule.StripPrefix)
 	}
 	if rule.AddPrefix != "" {
-		r.URL.Path = rule.AddPrefix + r.URL.Path
+		clonedURL.Path = rule.AddPrefix + clonedURL.Path
 	}
 
 	// Set timeout for this request
 	ctx, cancel := context.WithTimeout(r.Context(), rule.Timeout)
 	defer cancel()
-	r = r.WithContext(ctx)
+	r = r.Clone(ctx)
+	r.URL = &clonedURL
 
 	// Create response recorder to capture status code
 	recorder := &responseRecorder{
@@ -771,9 +782,6 @@ func (pm *proxyManager) handleProxyRequestEnhanced(w http.ResponseWriter, r *htt
 	// Calculate duration and log request
 	duration := time.Since(startTime)
 	proxyLogger.logRequest(rule, backend, r, duration, recorder.statusCode, nil)
-
-	// Restore original path
-	r.URL.Path = originalPath
 }
 
 // responseRecorder captures the response status code and optionally buffers the body.
@@ -1374,22 +1382,12 @@ func (pm *proxyManager) healthCheckLoopEnhanced(backend *Backend) {
 func (pm *proxyManager) performHealthCheckEnhanced(backend *Backend, proxyLogger *proxyLogger) {
 	healthURL := backend.url.ResolveReference(&url.URL{Path: backend.HealthCheckPath})
 
-	// Create health check client with timeout
-	client := &http.Client{
-		Timeout: pm.config.HealthCheck.Timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // For health checks only
-			MaxIdleConns:    10,
-			IdleConnTimeout: 30 * time.Second,
-		},
-	}
-
 	retryCount := pm.config.HealthCheck.RetryCount
 	healthy := false
 	var lastErr error
 
 	for i := 0; i < retryCount; i++ {
-		resp, err := client.Get(healthURL.String())
+		resp, err := pm.healthClient.Get(healthURL.String())
 		if err == nil && resp.StatusCode >= 200 && resp.StatusCode < 300 {
 			healthy = true
 			_ = resp.Body.Close()
@@ -1403,9 +1401,13 @@ func (pm *proxyManager) performHealthCheckEnhanced(backend *Backend, proxyLogger
 			_ = resp.Body.Close()
 		}
 
-		// Wait a bit before retry
+		// Wait before retry, but respect shutdown context
 		if i < retryCount-1 {
-			time.Sleep(time.Second)
+			select {
+			case <-time.After(time.Second):
+			case <-pm.shutdownCtx.Done():
+				return
+			}
 		}
 	}
 
