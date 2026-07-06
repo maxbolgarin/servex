@@ -263,7 +263,9 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 		}
 		s.auth = authManager
 
-		s.auth.RegisterRoutes(s.router)
+		if !s.opts.Auth.NotRegisterRoutes {
+			s.auth.RegisterRoutes(s.router)
+		}
 
 		for _, user := range s.opts.Auth.InitialUsers {
 			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -284,7 +286,9 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 		s.opts.APIKey.MaxPerUser = lang.Check(s.opts.APIKey.MaxPerUser, 10)
 		s.opts.APIKey.KeyLength = lang.Check(s.opts.APIKey.KeyLength, 16)
 		s.auth.service.cfg.APIKey = s.opts.APIKey
-		s.auth.registerAPIKeyRoutes(s.router)
+		if !s.opts.Auth.NotRegisterRoutes {
+			s.auth.registerAPIKeyRoutes(s.router)
+		}
 	}
 
 	// Load swagger spec from file if configured

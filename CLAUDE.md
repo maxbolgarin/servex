@@ -248,7 +248,7 @@ The handler serves:
 
 ### Auth Endpoints
 
-When `NotRegisterRoutes` is false (default), these routes are auto-registered under `AuthBasePath` (default `/api/v1/auth`):
+When `NotRegisterRoutes` is false (default), these routes are auto-registered under `AuthBasePath` (default `/api/v1/auth`). Setting it to true suppresses every auto-registered endpoint listed below (core, email, OAuth, 2FA) as well as the `/api-keys` management routes:
 
 **Core endpoints:**
 
@@ -453,7 +453,7 @@ type UserDiff struct {
 | `InitialUsers` | `[]InitialUser` | `nil` | Users auto-created on startup |
 | `MinPasswordLength` | `int` | `8` | Minimum password length (0 = no check) |
 | `ForceSecureCookies` | `bool` | `false` | Always set Secure flag on cookies |
-| `NotRegisterRoutes` | `bool` | `false` | Skip auto-registering auth routes |
+| `NotRegisterRoutes` | `bool` | `false` | Skip auto-registering auth routes (incl. email/OAuth/2FA/api-keys) |
 | `EmailVerification` | `EmailVerificationConfig` | — | Email verification settings (replaces old `Email`) |
 | `PasswordReset` | `PasswordResetConfig` | — | Password reset settings (replaces old `Email`) |
 

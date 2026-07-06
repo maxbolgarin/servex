@@ -1400,3 +1400,60 @@ func TestHasPermission(t *testing.T) {
 		})
 	}
 }
+
+func TestAuthNotRegisterRoutes_Integration(t *testing.T) {
+	newServer := func(t *testing.T, notRegister bool) (*servex.TestServer, *servex.MemoryAuthDatabase) {
+		t.Helper()
+		db := servex.NewMemoryAuthDatabase()
+		opts := []servex.Option{
+			servex.WithAuth(db),
+			servex.WithAuthKey(hex.EncodeToString(getRandomBytes(32)), hex.EncodeToString(getRandomBytes(32))),
+			servex.WithAuthTokensDuration(5*time.Minute, 10*time.Minute),
+			servex.WithAPIKeysMemoryDatabase(),
+			servex.WithAuthInitialUsers(servex.InitialUser{
+				Username: "admin",
+				Password: "secret-password",
+				Roles:    []servex.UserRole{"admin"},
+			}),
+		}
+		if notRegister {
+			opts = append(opts, servex.WithAuthNotRegisterRoutes(true))
+		}
+		return servex.NewTestServer(t, opts...), db
+	}
+
+	t.Run("routes suppressed", func(t *testing.T) {
+		ts, db := newServer(t, true)
+
+		if ts.Server.AuthManager() == nil {
+			t.Fatal("expected AuthManager to be initialized")
+		}
+		if _, exists, _ := db.FindByUsername(context.Background(), "admin"); !exists {
+			t.Error("expected initial user to be created even with NotRegisterRoutes")
+		}
+
+		for _, tc := range []struct{ method, path string }{
+			{"POST", "/api/v1/auth/register"},
+			{"POST", "/api/v1/auth/login"},
+			{"POST", "/api/v1/auth/api-keys"},
+			{"GET", "/api/v1/auth/api-keys"},
+		} {
+			resp := ts.Request(tc.method, tc.path).
+				WithJSON(map[string]string{"username": "john", "password": "securepass123"}).
+				Do()
+			if resp.Code != http.StatusNotFound {
+				t.Errorf("%s %s: got status %d, want 404", tc.method, tc.path, resp.Code)
+			}
+		}
+	})
+
+	t.Run("routes registered by default", func(t *testing.T) {
+		ts, _ := newServer(t, false)
+		resp := ts.Post("/api/v1/auth/register").
+			WithJSON(map[string]string{"username": "john", "password": "securepass123"}).
+			Do()
+		if resp.Code != http.StatusCreated {
+			t.Errorf("register: got status %d, want 201, body: %s", resp.Code, resp.BodyString())
+		}
+	})
+}

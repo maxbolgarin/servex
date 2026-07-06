@@ -312,6 +312,10 @@ func WithAuthTokensDuration(accessDuration, refreshDuration time.Duration) Optio
 // Use this when you want to implement custom authentication endpoints or integrate
 // with existing authentication systems.
 //
+// It suppresses ALL auto-registered endpoints under the auth base path: the core routes
+// (/register, /login, /refresh, /logout, /me), email verification and password reset routes,
+// OAuth routes, 2FA routes, and the API key management routes (/api-keys).
+//
 // Example:
 //
 //	// Disable default auth routes
@@ -331,8 +335,10 @@ func WithAuthTokensDuration(accessDuration, refreshDuration time.Duration) Optio
 //   - Logout endpoint
 //   - User profile endpoint
 //
-// You can still use the AuthManager methods for token generation and validation.
-// This gives you full control over request/response formats and business logic.
+// You can still use the AuthManager methods for token generation and validation,
+// and call AuthManager.RegisterRoutes on a router of your choice to mount the default
+// handlers manually. This gives you full control over request/response formats and
+// business logic.
 func WithAuthNotRegisterRoutes(notRegisterRoutes bool) Option {
 	return func(op *Options) {
 		op.Auth.NotRegisterRoutes = notRegisterRoutes

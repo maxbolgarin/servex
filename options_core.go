@@ -843,6 +843,8 @@ type AuthConfig struct {
 
 	// NotRegisterRoutes prevents automatic registration of default authentication routes.
 	// Set to true via WithAuthNotRegisterRoutes() when you want to implement custom auth endpoints.
+	// It suppresses all auto-registered endpoints under the auth base path, including email
+	// verification, password reset, OAuth, 2FA, and API key management (/api-keys) routes.
 	//
 	// When enabled, you must implement your own:
 	//   - User registration endpoint
