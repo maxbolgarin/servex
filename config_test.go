@@ -659,3 +659,77 @@ func TestEnvironmentVariableParsing(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadConfigFromEnvOAuthProviders(t *testing.T) {
+	t.Setenv("SERVEX_AUTH_OAUTH_GOOGLE_CLIENT_ID", "google-id")
+	t.Setenv("SERVEX_AUTH_OAUTH_GOOGLE_CLIENT_SECRET", "google-secret")
+	t.Setenv("SERVEX_AUTH_OAUTH_GOOGLE_REDIRECT_URL", "https://myapp.com/callback")
+
+	config, err := LoadConfigFromEnv()
+	if err != nil {
+		t.Fatalf("LoadConfigFromEnv: %v", err)
+	}
+
+	if config.Auth.OAuth.Google == nil {
+		t.Fatal("expected Google provider to be populated from env vars")
+	}
+	if config.Auth.OAuth.Google.ClientID != "google-id" {
+		t.Errorf("ClientID: got %q, want %q", config.Auth.OAuth.Google.ClientID, "google-id")
+	}
+	if config.Auth.OAuth.Google.ClientSecret != "google-secret" {
+		t.Errorf("ClientSecret: got %q, want %q", config.Auth.OAuth.Google.ClientSecret, "google-secret")
+	}
+	if config.Auth.OAuth.Google.RedirectURL != "https://myapp.com/callback" {
+		t.Errorf("RedirectURL: got %q, want %q", config.Auth.OAuth.Google.RedirectURL, "https://myapp.com/callback")
+	}
+
+	// Providers with no env vars set must stay nil (no spurious enabling).
+	if config.Auth.OAuth.GitHub != nil {
+		t.Error("expected GitHub provider to stay nil")
+	}
+	if config.Auth.OAuth.Apple != nil {
+		t.Error("expected Apple provider to stay nil")
+	}
+	if config.Auth.OAuth.Telegram != nil {
+		t.Error("expected Telegram provider to stay nil")
+	}
+	if config.Auth.OAuth.Yandex != nil {
+		t.Error("expected Yandex provider to stay nil")
+	}
+	if config.Auth.OAuth.VKID != nil {
+		t.Error("expected VKID provider to stay nil")
+	}
+}
+
+func TestLoadConfigYAMLEnvOverrideOAuth(t *testing.T) {
+	yamlContent := `
+auth:
+  enabled: true
+  oauth:
+    enabled: true
+    github:
+      client_id: "yaml-id"
+`
+	tmpFile := "test_oauth_override_config.yaml"
+	if err := os.WriteFile(tmpFile, []byte(yamlContent), 0644); err != nil {
+		t.Fatalf("write test config: %v", err)
+	}
+	defer os.Remove(tmpFile)
+
+	t.Setenv("SERVEX_AUTH_OAUTH_GITHUB_CLIENT_SECRET", "env-secret")
+
+	config, err := LoadConfig(tmpFile)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+
+	if config.Auth.OAuth.GitHub == nil {
+		t.Fatal("expected GitHub provider from YAML")
+	}
+	if config.Auth.OAuth.GitHub.ClientID != "yaml-id" {
+		t.Errorf("ClientID: got %q, want yaml value %q", config.Auth.OAuth.GitHub.ClientID, "yaml-id")
+	}
+	if config.Auth.OAuth.GitHub.ClientSecret != "env-secret" {
+		t.Errorf("ClientSecret: got %q, want env override %q", config.Auth.OAuth.GitHub.ClientSecret, "env-secret")
+	}
+}

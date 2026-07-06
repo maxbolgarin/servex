@@ -1045,11 +1045,13 @@ func loadEnvToStruct(v any) error {
 		return errors.New("v must be a pointer to a struct")
 	}
 
-	return loadEnvToValue(rv, reflect.TypeOf(v).Elem())
+	_, err := loadEnvToValue(rv, reflect.TypeOf(v).Elem())
+	return err
 }
 
-// loadEnvToValue recursively loads environment variables into struct fields
-func loadEnvToValue(rv reflect.Value, rt reflect.Type) error {
+// loadEnvToValue recursively loads environment variables into struct fields.
+// It reports whether at least one field was set from the environment.
+func loadEnvToValue(rv reflect.Value, rt reflect.Type) (set bool, err error) {
 	for i := 0; i < rv.NumField(); i++ {
 		field := rv.Field(i)
 		fieldType := rt.Field(i)
@@ -1060,8 +1062,34 @@ func loadEnvToValue(rv reflect.Value, rt reflect.Type) error {
 
 		// Handle nested structs
 		if field.Kind() == reflect.Struct {
-			if err := loadEnvToValue(field, fieldType.Type); err != nil {
-				return err
+			nestedSet, err := loadEnvToValue(field, fieldType.Type)
+			if err != nil {
+				return set, err
+			}
+			set = set || nestedSet
+			continue
+		}
+
+		// Handle pointers to nested structs (e.g. OAuth provider configs):
+		// descend into a non-nil pointer, or allocate one and keep it only
+		// if any of its fields were actually set from the environment.
+		if field.Kind() == reflect.Ptr && field.Type().Elem().Kind() == reflect.Struct {
+			if field.IsNil() {
+				elem := reflect.New(field.Type().Elem())
+				nestedSet, err := loadEnvToValue(elem.Elem(), field.Type().Elem())
+				if err != nil {
+					return set, err
+				}
+				if nestedSet {
+					field.Set(elem)
+					set = true
+				}
+			} else {
+				nestedSet, err := loadEnvToValue(field.Elem(), field.Type().Elem())
+				if err != nil {
+					return set, err
+				}
+				set = set || nestedSet
 			}
 			continue
 		}
@@ -1079,11 +1107,12 @@ func loadEnvToValue(rv reflect.Value, rt reflect.Type) error {
 
 		// Set the field value based on its type
 		if err := setFieldValue(field, envValue); err != nil {
-			return fmt.Errorf("set field %s from env %s: %w", fieldType.Name, envTag, err)
+			return set, fmt.Errorf("set field %s from env %s: %w", fieldType.Name, envTag, err)
 		}
+		set = true
 	}
 
-	return nil
+	return set, nil
 }
 
 // setFieldValue sets a reflect.Value based on the environment variable string value
