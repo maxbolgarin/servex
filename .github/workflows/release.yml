@@ -27,11 +27,14 @@ jobs:
 
       - name: Install semantic-release
         run: |
-          npm install -g semantic-release
-          npm install -g @semantic-release/github
-          npm install -g @semantic-release/npm
-          npm install -g conventional-changelog-conventionalcommits
-          npm install -g @semantic-release/exec
+          # Pin majors: conventional-changelog-conventionalcommits v10 rewrote its
+          # template engine (@conventional-changelog/template) and is incompatible
+          # with the conventional-changelog-writer@8 that release-notes-generator@14
+          # bundles — that mismatch silently produces an EMPTY changelog while the
+          # version bump still succeeds. Keep the preset on v9 (classic writer).
+          # semantic-release@25 already bundles @semantic-release/github and
+          # @semantic-release/npm, so no separate installs are needed.
+          npm install -g semantic-release@25 conventional-changelog-conventionalcommits@9
 
       - name: Release
         id: semantic
