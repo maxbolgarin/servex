@@ -873,7 +873,9 @@ type AuthConfig struct {
 	// TwoFactor configures TOTP and email code 2FA.
 	TwoFactor TwoFactorConfig
 
-	// APIKey holds API key auth configuration copied from Options during server init.
+	// APIKey holds API key auth configuration.
+	// During server init it is merged field-by-field into Options.APIKey;
+	// explicit top-level WithAPIKey* options take precedence per field.
 	APIKey APIKeyConfig
 
 	// accessSecret is the decoded access secret key (internal use).

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -510,4 +511,76 @@ func TestAPIKeyContextHelper(t *testing.T) {
 	if len(gotScopes) != 2 || gotScopes[0] != "read" || gotScopes[1] != "write" {
 		t.Errorf("unexpected scopes: %v", gotScopes)
 	}
+}
+
+// ---- TestWithAuthConfigAPIKeyPreserved ----------------------------------------
+
+func TestWithAuthConfigAPIKeyPreserved(t *testing.T) {
+	newAuthConfig := func(apiKeyCfg servex.APIKeyConfig) servex.AuthConfig {
+		return servex.AuthConfig{
+			Enabled:          true,
+			Database:         servex.NewMemoryAuthDatabase(),
+			JWTAccessSecret:  hex.EncodeToString(getRandomBytes(32)),
+			JWTRefreshSecret: hex.EncodeToString(getRandomBytes(32)),
+			APIKey:           apiKeyCfg,
+		}
+	}
+
+	createKey := func(t *testing.T, ts *servex.TestServer) string {
+		t.Helper()
+
+		resp := ts.Post("/api/v1/auth/register").
+			WithJSON(map[string]string{"username": "john", "password": "securepass123"}).
+			Do()
+		if resp.Code != http.StatusCreated {
+			t.Fatalf("register: got status %d, body: %s", resp.Code, resp.BodyString())
+		}
+		var reg struct {
+			AccessToken string `json:"accessToken"`
+		}
+		if err := resp.JSON(&reg); err != nil {
+			t.Fatalf("decode register response: %v", err)
+		}
+
+		resp = ts.Post("/api/v1/auth/api-keys").
+			WithJSON(map[string]any{"name": "test key"}).
+			WithAuth(reg.AccessToken).
+			Do()
+		if resp.Code != http.StatusCreated {
+			t.Fatalf("create api key: got status %d, body: %s", resp.Code, resp.BodyString())
+		}
+		var created struct {
+			Key string `json:"key"`
+		}
+		if err := resp.JSON(&created); err != nil {
+			t.Fatalf("decode create response: %v", err)
+		}
+		return created.Key
+	}
+
+	t.Run("APIKey database via WithAuthConfig registers routes", func(t *testing.T) {
+		ts := servex.NewTestServer(t, servex.WithAuthConfig(newAuthConfig(servex.APIKeyConfig{
+			Database: servex.NewMemoryAPIKeyDatabase(),
+			Prefix:   "custom_",
+		})))
+
+		key := createKey(t, ts)
+		if !strings.HasPrefix(key, "custom_") {
+			t.Errorf("expected key with prefix custom_, got %q", key)
+		}
+	})
+
+	t.Run("APIKey settings via WithAuthConfig survive WithAPIKeysMemoryDatabase", func(t *testing.T) {
+		ts := servex.NewTestServer(t,
+			servex.WithAuthConfig(newAuthConfig(servex.APIKeyConfig{
+				Prefix: "custom_",
+			})),
+			servex.WithAPIKeysMemoryDatabase(),
+		)
+
+		key := createKey(t, ts)
+		if !strings.HasPrefix(key, "custom_") {
+			t.Errorf("expected key with prefix custom_, got %q", key)
+		}
+	})
 }

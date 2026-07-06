@@ -277,6 +277,24 @@ func NewServerWithOptions(opts Options) (*Server, error) {
 		}
 	}
 
+	// WithAuthConfig may carry APIKey settings; merge them into opts.APIKey.
+	// Explicit top-level WithAPIKey* options take precedence per field.
+	if s.opts.APIKey.Database == nil {
+		s.opts.APIKey.Database = s.opts.Auth.APIKey.Database
+	}
+	if s.opts.APIKey.Prefix == "" {
+		s.opts.APIKey.Prefix = s.opts.Auth.APIKey.Prefix
+	}
+	if len(s.opts.APIKey.ValidScopes) == 0 {
+		s.opts.APIKey.ValidScopes = s.opts.Auth.APIKey.ValidScopes
+	}
+	if s.opts.APIKey.MaxPerUser == 0 {
+		s.opts.APIKey.MaxPerUser = s.opts.Auth.APIKey.MaxPerUser
+	}
+	if s.opts.APIKey.KeyLength == 0 {
+		s.opts.APIKey.KeyLength = s.opts.Auth.APIKey.KeyLength
+	}
+
 	// Register API key routes if database is configured
 	if s.opts.APIKey.Database != nil {
 		if s.auth == nil {
