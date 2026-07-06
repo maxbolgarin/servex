@@ -817,3 +817,39 @@ func TestConfigToOptionsPasswordResetRequiresSMTP(t *testing.T) {
 		t.Errorf("expected no error with smtp.host set, got: %v", err)
 	}
 }
+
+func TestConfigToOptions2FAEmailFallback(t *testing.T) {
+	baseConfig := func() *Config {
+		c := &Config{}
+		c.Auth.Enabled = true
+		c.Auth.UseMemoryDatabase = true
+		c.Auth.TwoFactor.Enabled = true
+		c.Auth.TwoFactor.EncryptionKey = "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20"
+		return c
+	}
+
+	t.Run("absent email_fallback defaults to true", func(t *testing.T) {
+		opts, err := baseConfig().ToOptions()
+		if err != nil {
+			t.Fatalf("ToOptions: %v", err)
+		}
+		parsed := parseOptions(opts)
+		if !parsed.Auth.TwoFactor.EmailFallback {
+			t.Error("expected EmailFallback to default to true when 2FA is enabled via YAML")
+		}
+	})
+
+	t.Run("explicit false is honored", func(t *testing.T) {
+		c := baseConfig()
+		f := false
+		c.Auth.TwoFactor.EmailFallback = &f
+		opts, err := c.ToOptions()
+		if err != nil {
+			t.Fatalf("ToOptions: %v", err)
+		}
+		parsed := parseOptions(opts)
+		if parsed.Auth.TwoFactor.EmailFallback {
+			t.Error("expected explicit email_fallback: false to be honored")
+		}
+	})
+}

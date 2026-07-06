@@ -44,8 +44,15 @@ type TwoFactorConfig struct {
 
 	// EmailFallback enables email-based 2FA codes as an alternative to TOTP.
 	// When true, users can receive a verification code via email instead of using their
-	// authenticator app. Requires EmailSender to be configured. Default: true.
+	// authenticator app. Requires EmailSender to be configured.
+	// Default: true when 2FA is enabled via WithTwoFactor() or YAML configuration.
+	// WithTwoFactorConfig() uses the struct value as-is.
 	EmailFallback bool
+
+	// emailFallbackSet records that EmailFallback was set explicitly via
+	// WithTwoFactorEmailFallback, so WithTwoFactor does not override it
+	// with the default regardless of option order.
+	emailFallbackSet bool
 
 	// EmailSender delivers 2FA verification codes via email.
 	// This is independent of the email verification and password reset senders,
@@ -97,6 +104,9 @@ func WithTwoFactor(encryptionKey string) Option {
 	return func(op *Options) {
 		op.Auth.TwoFactor.Enabled = true
 		op.Auth.TwoFactor.EncryptionKey = encryptionKey
+		if !op.Auth.TwoFactor.emailFallbackSet {
+			op.Auth.TwoFactor.EmailFallback = true
+		}
 	}
 }
 
@@ -126,6 +136,7 @@ func WithTwoFactorIssuer(name string) Option {
 func WithTwoFactorEmailFallback(enabled bool) Option {
 	return func(op *Options) {
 		op.Auth.TwoFactor.EmailFallback = enabled
+		op.Auth.TwoFactor.emailFallbackSet = true
 	}
 }
 
@@ -225,6 +236,9 @@ func WithTwoFactorMaxAttempts(n int) Option {
 // WithTwoFactorConfig sets the complete two-factor authentication configuration.
 // Use this when you need to configure multiple 2FA settings at once
 // or when loading configuration from files or environment variables.
+//
+// The struct is used as-is: unlike WithTwoFactor(), no EmailFallback default
+// is applied, so set EmailFallback explicitly when email codes are wanted.
 //
 // Example:
 //

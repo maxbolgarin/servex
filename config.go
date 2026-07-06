@@ -278,7 +278,7 @@ type VKIDOAuthConfiguration struct {
 type TwoFactorConfiguration struct {
 	Enabled           bool              `yaml:"enabled" json:"enabled" env:"SERVEX_AUTH_2FA_ENABLED"`
 	Issuer            string            `yaml:"issuer" json:"issuer" env:"SERVEX_AUTH_2FA_ISSUER"`
-	EmailFallback     bool              `yaml:"email_fallback" json:"email_fallback" env:"SERVEX_AUTH_2FA_EMAIL_FALLBACK"`
+	EmailFallback     *bool             `yaml:"email_fallback" json:"email_fallback" env:"SERVEX_AUTH_2FA_EMAIL_FALLBACK"`
 	EmailSMTP         SMTPConfiguration `yaml:"email_smtp" json:"email_smtp"`
 	CodeDuration      time.Duration     `yaml:"code_duration" json:"code_duration" env:"SERVEX_AUTH_2FA_CODE_DURATION"`
 	EmailCodeDigits   int               `yaml:"email_code_digits" json:"email_code_digits" env:"SERVEX_AUTH_2FA_EMAIL_CODE_DIGITS"`
@@ -763,8 +763,8 @@ func (c *Config) ToOptions() ([]Option, error) {
 		if c.Auth.TwoFactor.Issuer != "" {
 			opts = append(opts, WithTwoFactorIssuer(c.Auth.TwoFactor.Issuer))
 		}
-		if c.Auth.TwoFactor.EmailFallback {
-			opts = append(opts, WithTwoFactorEmailFallback(true))
+		if c.Auth.TwoFactor.EmailFallback != nil {
+			opts = append(opts, WithTwoFactorEmailFallback(*c.Auth.TwoFactor.EmailFallback))
 		}
 		if c.Auth.TwoFactor.CodeDuration > 0 {
 			opts = append(opts, WithTwoFactorCodeDuration(c.Auth.TwoFactor.CodeDuration))

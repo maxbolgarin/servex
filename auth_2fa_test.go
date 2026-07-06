@@ -1055,3 +1055,50 @@ func TestOAuthLoginWith2FA(t *testing.T) {
 		t.Error("2FA verify after OAuth: expected refresh token cookie")
 	}
 }
+
+func TestWithTwoFactorEmailFallbackDefault(t *testing.T) {
+	encKey := hex.EncodeToString(getRandomBytes(32))
+
+	t.Run("WithTwoFactor defaults EmailFallback to true", func(t *testing.T) {
+		opts := servex.Options{}
+		servex.WithTwoFactor(encKey)(&opts)
+		if !opts.Auth.TwoFactor.EmailFallback {
+			t.Error("expected EmailFallback to default to true when 2FA is enabled via WithTwoFactor")
+		}
+	})
+
+	t.Run("explicit false before WithTwoFactor is preserved", func(t *testing.T) {
+		opts := servex.Options{}
+		servex.WithTwoFactorEmailFallback(false)(&opts)
+		servex.WithTwoFactor(encKey)(&opts)
+		if opts.Auth.TwoFactor.EmailFallback {
+			t.Error("expected explicit WithTwoFactorEmailFallback(false) to survive a later WithTwoFactor")
+		}
+	})
+
+	t.Run("explicit false after WithTwoFactor is preserved", func(t *testing.T) {
+		opts := servex.Options{}
+		servex.WithTwoFactor(encKey)(&opts)
+		servex.WithTwoFactorEmailFallback(false)(&opts)
+		if opts.Auth.TwoFactor.EmailFallback {
+			t.Error("expected explicit WithTwoFactorEmailFallback(false) to override the default")
+		}
+	})
+}
+
+func TestTwoFactorSendEmailCodeRouteRegisteredByDefault(t *testing.T) {
+	// With 2FA enabled and an email sender configured but no explicit
+	// WithTwoFactorEmailFallback call, the documented default (true) must
+	// register the /2fa/send-email-code route.
+	ts := servex.NewTestServer(t,
+		servex.WithAuthMemoryDatabase(),
+		servex.WithAuthKey(hex.EncodeToString(getRandomBytes(32)), hex.EncodeToString(getRandomBytes(32))),
+		servex.WithTwoFactor(hex.EncodeToString(getRandomBytes(32))),
+		servex.WithTwoFactorEmailSender(&MockEmailSender{}),
+	)
+
+	resp := ts.Post("/api/v1/auth/2fa/send-email-code").Do()
+	if resp.Code == http.StatusNotFound {
+		t.Fatal("expected /2fa/send-email-code to be registered by default (EmailFallback documented default is true)")
+	}
+}
