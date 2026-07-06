@@ -333,7 +333,7 @@ type SecurityConfiguration struct {
 	CSRFEnabled        bool     `yaml:"csrf_enabled" json:"csrf_enabled" env:"SERVEX_SECURITY_CSRF_ENABLED"`
 	CSRFTokenName      string   `yaml:"csrf_token_name" json:"csrf_token_name" env:"SERVEX_SECURITY_CSRF_TOKEN_NAME"`
 	CSRFCookieName     string   `yaml:"csrf_cookie_name" json:"csrf_cookie_name" env:"SERVEX_SECURITY_CSRF_COOKIE_NAME"`
-	CSRFCookieHttpOnly bool     `yaml:"csrf_cookie_http_only" json:"csrf_cookie_http_only" env:"SERVEX_SECURITY_CSRF_COOKIE_HTTP_ONLY"`
+	CSRFCookieHttpOnly *bool    `yaml:"csrf_cookie_http_only" json:"csrf_cookie_http_only" env:"SERVEX_SECURITY_CSRF_COOKIE_HTTP_ONLY"`
 	CSRFCookieSameSite string   `yaml:"csrf_cookie_same_site" json:"csrf_cookie_same_site" env:"SERVEX_SECURITY_CSRF_COOKIE_SAME_SITE"`
 	CSRFCookieSecure   bool     `yaml:"csrf_cookie_secure" json:"csrf_cookie_secure" env:"SERVEX_SECURITY_CSRF_COOKIE_SECURE"`
 	CSRFCookiePath     string   `yaml:"csrf_cookie_path" json:"csrf_cookie_path" env:"SERVEX_SECURITY_CSRF_COOKIE_PATH"`

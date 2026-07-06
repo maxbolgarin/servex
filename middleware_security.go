@@ -157,14 +157,15 @@ func setCSRFCookie(w http.ResponseWriter, cookieName, cookiePath string, cfg Sec
 	token := generateCSRFToken()
 
 	// Create cookie
-	// CSRF cookies must always be HttpOnly to prevent token theft via XSS.
-	// Clients should use the X-CSRF-Token header (from a /csrf-token endpoint) instead
-	// of reading the cookie directly from JavaScript.
+	// CSRF cookies are HttpOnly by default to prevent token theft via XSS;
+	// clients then use the X-CSRF-Token header (from a /csrf-token endpoint).
+	// An explicit CSRFCookieHttpOnly=false makes the cookie readable from
+	// JavaScript for the SPA double-submit cookie pattern.
 	cookie := &http.Cookie{
 		Name:     cookieName,
 		Value:    token,
 		Path:     cookiePath,
-		HttpOnly: true,
+		HttpOnly: cfg.CSRFCookieHttpOnly == nil || *cfg.CSRFCookieHttpOnly,
 		Secure:   cfg.CSRFCookieSecure,
 		SameSite: parseSameSite(cfg.CSRFCookieSameSite),
 	}

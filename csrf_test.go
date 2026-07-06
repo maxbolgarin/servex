@@ -332,11 +332,12 @@ func TestCSRFProtection(t *testing.T) {
 func TestCSRFCookieConfiguration(t *testing.T) {
 	t.Run("CSRF cookie attributes", func(t *testing.T) {
 		router := mux.NewRouter()
+		httpOnly := true
 		config := SecurityConfig{
 			Enabled:            true,
 			CSRFEnabled:        true,
 			CSRFTokenEndpoint:  "/csrf-token",
-			CSRFCookieHttpOnly: true,
+			CSRFCookieHttpOnly: &httpOnly,
 			CSRFCookieSecure:   true,
 			CSRFCookieSameSite: "Strict",
 			CSRFCookiePath:     "/app",
@@ -463,6 +464,52 @@ func TestCSRFIntegrationWithOptions(t *testing.T) {
 
 		if server.opts.Security.CSRFTokenEndpoint != "/my-csrf" {
 			t.Error("Custom endpoint not set")
+		}
+	})
+}
+
+func TestCSRFCookieHttpOnlyRespected(t *testing.T) {
+	boolPtr := func(b bool) *bool { return &b }
+
+	getCSRFCookie := func(t *testing.T, httpOnly *bool) *http.Cookie {
+		t.Helper()
+		router := mux.NewRouter()
+		config := SecurityConfig{
+			Enabled:            true,
+			CSRFEnabled:        true,
+			CSRFTokenEndpoint:  "/csrf-token",
+			CSRFCookieHttpOnly: httpOnly,
+		}
+		RegisterSecurityHeadersMiddleware(router, config)
+
+		req := httptest.NewRequest(GET, "/csrf-token", nil)
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, req)
+
+		for _, cookie := range w.Result().Cookies() {
+			if cookie.Name == "csrf_token" {
+				return cookie
+			}
+		}
+		t.Fatal("CSRF cookie not found")
+		return nil
+	}
+
+	t.Run("nil defaults to HttpOnly", func(t *testing.T) {
+		if cookie := getCSRFCookie(t, nil); !cookie.HttpOnly {
+			t.Error("Cookie should be HttpOnly by default (nil)")
+		}
+	})
+
+	t.Run("explicit true", func(t *testing.T) {
+		if cookie := getCSRFCookie(t, boolPtr(true)); !cookie.HttpOnly {
+			t.Error("Cookie should be HttpOnly when explicitly enabled")
+		}
+	})
+
+	t.Run("explicit false allows JS-readable cookie", func(t *testing.T) {
+		if cookie := getCSRFCookie(t, boolPtr(false)); cookie.HttpOnly {
+			t.Error("Cookie should not be HttpOnly when explicitly disabled (SPA double-submit mode)")
 		}
 	})
 }

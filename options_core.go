@@ -1587,9 +1587,10 @@ type SecurityConfig struct {
 
 	// CSRFCookieHttpOnly determines if the CSRF cookie is HTTP-only.
 	// Set via WithCSRFCookieHttpOnly() or WithSecurityConfig().
+	// nil (not set) defaults to true, so the zero value stays secure.
 	//
 	// Security trade-offs:
-	//   - true (recommended): More secure, prevents XSS token theft, but requires server-side token injection
+	//   - true (default): More secure, prevents XSS token theft, but requires server-side token injection
 	//   - false: Allows JavaScript access, enables SPA token retrieval, but vulnerable to XSS
 	//
 	// When true:
@@ -1598,8 +1599,8 @@ type SecurityConfig struct {
 	//
 	// When false:
 	//   - JavaScript can read document.cookie to get the token
-	//   - Useful for SPAs and AJAX-heavy applications
-	CSRFCookieHttpOnly bool
+	//   - Useful for SPAs and AJAX-heavy applications (double-submit cookie pattern)
+	CSRFCookieHttpOnly *bool
 
 	// CSRFCookieSameSite sets the SameSite attribute for the CSRF cookie.
 	// Set via WithCSRFCookieSameSite() or WithSecurityConfig().

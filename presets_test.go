@@ -411,7 +411,7 @@ func TestHighSecurityPreset(t *testing.T) {
 		t.Error("expected CSRF protection to be enabled")
 	}
 
-	if !opts.Security.CSRFCookieHttpOnly {
+	if opts.Security.CSRFCookieHttpOnly == nil || !*opts.Security.CSRFCookieHttpOnly {
 		t.Error("expected CSRF cookie to be HttpOnly")
 	}
 

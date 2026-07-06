@@ -355,7 +355,8 @@ func WithCSRFProtection() Option {
 		op.Security.CSRFEnabled = true
 		op.Security.CSRFTokenName = "X-CSRF-Token"
 		op.Security.CSRFCookieName = "csrf_token"
-		op.Security.CSRFCookieHttpOnly = true
+		httpOnly := true
+		op.Security.CSRFCookieHttpOnly = &httpOnly
 		op.Security.CSRFCookieSameSite = "Lax"
 		op.Security.CSRFCookiePath = "/"
 		op.Security.CSRFCookieMaxAge = 86400 // 24 hours
@@ -439,6 +440,8 @@ func WithCSRFCookieName(cookieName string) Option {
 }
 
 // WithCSRFCookieHttpOnly sets whether the CSRF cookie is HTTP-only.
+// The cookie is HttpOnly by default; call this with false only when a SPA
+// must read the token from document.cookie (double-submit cookie pattern).
 //
 // Example:
 //
@@ -470,7 +473,7 @@ func WithCSRFCookieName(cookieName string) Option {
 //   - Consider additional XSS protections
 func WithCSRFCookieHttpOnly(httpOnly bool) Option {
 	return func(op *Options) {
-		op.Security.CSRFCookieHttpOnly = httpOnly
+		op.Security.CSRFCookieHttpOnly = &httpOnly
 	}
 }
 

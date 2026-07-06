@@ -1067,7 +1067,7 @@ server, _ := servex.New(
 | `WithCSRFProtection()` | - | Enable CSRF with defaults |
 | `WithCSRFTokenName(name)` | `X-CSRF-Token` | Header name for the token |
 | `WithCSRFCookieName(name)` | `csrf_token` | Cookie name |
-| `WithCSRFCookieHttpOnly(bool)` | `false` | HttpOnly flag on cookie |
+| `WithCSRFCookieHttpOnly(bool)` | `true` | HttpOnly flag on cookie (set false only for SPA double-submit reads) |
 | `WithCSRFCookieSecure(bool)` | `false` | Secure flag on cookie |
 | `WithCSRFCookieSameSite(s)` | `Lax` | SameSite attribute (`strict`, `lax`, `none`) |
 | `WithCSRFCookieMaxAge(seconds)` | session | Cookie expiry |
