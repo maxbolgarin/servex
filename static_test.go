@@ -1265,3 +1265,104 @@ func TestStaticMiddlewareSecurityEdgeCases(t *testing.T) {
 		})
 	}
 }
+
+// TestStaticFileStripPrefix tests that StripPrefix removes a path prefix
+// before file lookup, without requiring the prefix to match (unlike URLPrefix).
+func TestStaticFileStripPrefix(t *testing.T) {
+	tempDir := t.TempDir()
+	createTestFile(t, filepath.Join(tempDir, "test.txt"), "stripped content")
+	createTestFile(t, filepath.Join(tempDir, "index.html"), "<html>spa</html>")
+
+	t.Run("basic strip prefix", func(t *testing.T) {
+		config := StaticFileConfig{
+			Enabled:     true,
+			Dir:         tempDir,
+			StripPrefix: "/app",
+		}
+		server, err := NewServer(WithStaticFileConfig(config))
+		if err != nil {
+			t.Fatalf("Failed to create server: %v", err)
+		}
+
+		req := httptest.NewRequest(GET, "/app/test.txt", nil)
+		rr := httptest.NewRecorder()
+		server.Router().ServeHTTP(rr, req)
+
+		if rr.Code != http.StatusOK {
+			t.Fatalf("Expected status 200 for /app/test.txt with StripPrefix=/app, got %d", rr.Code)
+		}
+		if rr.Body.String() != "stripped content" {
+			t.Errorf("Expected file content, got %q", rr.Body.String())
+		}
+	})
+
+	t.Run("SPA mode with strip prefix", func(t *testing.T) {
+		config := StaticFileConfig{
+			Enabled:     true,
+			Dir:         tempDir,
+			SPAMode:     true,
+			IndexFile:   "index.html",
+			StripPrefix: "/app",
+		}
+		server, err := NewServer(WithStaticFileConfig(config))
+		if err != nil {
+			t.Fatalf("Failed to create server: %v", err)
+		}
+
+		req := httptest.NewRequest(GET, "/app/test.txt", nil)
+		rr := httptest.NewRecorder()
+		server.Router().ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK || rr.Body.String() != "stripped content" {
+			t.Errorf("Expected existing file to be served, got status %d body %q", rr.Code, rr.Body.String())
+		}
+
+		req = httptest.NewRequest(GET, "/app/client-route", nil)
+		rr = httptest.NewRecorder()
+		server.Router().ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK || rr.Body.String() != "<html>spa</html>" {
+			t.Errorf("Expected SPA index fallback, got status %d body %q", rr.Code, rr.Body.String())
+		}
+	})
+}
+
+// TestStaticFileOptionOrderIndependence tests that static file options can be
+// supplied in any order without silently dropping settings.
+func TestStaticFileOptionOrderIndependence(t *testing.T) {
+	t.Run("cache before enable is retained", func(t *testing.T) {
+		opts := parseOptions([]Option{
+			WithStaticFileCache(3600, map[string]int{".js": 86400}),
+			WithSPAMode("build", "index.html"),
+		})
+		if opts.StaticFiles.CacheMaxAge != 3600 {
+			t.Errorf("Expected CacheMaxAge 3600, got %d", opts.StaticFiles.CacheMaxAge)
+		}
+		if opts.StaticFiles.CacheRules[".js"] != 86400 {
+			t.Errorf("Expected CacheRules to be retained, got %v", opts.StaticFiles.CacheRules)
+		}
+		if !opts.StaticFiles.Enabled || !opts.StaticFiles.SPAMode {
+			t.Error("Expected SPA mode to be enabled")
+		}
+	})
+
+	t.Run("exclusions before enable are retained", func(t *testing.T) {
+		opts := parseOptions([]Option{
+			WithStaticFileExclusions("/api/*"),
+			WithStaticFiles("public", ""),
+		})
+		if len(opts.StaticFiles.ExcludePaths) != 1 || opts.StaticFiles.ExcludePaths[0] != "/api/*" {
+			t.Errorf("Expected exclusions to be retained, got %v", opts.StaticFiles.ExcludePaths)
+		}
+		if !opts.StaticFiles.Enabled {
+			t.Error("Expected static files to be enabled")
+		}
+	})
+
+	t.Run("cache without enable is stored", func(t *testing.T) {
+		opts := parseOptions([]Option{
+			WithStaticFileCache(1800),
+		})
+		if opts.StaticFiles.CacheMaxAge != 1800 {
+			t.Errorf("Expected CacheMaxAge to be stored even when static serving is not enabled, got %d", opts.StaticFiles.CacheMaxAge)
+		}
+	})
+}

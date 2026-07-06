@@ -23,6 +23,9 @@ package servex
 //		},
 //	}
 //	server, _ := servex.New(servex.WithStaticFileConfig(cfg))
+//
+// Note: this replaces the entire static file configuration, so put field-level
+// options like WithStaticFileCache or WithStaticFileExclusions after it.
 func WithStaticFileConfig(config StaticFileConfig) Option {
 	return func(o *Options) {
 		o.StaticFiles = config
@@ -50,12 +53,12 @@ func WithStaticFileConfig(config StaticFileConfig) Option {
 //	server, _ := servex.New(servex.WithStaticFiles("build", ""))
 func WithStaticFiles(dir, urlPrefix string) Option {
 	return func(o *Options) {
-		o.StaticFiles = StaticFileConfig{
-			Enabled:   true,
-			Dir:       dir,
-			URLPrefix: urlPrefix,
-			SPAMode:   false,
-		}
+		// Mutate fields instead of replacing the struct so settings from
+		// other static options (cache, exclusions) survive regardless of order.
+		o.StaticFiles.Enabled = true
+		o.StaticFiles.Dir = dir
+		o.StaticFiles.URLPrefix = urlPrefix
+		o.StaticFiles.SPAMode = false
 	}
 }
 
@@ -89,12 +92,12 @@ func WithSPAMode(dir, indexFile string) Option {
 		if indexFile == "" {
 			indexFile = "index.html"
 		}
-		o.StaticFiles = StaticFileConfig{
-			Enabled:   true,
-			Dir:       dir,
-			SPAMode:   true,
-			IndexFile: indexFile,
-		}
+		// Mutate fields instead of replacing the struct so settings from
+		// other static options (cache, exclusions) survive regardless of order.
+		o.StaticFiles.Enabled = true
+		o.StaticFiles.Dir = dir
+		o.StaticFiles.SPAMode = true
+		o.StaticFiles.IndexFile = indexFile
 	}
 }
 
@@ -124,9 +127,8 @@ func WithSPAMode(dir, indexFile string) Option {
 //	servex.WithStaticFileCache(86400, rules) // 1 day default, custom rules
 func WithStaticFileCache(maxAge int, rules ...map[string]int) Option {
 	return func(o *Options) {
-		if !o.StaticFiles.Enabled {
-			return // Only apply if static files are enabled
-		}
+		// Values are stored regardless of option order; they only take effect
+		// once static file serving is enabled (WithStaticFiles/WithSPAMode).
 		o.StaticFiles.CacheMaxAge = maxAge
 		if len(rules) > 0 {
 			o.StaticFiles.CacheRules = rules[0]

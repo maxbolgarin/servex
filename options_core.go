@@ -2099,8 +2099,10 @@ type StaticFileConfig struct {
 	// This is useful when serving files from a subdirectory but accessing them via a different URL structure.
 	// Set via WithStaticFileConfig().
 	//
+	// Unlike URLPrefix (which both restricts matching to the prefix and strips it),
+	// StripPrefix only strips: requests without the prefix are still looked up as-is.
+	//
 	// Example:
-	//   - URLPrefix: "/app"
 	//   - StripPrefix: "/app"
 	//   - Request: "/app/index.html" → looks for file at "index.html" in Dir
 	StripPrefix string

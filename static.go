@@ -199,6 +199,11 @@ func (h *staticFileHandler) serveStaticFile(w http.ResponseWriter, r *http.Reque
 		cleanPath = strings.TrimPrefix(cleanPath, h.config.URLPrefix)
 	}
 
+	// Strip configured prefix from the URL before file lookup
+	if h.config.StripPrefix != "" {
+		cleanPath = strings.TrimPrefix(cleanPath, h.config.StripPrefix)
+	}
+
 	// Build file system path
 	fsPath := filepath.Join(h.config.Dir, filepath.FromSlash(cleanPath))
 
@@ -332,6 +337,11 @@ func (h *staticFileHandler) fileExists(requestPath string) bool {
 			return false
 		}
 		cleanPath = strings.TrimPrefix(cleanPath, h.config.URLPrefix)
+	}
+
+	// Strip configured prefix from the URL before file lookup
+	if h.config.StripPrefix != "" {
+		cleanPath = strings.TrimPrefix(cleanPath, h.config.StripPrefix)
 	}
 
 	// Build file system path
