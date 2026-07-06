@@ -3,6 +3,7 @@ package servex
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -731,5 +732,88 @@ auth:
 	}
 	if config.Auth.OAuth.GitHub.ClientSecret != "env-secret" {
 		t.Errorf("ClientSecret: got %q, want env override %q", config.Auth.OAuth.GitHub.ClientSecret, "env-secret")
+	}
+}
+
+func TestConfigToOptions2FAMissingEncryptionKey(t *testing.T) {
+	config := &Config{}
+	config.Auth.Enabled = true
+	config.Auth.UseMemoryDatabase = true
+	config.Auth.TwoFactor.Enabled = true
+
+	_, err := config.ToOptions()
+	if err == nil {
+		t.Fatal("expected error when two_factor.enabled is true but encryption_key is empty")
+	}
+	if !strings.Contains(err.Error(), "encryption_key") {
+		t.Errorf("expected error to mention encryption_key, got: %v", err)
+	}
+}
+
+func TestLoadConfigFromEnvSMTPSubjects(t *testing.T) {
+	t.Setenv("SERVEX_AUTH_EMAIL_SMTP_VERIFICATION_SUBJECT", "Verify your email")
+	t.Setenv("SERVEX_AUTH_EMAIL_SMTP_PASSWORD_RESET_SUBJECT", "Reset your password")
+	t.Setenv("SERVEX_AUTH_EMAIL_SMTP_TWO_FACTOR_CODE_SUBJECT", "Your 2FA code")
+
+	config, err := LoadConfigFromEnv()
+	if err != nil {
+		t.Fatalf("LoadConfigFromEnv: %v", err)
+	}
+
+	// SMTPConfiguration is shared, so the env vars apply to all three SMTP blocks.
+	for name, smtp := range map[string]SMTPConfiguration{
+		"email_verification": config.Auth.EmailVerification.SMTP,
+		"password_reset":     config.Auth.PasswordReset.SMTP,
+		"two_factor":         config.Auth.TwoFactor.EmailSMTP,
+	} {
+		if smtp.VerificationSubject != "Verify your email" {
+			t.Errorf("%s: VerificationSubject not loaded from env, got %q", name, smtp.VerificationSubject)
+		}
+		if smtp.PasswordResetSubject != "Reset your password" {
+			t.Errorf("%s: PasswordResetSubject not loaded from env, got %q", name, smtp.PasswordResetSubject)
+		}
+		if smtp.TwoFactorCodeSubject != "Your 2FA code" {
+			t.Errorf("%s: TwoFactorCodeSubject not loaded from env, got %q", name, smtp.TwoFactorCodeSubject)
+		}
+	}
+}
+
+func TestConfigToOptionsEmailVerificationRequiresSMTP(t *testing.T) {
+	config := &Config{}
+	config.Auth.Enabled = true
+	config.Auth.UseMemoryDatabase = true
+	config.Auth.EmailVerification.Enabled = true
+
+	_, err := config.ToOptions()
+	if err == nil {
+		t.Fatal("expected error when email_verification.enabled is true but smtp.host is empty")
+	}
+	if !strings.Contains(err.Error(), "smtp.host") {
+		t.Errorf("expected error to mention smtp.host, got: %v", err)
+	}
+
+	config.Auth.EmailVerification.SMTP.Host = "smtp.example.com"
+	if _, err := config.ToOptions(); err != nil {
+		t.Errorf("expected no error with smtp.host set, got: %v", err)
+	}
+}
+
+func TestConfigToOptionsPasswordResetRequiresSMTP(t *testing.T) {
+	config := &Config{}
+	config.Auth.Enabled = true
+	config.Auth.UseMemoryDatabase = true
+	config.Auth.PasswordReset.Enabled = true
+
+	_, err := config.ToOptions()
+	if err == nil {
+		t.Fatal("expected error when password_reset.enabled is true but smtp.host is empty")
+	}
+	if !strings.Contains(err.Error(), "smtp.host") {
+		t.Errorf("expected error to mention smtp.host, got: %v", err)
+	}
+
+	config.Auth.PasswordReset.SMTP.Host = "smtp.example.com"
+	if _, err := config.ToOptions(); err != nil {
+		t.Errorf("expected no error with smtp.host set, got: %v", err)
 	}
 }

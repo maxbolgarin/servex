@@ -122,8 +122,10 @@ type ServerConfig struct {
 	MetricsPath             string        `yaml:"metrics_path" json:"metrics_path" env:"SERVEX_SERVER_METRICS_PATH"`
 	EnableHealthEndpoint    bool          `yaml:"enable_health_endpoint" json:"enable_health_endpoint" env:"SERVEX_SERVER_ENABLE_HEALTH_ENDPOINT"`
 	EnableDefaultMetrics    bool          `yaml:"enable_default_metrics" json:"enable_default_metrics" env:"SERVEX_SERVER_ENABLE_DEFAULT_METRICS"`
-	Debug                   bool          `yaml:"debug" json:"debug" env:"SERVEX_SERVER_DEBUG"`
-	SendErrorToClient       bool          `yaml:"send_error_to_client" json:"send_error_to_client" env:"SERVEX_SERVER_SEND_ERROR_TO_CLIENT"`
+	// Debug implies send_error_to_client: true (mirrors WithDebug()).
+	Debug bool `yaml:"debug" json:"debug" env:"SERVEX_SERVER_DEBUG"`
+	// SendErrorToClient is redundant when debug is true.
+	SendErrorToClient bool `yaml:"send_error_to_client" json:"send_error_to_client" env:"SERVEX_SERVER_SEND_ERROR_TO_CLIENT"`
 	EnableRequestSizeLimits bool          `yaml:"enable_request_size_limits" json:"enable_request_size_limits" env:"SERVEX_SERVER_ENABLE_REQUEST_SIZE_LIMITS"`
 	MaxRequestBodySize      int64         `yaml:"max_request_body_size" json:"max_request_body_size" env:"SERVEX_SERVER_MAX_REQUEST_BODY_SIZE"`
 	MaxJSONBodySize         int64         `yaml:"max_json_body_size" json:"max_json_body_size" env:"SERVEX_SERVER_MAX_JSON_BODY_SIZE"`
@@ -198,15 +200,18 @@ type PasswordResetConfiguration struct {
 }
 
 // SMTPConfiguration represents SMTP server configuration for sending emails.
+// The struct is shared by email_verification, password_reset, and two_factor
+// blocks, so each SERVEX_AUTH_EMAIL_SMTP_* environment variable applies to
+// all three SMTP sections at once.
 type SMTPConfiguration struct {
 	Host                 string `yaml:"host" json:"host" env:"SERVEX_AUTH_EMAIL_SMTP_HOST"`
 	Port                 int    `yaml:"port" json:"port" env:"SERVEX_AUTH_EMAIL_SMTP_PORT"`
 	Username             string `yaml:"username" json:"username" env:"SERVEX_AUTH_EMAIL_SMTP_USERNAME"`
 	Password             string `yaml:"password" json:"password" env:"SERVEX_AUTH_EMAIL_SMTP_PASSWORD"`
 	From                 string `yaml:"from" json:"from" env:"SERVEX_AUTH_EMAIL_SMTP_FROM"`
-	VerificationSubject  string `yaml:"verification_subject" json:"verification_subject"`
-	PasswordResetSubject string `yaml:"password_reset_subject" json:"password_reset_subject"`
-	TwoFactorCodeSubject string `yaml:"two_factor_code_subject" json:"two_factor_code_subject"`
+	VerificationSubject  string `yaml:"verification_subject" json:"verification_subject" env:"SERVEX_AUTH_EMAIL_SMTP_VERIFICATION_SUBJECT"`
+	PasswordResetSubject string `yaml:"password_reset_subject" json:"password_reset_subject" env:"SERVEX_AUTH_EMAIL_SMTP_PASSWORD_RESET_SUBJECT"`
+	TwoFactorCodeSubject string `yaml:"two_factor_code_subject" json:"two_factor_code_subject" env:"SERVEX_AUTH_EMAIL_SMTP_TWO_FACTOR_CODE_SUBJECT"`
 	VerificationURL      string `yaml:"verification_url" json:"verification_url" env:"SERVEX_AUTH_EMAIL_SMTP_VERIFICATION_URL"`
 	PasswordResetURL     string `yaml:"password_reset_url" json:"password_reset_url" env:"SERVEX_AUTH_EMAIL_SMTP_PASSWORD_RESET_URL"`
 }
@@ -633,21 +638,22 @@ func (c *Config) ToOptions() ([]Option, error) {
 	// Email verification configuration
 	if c.Auth.EmailVerification.Enabled {
 		verifCfg := c.Auth.EmailVerification
-		if verifCfg.SMTP.Host != "" {
-			smtpCfg := SMTPConfig{
-				Host:                 verifCfg.SMTP.Host,
-				Port:                 verifCfg.SMTP.Port,
-				Username:             verifCfg.SMTP.Username,
-				Password:             verifCfg.SMTP.Password,
-				From:                 verifCfg.SMTP.From,
-				VerificationSubject:  verifCfg.SMTP.VerificationSubject,
-				VerificationURL:      verifCfg.SMTP.VerificationURL,
-				PasswordResetSubject: verifCfg.SMTP.PasswordResetSubject,
-				PasswordResetURL:     verifCfg.SMTP.PasswordResetURL,
-				TwoFactorCodeSubject: verifCfg.SMTP.TwoFactorCodeSubject,
-			}
-			opts = append(opts, WithVerificationEmailSender(NewSMTPEmailSender(smtpCfg, parseVerificationMode(verifCfg.Mode))))
+		if verifCfg.SMTP.Host == "" {
+			return nil, errors.New("auth.email_verification.enabled is true but auth.email_verification.smtp.host is empty — the flow cannot send emails")
 		}
+		smtpCfg := SMTPConfig{
+			Host:                 verifCfg.SMTP.Host,
+			Port:                 verifCfg.SMTP.Port,
+			Username:             verifCfg.SMTP.Username,
+			Password:             verifCfg.SMTP.Password,
+			From:                 verifCfg.SMTP.From,
+			VerificationSubject:  verifCfg.SMTP.VerificationSubject,
+			VerificationURL:      verifCfg.SMTP.VerificationURL,
+			PasswordResetSubject: verifCfg.SMTP.PasswordResetSubject,
+			PasswordResetURL:     verifCfg.SMTP.PasswordResetURL,
+			TwoFactorCodeSubject: verifCfg.SMTP.TwoFactorCodeSubject,
+		}
+		opts = append(opts, WithVerificationEmailSender(NewSMTPEmailSender(smtpCfg, parseVerificationMode(verifCfg.Mode))))
 		if verifCfg.RequireVerification {
 			opts = append(opts, WithEmailRequireVerification(true))
 		}
@@ -671,18 +677,19 @@ func (c *Config) ToOptions() ([]Option, error) {
 	// Password reset configuration
 	if c.Auth.PasswordReset.Enabled {
 		resetCfg := c.Auth.PasswordReset
-		if resetCfg.SMTP.Host != "" {
-			smtpCfg := SMTPConfig{
-				Host:                 resetCfg.SMTP.Host,
-				Port:                 resetCfg.SMTP.Port,
-				Username:             resetCfg.SMTP.Username,
-				Password:             resetCfg.SMTP.Password,
-				From:                 resetCfg.SMTP.From,
-				PasswordResetSubject: resetCfg.SMTP.PasswordResetSubject,
-				PasswordResetURL:     resetCfg.SMTP.PasswordResetURL,
-			}
-			opts = append(opts, WithPasswordResetEmailSender(NewSMTPEmailSender(smtpCfg, EmailVerificationTokenMode)))
+		if resetCfg.SMTP.Host == "" {
+			return nil, errors.New("auth.password_reset.enabled is true but auth.password_reset.smtp.host is empty — the flow cannot send emails")
 		}
+		smtpCfg := SMTPConfig{
+			Host:                 resetCfg.SMTP.Host,
+			Port:                 resetCfg.SMTP.Port,
+			Username:             resetCfg.SMTP.Username,
+			Password:             resetCfg.SMTP.Password,
+			From:                 resetCfg.SMTP.From,
+			PasswordResetSubject: resetCfg.SMTP.PasswordResetSubject,
+			PasswordResetURL:     resetCfg.SMTP.PasswordResetURL,
+		}
+		opts = append(opts, WithPasswordResetEmailSender(NewSMTPEmailSender(smtpCfg, EmailVerificationTokenMode)))
 		if resetCfg.TokenDuration > 0 {
 			opts = append(opts, WithPasswordResetTokenDuration(resetCfg.TokenDuration))
 		}
@@ -748,7 +755,10 @@ func (c *Config) ToOptions() ([]Option, error) {
 	}
 
 	// 2FA configuration
-	if c.Auth.TwoFactor.Enabled && c.Auth.TwoFactor.EncryptionKey != "" {
+	if c.Auth.TwoFactor.Enabled {
+		if c.Auth.TwoFactor.EncryptionKey == "" {
+			return nil, errors.New("auth.two_factor.enabled is true but auth.two_factor.encryption_key is empty (expected 64 hex characters for a 32-byte key)")
+		}
 		opts = append(opts, WithTwoFactor(c.Auth.TwoFactor.EncryptionKey))
 		if c.Auth.TwoFactor.Issuer != "" {
 			opts = append(opts, WithTwoFactorIssuer(c.Auth.TwoFactor.Issuer))

@@ -1907,3 +1907,80 @@ func TestMultipleRequestSizeOptions(t *testing.T) {
 		t.Errorf("expected EnableRequestSizeLimits to be true, got false")
 	}
 }
+
+func TestOptionsValidateAuthDurationDefaults(t *testing.T) {
+	// The documented defaults (5m access / 7d refresh) must apply when durations
+	// are left unset, so validation must not reject zero values.
+	opts := servex.Options{
+		Auth: servex.AuthConfig{
+			Enabled:  true,
+			Database: servex.NewMemoryAuthDatabase(),
+		},
+	}
+	if err := opts.Validate(); err != nil {
+		t.Errorf("expected no error for unset token durations (defaults apply), got: %v", err)
+	}
+
+	opts.Auth.AccessTokenDuration = -time.Minute
+	if err := opts.Validate(); err == nil {
+		t.Error("expected error for negative access token duration")
+	}
+
+	opts.Auth.AccessTokenDuration = 10 * time.Minute
+	opts.Auth.RefreshTokenDuration = 5 * time.Minute
+	if err := opts.Validate(); err == nil {
+		t.Error("expected error when access duration is not less than refresh duration")
+	}
+
+	// Explicit access duration longer than the defaulted 7d refresh must be caught.
+	opts.Auth.AccessTokenDuration = 30 * 24 * time.Hour
+	opts.Auth.RefreshTokenDuration = 0
+	if err := opts.Validate(); err == nil {
+		t.Error("expected error when access duration exceeds the defaulted refresh duration")
+	}
+}
+
+func TestOptionsValidateEmailSenderRequired(t *testing.T) {
+	base := func() servex.Options {
+		return servex.Options{
+			Auth: servex.AuthConfig{
+				Enabled:  true,
+				Database: servex.NewMemoryAuthDatabase(),
+			},
+		}
+	}
+
+	opts := base()
+	opts.Auth.EmailVerification.Enabled = true
+	if err := opts.Validate(); err == nil {
+		t.Error("expected error: email verification enabled without sender or SMTP")
+	}
+	opts.Auth.EmailVerification.SMTP = &servex.SMTPConfig{Host: "smtp.example.com"}
+	if err := opts.Validate(); err != nil {
+		t.Errorf("expected no error with SMTP configured, got: %v", err)
+	}
+
+	opts = base()
+	opts.Auth.PasswordReset.Enabled = true
+	if err := opts.Validate(); err == nil {
+		t.Error("expected error: password reset enabled without sender or SMTP")
+	}
+	opts.Auth.PasswordReset.SMTP = &servex.SMTPConfig{Host: "smtp.example.com"}
+	if err := opts.Validate(); err != nil {
+		t.Errorf("expected no error with SMTP configured, got: %v", err)
+	}
+}
+
+func TestNewServerAuthMinimalSetup(t *testing.T) {
+	// The documented minimal auth setup must not fail on unset token durations.
+	_, err := servex.NewServer(
+		servex.WithAuthMemoryDatabase(),
+		servex.WithAuthKey(
+			"0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+			"2102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20",
+		),
+	)
+	if err != nil {
+		t.Fatalf("expected minimal auth setup to succeed, got: %v", err)
+	}
+}

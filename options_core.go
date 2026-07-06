@@ -3081,13 +3081,23 @@ func (opts *Options) Validate() error {
 		if opts.Auth.Database == nil {
 			errors = append(errors, "auth database is required when auth is enabled")
 		}
-		if opts.Auth.AccessTokenDuration <= 0 {
-			errors = append(errors, "access token duration must be positive")
+		// Zero durations are allowed: NewAuthManager applies the documented
+		// defaults (5m access / 7d refresh) when they are not set.
+		if opts.Auth.AccessTokenDuration < 0 {
+			errors = append(errors, "access token duration must not be negative")
 		}
-		if opts.Auth.RefreshTokenDuration <= 0 {
-			errors = append(errors, "refresh token duration must be positive")
+		if opts.Auth.RefreshTokenDuration < 0 {
+			errors = append(errors, "refresh token duration must not be negative")
 		}
-		if opts.Auth.AccessTokenDuration >= opts.Auth.RefreshTokenDuration {
+		effectiveAccess := opts.Auth.AccessTokenDuration
+		if effectiveAccess == 0 {
+			effectiveAccess = accessTokenDuration
+		}
+		effectiveRefresh := opts.Auth.RefreshTokenDuration
+		if effectiveRefresh == 0 {
+			effectiveRefresh = refreshTokenDuration
+		}
+		if effectiveAccess >= effectiveRefresh {
 			errors = append(errors, "refresh token duration should be longer than access token duration")
 		}
 		if opts.Auth.JWTAccessSecret != "" && opts.Auth.JWTAccessSecret == opts.Auth.JWTRefreshSecret {
@@ -3095,6 +3105,12 @@ func (opts *Options) Validate() error {
 		}
 		if ev := opts.Auth.EmailVerification; ev.Enabled && ev.CodeDigits != 0 && (ev.CodeDigits < 1 || ev.CodeDigits > 32) {
 			errors = append(errors, "email verification code digits must be between 1 and 32")
+		}
+		if ev := opts.Auth.EmailVerification; ev.Enabled && ev.Sender == nil && ev.SMTP == nil {
+			errors = append(errors, "email verification is enabled but no email sender is configured (set EmailVerification.Sender, EmailVerification.SMTP or auth.email_verification.smtp.host)")
+		}
+		if pr := opts.Auth.PasswordReset; pr.Enabled && pr.Sender == nil && pr.SMTP == nil {
+			errors = append(errors, "password reset is enabled but no email sender is configured (set PasswordReset.Sender, PasswordReset.SMTP or auth.password_reset.smtp.host)")
 		}
 	}
 
