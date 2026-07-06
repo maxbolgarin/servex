@@ -895,3 +895,60 @@ func TestDefaultAuditLoggerWithHeaders(t *testing.T) {
 		t.Error("Expected log entries but got none")
 	}
 }
+
+// TestAuditLoggerOptionOrderIndependence tests that WithAuditLogHeaders and
+// WithDefaultAuditLogger can be combined in any order without losing settings.
+func TestAuditLoggerOptionOrderIndependence(t *testing.T) {
+	t.Run("headers then default logger", func(t *testing.T) {
+		opts := parseOptions([]Option{
+			WithLogger(&MockLogger{}),
+			WithAuditLogHeaders(true),
+			WithDefaultAuditLogger(),
+		})
+		dal, ok := opts.AuditLogger.(*DefaultAuditLogger)
+		if !ok {
+			t.Fatalf("expected *DefaultAuditLogger, got %T", opts.AuditLogger)
+		}
+		if !dal.IncludeHeaders {
+			t.Error("expected IncludeHeaders to survive a later WithDefaultAuditLogger")
+		}
+	})
+
+	t.Run("default logger then headers", func(t *testing.T) {
+		opts := parseOptions([]Option{
+			WithLogger(&MockLogger{}),
+			WithDefaultAuditLogger(),
+			WithAuditLogHeaders(true),
+		})
+		dal, ok := opts.AuditLogger.(*DefaultAuditLogger)
+		if !ok {
+			t.Fatalf("expected *DefaultAuditLogger, got %T", opts.AuditLogger)
+		}
+		if !dal.IncludeHeaders {
+			t.Error("expected IncludeHeaders to be set")
+		}
+	})
+
+	t.Run("half-built logger is finalized by server", func(t *testing.T) {
+		srv, err := NewServerWithOptions(parseOptions([]Option{
+			WithAuditLogHeaders(true),
+			WithDefaultAuditLogger(),
+		}))
+		if err != nil {
+			t.Fatalf("NewServerWithOptions: %v", err)
+		}
+		dal, ok := srv.opts.AuditLogger.(*DefaultAuditLogger)
+		if !ok {
+			t.Fatalf("expected *DefaultAuditLogger, got %T", srv.opts.AuditLogger)
+		}
+		if !dal.IncludeHeaders {
+			t.Error("expected IncludeHeaders to survive server construction")
+		}
+		if dal.Logger == nil {
+			t.Error("expected Logger to be finalized during server construction")
+		}
+		if len(dal.SensitiveHeaders) == 0 {
+			t.Error("expected SensitiveHeaders to be finalized during server construction")
+		}
+	})
+}

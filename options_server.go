@@ -420,6 +420,11 @@ func WithAuditLogger(logger AuditLogger) Option {
 func WithDefaultAuditLogger() Option {
 	return func(op *Options) {
 		op.EnableDefaultAuditLogger = true
+		if _, ok := op.AuditLogger.(*DefaultAuditLogger); ok {
+			// Already configured (e.g. by WithAuditLogHeaders) — keep its settings;
+			// NewServerWithOptions finalizes the logger and sensitive headers.
+			return
+		}
 		if op.Logger != nil {
 			op.AuditLogger = NewDefaultAuditLogger(op.Logger)
 		}
