@@ -3083,7 +3083,10 @@ func (opts *Options) Validate() error {
 
 	// Auth validation
 	if opts.Auth.isActive() {
-		if opts.Auth.Database == nil {
+		// A SQL driver counts as a database: WithAuthSQL / WithAuthSQLDSN only
+		// materialise Auth.Database later, inside NewServerWithOptions, so
+		// requiring a non-nil Database here would reject those options outright.
+		if opts.Auth.Database == nil && opts.Auth.sqlDriver == "" {
 			errors = append(errors, "auth database is required when auth is enabled")
 		}
 		// Zero durations are allowed: NewAuthManager applies the documented
