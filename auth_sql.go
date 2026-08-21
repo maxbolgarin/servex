@@ -313,13 +313,54 @@ type scannable interface {
 	Scan(dest ...any) error
 }
 
+// sqlBool scans a boolean column across every supported dialect.
+//
+// The schema is not uniform: the Postgres and MySQL DDL declare BOOLEAN, whose
+// drivers return a real bool, while the SQLite DDL declares INTEGER and returns
+// an int64. Scanning straight into int64 therefore fails on Postgres with
+// "converting driver.Value type bool to a int64", which broke every login.
+type sqlBool bool
+
+// Scan implements [database/sql.Scanner].
+func (b *sqlBool) Scan(src any) error {
+	switch v := src.(type) {
+	case nil:
+		*b = false
+	case bool:
+		*b = sqlBool(v)
+	case int64:
+		*b = v != 0
+	case float64:
+		*b = v != 0
+	case []byte:
+		return b.parse(string(v))
+	case string:
+		return b.parse(v)
+	default:
+		return fmt.Errorf("sql auth: cannot scan %T into bool", src)
+	}
+	return nil
+}
+
+func (b *sqlBool) parse(v string) error {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "0", "f", "false", "n", "no":
+		*b = false
+	case "1", "t", "true", "y", "yes":
+		*b = true
+	default:
+		return fmt.Errorf("sql auth: cannot parse %q as bool", v)
+	}
+	return nil
+}
+
 func (s *SQLAuthDatabase) scanUser(row scannable) (User, error) {
 	var (
 		id                          int64
 		rolesJSON                   []byte
 		backupCodesJSON             []byte
-		emailVerified               int64
-		twoFactorEnabled            int64
+		emailVerified               sqlBool
+		twoFactorEnabled            sqlBool
 		refreshTokenExpiresAt       sql.NullTime
 		emailVerifyTokenExpiresAt   sql.NullTime
 		emailVerifyLastSentAt       sql.NullTime
@@ -352,8 +393,8 @@ func (s *SQLAuthDatabase) scanUser(row scannable) (User, error) {
 	}
 
 	u.ID = strconv.FormatInt(id, 10)
-	u.EmailVerified = emailVerified != 0
-	u.TwoFactorEnabled = twoFactorEnabled != 0
+	u.EmailVerified = bool(emailVerified)
+	u.TwoFactorEnabled = bool(twoFactorEnabled)
 
 	if err := stdjson.Unmarshal(rolesJSON, &u.Roles); err != nil {
 		return User{}, fmt.Errorf("sql auth: unmarshal roles for user %d: %w", id, err)
