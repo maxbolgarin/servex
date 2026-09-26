@@ -5,6 +5,7 @@ import (
 	"crypto/hmac"
 	crand "crypto/rand"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -1051,8 +1052,9 @@ func (s *service) validateRefreshToken(ctx context.Context, tokenString string) 
 		return user, fmt.Errorf("expired token")
 	}
 
-	tokenString = tokenString[:72]
-	if err := bcrypt.CompareHashAndPassword([]byte(user.RefreshTokenHash), []byte(tokenString)); err != nil {
+	// Constant-time against the stored hash. A hash stored by an older version (bcrypt) never
+	// matches, so those sessions end and the user signs in once more.
+	if subtle.ConstantTimeCompare([]byte(user.RefreshTokenHash), []byte(refreshTokenHash(tokenString))) != 1 {
 		return user, fmt.Errorf("refresh token mismatch")
 	}
 
@@ -1061,6 +1063,18 @@ func (s *service) validateRefreshToken(ctx context.Context, tokenString string) 
 	}
 
 	return user, nil
+}
+
+// refreshTokenHash is what gets stored for a refresh token: the SHA-256 of the WHOLE token.
+//
+// It used to be bcrypt over token[:72] (bcrypt reads at most 72 bytes). The first 72 characters of
+// these JWTs are the header and the start of the payload, the same for every token of one user, so
+// the stored hash matched every refresh token that user was ever issued: signing in again revived
+// all of them, and neither logout nor a password reset could revoke an old one for good. A refresh
+// token is a signed, high-entropy value, so a fast hash is the right tool, and it covers every byte.
+func refreshTokenHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
 }
 
 func (s *service) parseToken(tokenString string, key []byte) (*jwtClaims, error) {
@@ -1106,13 +1120,8 @@ func (s *service) generateAndSaveRefreshToken(ctx context.Context, user User) (s
 		return "", time.Time{}, fmt.Errorf("generating refresh token: %w", err)
 	}
 
-	refreshTokenHash, err := bcrypt.GenerateFromPassword([]byte(token[:72]), bcrypt.DefaultCost)
-	if err != nil {
-		return "", time.Time{}, fmt.Errorf("hashing refresh token: %w", err)
-	}
-
 	if err := s.db.UpdateUser(ctx, user.ID, &UserDiff{
-		RefreshTokenHash:      lang.Ptr(string(refreshTokenHash)),
+		RefreshTokenHash:      lang.Ptr(refreshTokenHash(token)),
 		RefreshTokenExpiresAt: lang.Ptr(expiresAt),
 	}); err != nil {
 		return "", time.Time{}, fmt.Errorf("updating refresh token: %w", err)
@@ -1131,11 +1140,20 @@ func (s *service) generateToken(user User, isRefresh bool) (string, time.Time, e
 		purpose = tokenPurposeRefresh
 	}
 
+	// A random id makes every token unique, even two issued to one user in the same second.
+	// Without it a new refresh token could equal an older one byte for byte, and "only the latest
+	// refresh token is valid" would not quite hold.
+	jti, err := generateRandomHex(16)
+	if err != nil {
+		return "", time.Time{}, fmt.Errorf("token id: %w", err)
+	}
+
 	claims := jwtClaims{
 		UserID:       user.ID,
 		IsRefresh:    isRefresh,
 		TokenPurpose: purpose,
 		RegisteredClaims: jwt.RegisteredClaims{
+			ID:        jti,
 			ExpiresAt: jwt.NewNumericDate(expiresAt),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			Issuer:    s.cfg.IssuerNameInJWT,
