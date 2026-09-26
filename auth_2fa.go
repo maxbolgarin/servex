@@ -98,6 +98,7 @@ func decryptTOTPSecret(encoded string, key []byte) (string, error) {
 // attemptEntry tracks 2FA verification attempts for a single pending token.
 type attemptEntry struct {
 	count            int
+	lastTOTPStep     int64 // per-user entries: the last TOTP time step accepted
 	emailCodeHash    string
 	emailCodeExpires time.Time // when the email code expires (per CodeDuration)
 	lastEmailSent    time.Time
@@ -418,15 +419,18 @@ func (h *AuthManager) TwoFactorEnableHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Validate the provided TOTP code
-	if !totp.Validate(req.Code, secret) {
+	// Validate the provided TOTP code, consuming its step.
+	if valid, _ := h.checkTOTPOnce(userID, req.Code, secret); !valid {
 		ctx.Unauthorized(errInvalidTwoFactorCode, errInvalidTwoFactorCode.Error())
 		return
 	}
 
-	// Enable 2FA
+	// Enable 2FA, and end every other session: from now on each sign-in must pass the second
+	// factor, including one that already holds a refresh token.
 	if err := h.service.db.UpdateUser(r.Context(), userID, &UserDiff{
-		TwoFactorEnabled: lang.Ptr(true),
+		TwoFactorEnabled:      lang.Ptr(true),
+		RefreshTokenHash:      lang.Ptr(""),
+		RefreshTokenExpiresAt: lang.Ptr(time.Time{}),
 	}); err != nil {
 		ctx.InternalServerError(err, "failed to enable 2FA")
 		return
@@ -470,6 +474,13 @@ func (h *AuthManager) TwoFactorDisableHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
+	// A stolen session must not be able to guess its way to switching 2FA off: the same per-user
+	// failure budget as sign-in.
+	if h.userLocked(userID) {
+		ctx.Unauthorized(errTwoFactorTooManyAttempts, errTwoFactorTooManyAttempts.Error())
+		return
+	}
+
 	// Decrypt the stored TOTP secret
 	secret, err := decryptTOTPSecret(user.TwoFactorSecret, h.service.cfg.TwoFactor.encryptionKey)
 	if err != nil {
@@ -477,11 +488,11 @@ func (h *AuthManager) TwoFactorDisableHandler(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	// Try TOTP code first
-	valid := totp.Validate(req.Code, secret)
+	// Try TOTP code first, consuming its step so it cannot be replayed.
+	valid, replayed := h.checkTOTPOnce(userID, req.Code, secret)
 
 	// If TOTP didn't match, try backup codes — iterate all hashes to prevent timing oracle
-	if !valid {
+	if !valid && !replayed {
 		matchIdx := -1
 		for i, hash := range user.TwoFactorBackupCodes {
 			if bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Code)) == nil {
@@ -498,17 +509,21 @@ func (h *AuthManager) TwoFactorDisableHandler(w http.ResponseWriter, r *http.Req
 	}
 
 	if !valid {
+		h.attemptTracker.increment(userFailKey(userID))
 		ctx.Unauthorized(errInvalidTwoFactorCode, errInvalidTwoFactorCode.Error())
 		return
 	}
+	h.attemptTracker.delete(userFailKey(userID))
 
-	// Clear 2FA fields
+	// Clear 2FA fields, and end every other session: whoever held one did so under the old rules.
 	emptyStr := ""
 	emptyBackup := []string{}
 	if err := h.service.db.UpdateUser(r.Context(), userID, &UserDiff{
-		TwoFactorEnabled:     lang.Ptr(false),
-		TwoFactorSecret:      &emptyStr,
-		TwoFactorBackupCodes: &emptyBackup,
+		TwoFactorEnabled:      lang.Ptr(false),
+		TwoFactorSecret:       &emptyStr,
+		TwoFactorBackupCodes:  &emptyBackup,
+		RefreshTokenHash:      lang.Ptr(""),
+		RefreshTokenExpiresAt: lang.Ptr(time.Time{}),
 	}); err != nil {
 		ctx.InternalServerError(err, "failed to disable 2FA")
 		return
@@ -542,8 +557,10 @@ func (h *AuthManager) TwoFactorVerifyHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Check attempt count
-	if h.attemptTracker.getCount(claims.ID) >= h.service.cfg.TwoFactor.MaxVerifyAttempts {
+	// Check attempt counts: this pending token's, and the user's across every pending token. Each
+	// password login mints a new pending token, so the per-token count alone gave whoever knew the
+	// password a fresh budget of guesses per login.
+	if h.attemptTracker.getCount(claims.ID) >= h.service.cfg.TwoFactor.MaxVerifyAttempts || h.userLocked(claims.UserID) {
 		// Audit log: locked out
 		if h.auditLogger != nil {
 			h.auditLogger.LogAuthenticationEvent(AuditEvent2FALocked, r, claims.UserID, false, map[string]any{
@@ -568,16 +585,13 @@ func (h *AuthManager) TwoFactorVerifyHandler(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	valid := false
 	usedBackup := false
 
-	// Try TOTP
-	if totp.Validate(req.Code, secret) {
-		valid = true
-	}
+	// Try TOTP, consuming its time step: a correct code signs in once.
+	valid, replayed := h.checkTOTPOnce(claims.UserID, req.Code, secret)
 
 	// Try backup codes — iterate all hashes to prevent timing oracle
-	if !valid {
+	if !valid && !replayed {
 		matchIdx := -1
 		for i, hash := range user.TwoFactorBackupCodes {
 			if bcrypt.CompareHashAndPassword([]byte(hash), []byte(req.Code)) == nil {
@@ -601,7 +615,7 @@ func (h *AuthManager) TwoFactorVerifyHandler(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Try email code
-	if !valid {
+	if !valid && !replayed {
 		emailHash := h.attemptTracker.getEmailCodeHash(claims.ID)
 		if emailHash != "" {
 			if bcrypt.CompareHashAndPassword([]byte(emailHash), []byte(req.Code)) == nil {
@@ -612,10 +626,15 @@ func (h *AuthManager) TwoFactorVerifyHandler(w http.ResponseWriter, r *http.Requ
 
 	if !valid {
 		h.attemptTracker.increment(claims.ID)
+		h.attemptTracker.increment(userFailKey(claims.UserID))
+		reason := "invalid_code"
+		if replayed {
+			reason = "totp_replayed"
+		}
 		// Audit log: failed
 		if h.auditLogger != nil {
 			h.auditLogger.LogAuthenticationEvent(AuditEvent2FAFailed, r, claims.UserID, false, map[string]any{
-				"reason": "invalid_code",
+				"reason": reason,
 			})
 		}
 		ctx.Unauthorized(errInvalidTwoFactorCode, errInvalidTwoFactorCode.Error())
@@ -624,6 +643,7 @@ func (h *AuthManager) TwoFactorVerifyHandler(w http.ResponseWriter, r *http.Requ
 
 	// Success - clean up tracker
 	h.attemptTracker.delete(claims.ID)
+	h.attemptTracker.delete(userFailKey(claims.UserID))
 
 	// Generate tokens
 	accessToken, refreshToken, refreshTokenExpiresAt, err := h.service.generateTokens(r.Context(), user)
