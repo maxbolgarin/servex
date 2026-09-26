@@ -409,7 +409,8 @@ func TestTwoFactorDisableHandler(t *testing.T) {
 	}
 
 	// Disable with valid TOTP code
-	disableCode, _ := totp.GenerateCode(setupResp.Secret, time.Now())
+	// The next step's code: the one that enabled 2FA is spent (RFC 6238 section 5.2).
+	disableCode, _ := totp.GenerateCode(setupResp.Secret, time.Now().Add(30*time.Second))
 	disableReq := newJsonRequest(http.MethodPost, cfg.AuthBasePath+"/2fa/disable", map[string]string{"code": disableCode})
 	disableReq.Header.Set("Authorization", "Bearer "+accessToken)
 	disableRR := httptest.NewRecorder()
@@ -453,7 +454,8 @@ func TestTwoFactorVerifyHandler(t *testing.T) {
 	pendingToken := generate2FAPendingToken(t, cfg, user.ID)
 
 	// Generate valid TOTP code and verify
-	verifyCode, _ := totp.GenerateCode(setupResp.Secret, time.Now())
+	// The next step's code: the one that enabled 2FA is spent (RFC 6238 section 5.2).
+	verifyCode, _ := totp.GenerateCode(setupResp.Secret, time.Now().Add(30*time.Second))
 	verifyReq := newJsonRequest(http.MethodPost, cfg.AuthBasePath+"/2fa/verify", servex.TwoFactorVerifyRequest{
 		Token: pendingToken,
 		Code:  verifyCode,
@@ -637,7 +639,8 @@ func TestTwoFactorAttemptExhaustion(t *testing.T) {
 	}
 
 	// Even a valid code should fail now
-	validCode, _ := totp.GenerateCode(setupResp.Secret, time.Now())
+	// The next step's code: the one that enabled 2FA is spent (RFC 6238 section 5.2).
+	validCode, _ := totp.GenerateCode(setupResp.Secret, time.Now().Add(30*time.Second))
 	req2 := newJsonRequest(http.MethodPost, cfg.AuthBasePath+"/2fa/verify", servex.TwoFactorVerifyRequest{
 		Token: pendingToken,
 		Code:  validCode,
@@ -838,7 +841,8 @@ func TestLoginWith2FA_FullFlow(t *testing.T) {
 	}
 
 	// Step 6: Verify with TOTP code — should get accessToken + refresh cookie
-	verifyCode, err := totp.GenerateCode(setupResp.Secret, time.Now())
+	// The next step's code: the one that enabled 2FA is spent (RFC 6238 section 5.2).
+	verifyCode, err := totp.GenerateCode(setupResp.Secret, time.Now().Add(30*time.Second))
 	if err != nil {
 		t.Fatalf("Failed to generate TOTP code for verify: %v", err)
 	}
@@ -1022,7 +1026,8 @@ func TestOAuthLoginWith2FA(t *testing.T) {
 	}
 
 	// Step 4: Verify with TOTP code — should get tokens
-	verifyCode, _ := totp.GenerateCode(setupResp.Secret, time.Now())
+	// The next step's code: the one that enabled 2FA is spent (RFC 6238 section 5.2).
+	verifyCode, _ := totp.GenerateCode(setupResp.Secret, time.Now().Add(30*time.Second))
 	verifyReq := newJsonRequest(http.MethodPost, "/api/v1/auth/2fa/verify", servex.TwoFactorVerifyRequest{
 		Token: twoFactorToken,
 		Code:  verifyCode,
@@ -1100,5 +1105,84 @@ func TestTwoFactorSendEmailCodeRouteRegisteredByDefault(t *testing.T) {
 	resp := ts.Post("/api/v1/auth/2fa/send-email-code").Do()
 	if resp.Code == http.StatusNotFound {
 		t.Fatal("expected /2fa/send-email-code to be registered by default (EmailFallback documented default is true)")
+	}
+}
+
+// enable2FAForTest runs setup and enable, returning the TOTP secret. The enable code is spent.
+func enable2FAForTest(t *testing.T, router http.Handler, cfg servex.AuthConfig, accessToken string) string {
+	t.Helper()
+	setupReq := newJsonRequest(http.MethodPost, cfg.AuthBasePath+"/2fa/setup", nil)
+	setupReq.Header.Set("Authorization", "Bearer "+accessToken)
+	setupRR := httptest.NewRecorder()
+	router.ServeHTTP(setupRR, setupReq)
+	var setupResp struct {
+		Secret string `json:"secret"`
+	}
+	decodeJsonResponse(t, setupRR, &setupResp)
+
+	code, _ := totp.GenerateCode(setupResp.Secret, time.Now())
+	enableReq := newJsonRequest(http.MethodPost, cfg.AuthBasePath+"/2fa/enable", map[string]string{"code": code})
+	enableReq.Header.Set("Authorization", "Bearer "+accessToken)
+	enableRR := httptest.NewRecorder()
+	router.ServeHTTP(enableRR, enableReq)
+	if enableRR.Code != http.StatusOK {
+		t.Fatalf("enable 2FA: %d %s", enableRR.Code, enableRR.Body.String())
+	}
+	return setupResp.Secret
+}
+
+func verify2FAForTest(router http.Handler, cfg servex.AuthConfig, pending, code string) *httptest.ResponseRecorder {
+	req := newJsonRequest(http.MethodPost, cfg.AuthBasePath+"/2fa/verify", servex.TwoFactorVerifyRequest{Token: pending, Code: code})
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	return rr
+}
+
+// A correct TOTP code signs in once. Presented again inside its window it is refused (RFC 6238
+// section 5.2); it used to sign in as many times as it was sent, so a code seen once was enough.
+func TestTwoFactorVerify_CodeIsSingleUse(t *testing.T) {
+	am, cfg, db := newTestAuthManagerWith2FA(t)
+	defer am.StopAttemptTracker()
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	user, accessToken := createTestUserFor2FA(t, db, cfg, "singleuse", "password123")
+	secret := enable2FAForTest(t, router, cfg, accessToken)
+
+	code, _ := totp.GenerateCode(secret, time.Now().Add(30*time.Second))
+	if rr := verify2FAForTest(router, cfg, generate2FAPendingToken(t, cfg, user.ID), code); rr.Code != http.StatusOK {
+		t.Fatalf("first use: %d %s", rr.Code, rr.Body.String())
+	}
+	if rr := verify2FAForTest(router, cfg, generate2FAPendingToken(t, cfg, user.ID), code); rr.Code != http.StatusUnauthorized {
+		t.Fatalf("the same code on a second login: %d, want 401", rr.Code)
+	}
+}
+
+// Failures count per user across pending tokens. Each password login mints a new pending token,
+// and the per-token count used to restart with it, so knowing the password bought a fresh budget of
+// guesses per login.
+func TestTwoFactorVerify_UserLockoutSpansPendingTokens(t *testing.T) {
+	am, cfg, db := newTestAuthManagerWith2FA(t) // MaxVerifyAttempts: 3, so 9 per user
+	defer am.StopAttemptTracker()
+	router := mux.NewRouter()
+	am.RegisterRoutes(router)
+
+	user, accessToken := createTestUserFor2FA(t, db, cfg, "spanlock", "password123")
+	secret := enable2FAForTest(t, router, cfg, accessToken)
+
+	for login := 0; login < 3; login++ {
+		pending := generate2FAPendingToken(t, cfg, user.ID)
+		for try := 0; try < 3; try++ {
+			if rr := verify2FAForTest(router, cfg, pending, "000000"); rr.Code != http.StatusUnauthorized {
+				t.Fatalf("wrong code: %d, want 401", rr.Code)
+			}
+		}
+	}
+
+	// A fresh login with the right code: the user's budget is spent.
+	code, _ := totp.GenerateCode(secret, time.Now().Add(30*time.Second))
+	rr := verify2FAForTest(router, cfg, generate2FAPendingToken(t, cfg, user.ID), code)
+	if rr.Code != http.StatusUnauthorized || !strings.Contains(rr.Body.String(), "too many") {
+		t.Fatalf("after 9 failures across logins: %d %s, want 401 too many attempts", rr.Code, rr.Body.String())
 	}
 }
