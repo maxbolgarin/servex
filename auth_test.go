@@ -1,6 +1,7 @@
 package servex_test
 
 import (
+	"crypto/sha256"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -781,11 +782,7 @@ func generateAndStoreRefreshToken(t *testing.T, cfg servex.AuthConfig, db *MockA
 	}
 
 	// Hash the necessary part of the token
-	tokenHash, err := bcrypt.GenerateFromPassword([]byte(tokenString[:72]), bcrypt.DefaultCost)
-	if err != nil {
-		t.Fatalf("Failed to hash refresh token: %v", err)
-	}
-	hashStr := string(tokenHash)
+	hashStr := refreshHash(tokenString)
 
 	// Update the user in the mock DB using the updated UpdateUser method
 	err = db.UpdateUser(context.Background(), userID, &servex.UserDiff{
@@ -868,8 +865,7 @@ func TestAuthManager_RefreshHandler(t *testing.T) {
 				claims := jwt.MapClaims{"user_id": uid, "is_refresh": true, "exp": jwt.NewNumericDate(expiredTime).Unix()}
 				token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 				tokenString, _ := token.SignedString(refreshSecretBytes)
-				hash, _ := bcrypt.GenerateFromPassword([]byte(tokenString[:72]), bcrypt.DefaultCost)
-				hashStr := string(hash)
+				hashStr := refreshHash(tokenString)
 				_ = mockDB.UpdateUser(ctx, uid, &servex.UserDiff{
 					RefreshTokenHash: lang.Ptr(hashStr),
 				})
@@ -1456,4 +1452,64 @@ func TestAuthNotRegisterRoutes_Integration(t *testing.T) {
 			t.Errorf("register: got status %d, want 201, body: %s", resp.Code, resp.BodyString())
 		}
 	})
+}
+
+// refreshHash mirrors how servex stores a refresh token: SHA-256 of the whole token, hex.
+func refreshHash(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+// Only the latest refresh token is valid. The stored hash used to cover the first 72 characters,
+// which every refresh token of a user shares, so an older token kept working, and signing in again
+// revived a token that logout had revoked.
+func TestAuthManager_OnlyTheLatestRefreshTokenIsValid(t *testing.T) {
+	mockDB := NewMockAuthDatabase()
+	authManager, cfg := newTestAuthManager(mockDB, t)
+	router := mux.NewRouter()
+	authManager.RegisterRoutes(router)
+
+	hashed, _ := bcrypt.GenerateFromPassword([]byte("correctpassword"), bcrypt.MinCost)
+	_, _ = mockDB.NewUser(context.Background(), "rotation", string(hashed), servex.UserRole("user"))
+
+	login := func() *http.Cookie {
+		t.Helper()
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, newJsonRequest(http.MethodPost, cfg.AuthBasePath+"/login",
+			servex.UserLoginRequest{Username: "rotation", Password: "correctpassword"}))
+		if rr.Code != http.StatusOK {
+			t.Fatalf("login: status %d: %s", rr.Code, rr.Body.String())
+		}
+		for _, c := range rr.Result().Cookies() {
+			if c.Name == cfg.RefreshTokenCookieName {
+				return c
+			}
+		}
+		t.Fatal("login set no refresh cookie")
+		return nil
+	}
+	post := func(path string, c *http.Cookie) int {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, cfg.AuthBasePath+path, nil)
+		req.AddCookie(c)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		return rr.Code
+	}
+
+	first := login()
+	second := login()
+	if first.Value == second.Value {
+		t.Fatal("two logins produced the same refresh token")
+	}
+	if code := post("/refresh", first); code != http.StatusUnauthorized {
+		t.Fatalf("older refresh token after a newer login: status %d, want 401", code)
+	}
+
+	// Logout revokes, and a later login must not bring the logged-out token back.
+	_ = post("/logout", second)
+	_ = login()
+	if code := post("/refresh", second); code != http.StatusUnauthorized {
+		t.Fatalf("logged-out refresh token after the next login: status %d, want 401", code)
+	}
 }
