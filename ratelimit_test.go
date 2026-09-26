@@ -1175,3 +1175,26 @@ func TestLocationBasedRateLimitMiddleware_EmptyConfigs(t *testing.T) {
 		t.Error("Expected non-nil cleanup function for disabled configs (should be no-op)")
 	}
 }
+
+// The limiter must key on the username the login handler will actually sign in as. Keys that only
+// one JSON decoder case-folds (the long s in "uſername") let them disagree: the limiter counted a
+// fresh decoy per request while every attempt went against "admin".
+func TestUsernameKeyMatchesTheLoginHandler(t *testing.T) {
+	keyFunc := getUsernameKeyFuncWithProxies(nil)
+	for _, body := range []string{
+		`{"username":"admin","uſername":"decoy","password":"x"}`,
+		`{"uſername":"decoy","username":"admin","password":"x"}`,
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(body))
+		key := keyFunc(req)
+
+		// What the handler decodes from the same bytes (ReadJSON uses the package json).
+		var login UserLoginRequest
+		if err := json.Unmarshal([]byte(body), &login); err != nil {
+			t.Fatalf("handler decode: %v", err)
+		}
+		if key != "user:"+login.Username {
+			t.Errorf("body %s: limiter key %q, handler signs in as %q", body, key, login.Username)
+		}
+	}
+}

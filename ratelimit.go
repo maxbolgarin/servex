@@ -2,7 +2,6 @@ package servex
 
 import (
 	"bytes"
-	stdjson "encoding/json"
 	"fmt"
 	"io"
 	"net"
@@ -596,11 +595,14 @@ func getUsernameKeyFuncWithProxies(trustedProxies []string) func(r *http.Request
 				// Restore the body for subsequent handlers
 				r.Body = io.NopCloser(bytes.NewReader(body))
 
-				// Try to parse JSON to extract username
+				// Parse with the SAME decoder the login handler uses (the package json, jsoniter). With
+				// encoding/json here, the two disagreed on keys that only one of them case-folds:
+				// {"username":"admin","uſername":"decoy"} was keyed on "decoy" while the handler signed
+				// in as "admin", so a new decoy per request never met the per-user limit.
 				var req struct {
 					Username string `json:"username"`
 				}
-				if stdjson.Unmarshal(body, &req) == nil && req.Username != "" {
+				if json.Unmarshal(body, &req) == nil && req.Username != "" {
 					return "user:" + req.Username // Prefix to distinguish from IP-based keys
 				}
 			}
